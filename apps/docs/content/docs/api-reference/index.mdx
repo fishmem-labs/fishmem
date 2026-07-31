@@ -1,0 +1,119 @@
+---
+title: API Reference
+description: Endpoints, request/response shapes, auth, and credits for the FishMem REST API.
+---
+
+The FishMem REST API uses familiar memory operations and mem0-style scope names,
+but clients should use this reference as the contract. Existing mem0
+integrations may require response and behavior changes; see
+[Migrate from mem0](/cloud/migrate-from-mem0).
+
+## Base URL
+
+```
+https://fishmem.com
+```
+
+## Authentication
+
+Every request requires a Bearer token in the `Authorization` header. Keys look
+like `fm_...` — keep them server-side.
+
+```
+Authorization: Bearer fm_...
+```
+
+A missing or invalid key returns `401`:
+
+```json
+{
+  "code": "INVALID_API_KEY",
+  "message": "API key invalid",
+  "request_id": "req_..."
+}
+```
+
+## The `<memory>` object
+
+Reads and searches return memory objects with this shape:
+
+```json
+{
+  "id": "mem_…",
+  "memory": "Prefers dark mode",
+  "memory_type": "fact",
+  "importance": 0.7,
+  "user_id": "alex",
+  "agent_id": null,
+  "run_id": null,
+  "metadata": null,
+  "created_at": "2026-01-01T00:00:00.000Z",
+  "updated_at": "2026-01-01T00:00:00.000Z",
+  "event_date": null,
+  "valid_from": null,
+  "valid_to": null
+}
+```
+
+Search results include an additional `score` field.
+
+## Errors
+
+Any failure returns JSON with the same shape:
+
+```json
+{
+  "code": "MEMORY_NOT_FOUND",
+  "message": "Memory not found",
+  "request_id": "req_..."
+}
+```
+
+| Field | Description |
+| --- | --- |
+| `code` | Stable machine-readable error code |
+| `message` | Human-readable text |
+| `request_id` | Request identifier, also returned as `x-request-id` |
+| `details` | Optional validation or conflict details |
+
+See [Errors and idempotency](/api-reference/errors) for authentication,
+permission, validation, conflict, and hosted-credit behavior.
+
+## Credits
+
+| Operation | Credits |
+| --- | --- |
+| Add with LLM extraction (`infer: true`) | 2 |
+| Add verbatim (`infer: false`) | 1 |
+| Search | 1 |
+| Direct document ingest | 1 per projected chunk |
+| File extraction | 50 per started 5 MB, plus 1 per projected chunk |
+| Document search | 1 |
+| List, Get, History | Free |
+| Scope entity list, get, and remove | Free |
+| Document list, metadata, original content, delete | Free |
+| Update, Delete, Delete all, Batch update/delete | Free |
+
+## Endpoints
+
+| Endpoint | Method & path | Description |
+| --- | --- | --- |
+| [Health](/api-reference/health) | `GET /v1/health` | Inspect project readiness and durable backlog |
+| [Scope entities](/api-reference/entities) | `/v1/entities[/{type}/{id}]` | List, inspect, or remove structural user, agent, and run scopes |
+| [Documents and source RAG](/api-reference/documents) | `/v1/documents[/{id}]` | Version exact textual sources and retrieve citation-ready evidence |
+| [Asynchronous file extraction](/api-reference/document-uploads) | `/v1/document-uploads[/{id}]` | Upload immutable files, queue extraction, and inspect status |
+| [Add memories](/api-reference/add) | `POST /v1/memories` | Extract refined records or store submitted records verbatim |
+| [Memory inference events](/api-reference/events) | `GET /v1/events[/{id}]` | Poll queued extraction, retries, timing, and refined results |
+| [List memories](/api-reference/list) | `GET /v1/memories` | List memories in a scope |
+| [Search memories](/api-reference/search) | `POST /v1/memories/search` | Semantic search within a scope |
+| [Batch memory mutations](/api-reference/batch) | `PUT/DELETE /v1/memories/batch` | Queue retry-safe updates or deletes for up to 1,000 IDs |
+| [Get a memory](/api-reference/get) | `GET /v1/memories/{id}` | Fetch a single memory |
+| [Update a memory](/api-reference/update) | `PUT /v1/memories/{id}` | Edit a memory's content or metadata |
+| [Delete a memory](/api-reference/delete) | `DELETE /v1/memories/{id}` | Delete a single memory |
+| [Delete memories by scope](/api-reference/delete-all) | `DELETE /v1/memories` | Delete all memories in a scope |
+| [Memory history](/api-reference/history) | `GET /v1/memories/{id}/history` | Audit trail for a memory |
+| [State](/api-reference/state) | `GET /v1/state` and `/v1/state/history` | Query current or historical derived state |
+| [Profile](/api-reference/profile) | `GET /v1/profile` | Read a profile or relevant profile sections |
+| [Operations](/api-reference/operations) | `GET /v1/operations[/{id}]`, `POST /v1/operations/{id}/retry` | Inspect and redrive durable asynchronous work |
+| [Export and import](/api-reference/export-import) | `POST /v1/exports` and `/v1/imports` | Queue portable snapshot operations |
+| [OpenAPI](/api-reference/openapi) | `GET /v1/openapi.json` | Download the machine-readable contract |

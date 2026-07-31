@@ -1,0 +1,13 @@
+{
+  "root": true,
+  "title": "Cookbooks",
+  "description": "End-to-end recipes for building memory-backed agents.",
+  "pages": [
+    "index",
+    "document-rag",
+    "support-agent",
+    "coding-agent",
+    "personal-assistant",
+    "companion"
+  ]
+}

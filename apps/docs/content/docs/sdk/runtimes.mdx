@@ -1,0 +1,117 @@
+---
+title: Runtime guides
+description: Use the same FishMem SDK in Node, Bun, Deno, Cloudflare Workers, and Vercel.
+---
+
+The default HTTP entry point has no Node built-ins. Only the environment
+variable syntax and request handler differ. The explicit
+`@fishmem/sdk/desktop` subpath is Node-only because it invokes a local CLI.
+
+## Node.js
+
+```ts title="node.ts"
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+```
+
+Node.js 20 or newer is required. FishMem relies on the stable built-in Fetch,
+Web Crypto, and File APIs rather than shipping runtime compatibility shims.
+
+## Bun
+
+```ts title="server.ts"
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: Bun.env.FISHMEM_API_KEY!,
+});
+
+Bun.serve({
+  async fetch(request) {
+    const query = new URL(request.url).searchParams.get("q") ?? "";
+    return Response.json(
+      await fishmem.memories.search({ query, user_id: "alex" }),
+    );
+  },
+});
+```
+
+## Deno
+
+```ts title="main.ts"
+import { FishMem } from "npm:@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: Deno.env.get("FISHMEM_API_KEY")!,
+});
+
+Deno.serve(async (request) => {
+  const query = new URL(request.url).searchParams.get("q") ?? "";
+  return Response.json(
+    await fishmem.memories.search({ query, user_id: "alex" }),
+  );
+});
+```
+
+Run with environment access:
+
+```bash
+deno run --allow-env --allow-net main.ts
+```
+
+## Cloudflare Workers
+
+```ts title="src/index.ts"
+import { FishMem } from "@fishmem/sdk";
+
+interface Env {
+  FISHMEM_API_KEY: string;
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const fishmem = new FishMem({ apiKey: env.FISHMEM_API_KEY });
+    const query = new URL(request.url).searchParams.get("q") ?? "";
+    const result = await fishmem.memories.search({
+      query,
+      user_id: "alex",
+    });
+    return Response.json(result);
+  },
+};
+```
+
+Store the key with `wrangler secret put FISHMEM_API_KEY`; never put it in
+`wrangler.jsonc`.
+
+## Vercel Functions
+
+```ts title="app/api/memory/route.ts"
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+
+export async function POST(request: Request) {
+  const { query, userId } = await request.json();
+  const result = await fishmem.memories.search({
+    query,
+    user_id: userId,
+  });
+  return Response.json(result);
+}
+```
+
+This handler also works in the Vercel Edge runtime because the SDK uses web
+standards only.
+
+## Compatibility contract
+
+FishMem CI installs the packed npm artifact and tests its ESM entry in Node,
+Bun, and Deno, plus its CommonJS entry in Node. Cloudflare and Vercel consume
+the same ESM file; there is no conditional Node shim or platform fallback to
+drift. Registry installation remains a release smoke after publication.

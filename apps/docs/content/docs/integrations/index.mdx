@@ -1,0 +1,29 @@
+---
+title: Integrations
+description: Add FishMem to agent frameworks with the TypeScript or Python SDK.
+---
+
+FishMem provides framework-neutral TypeScript and Python SDKs. The TypeScript
+package runs anywhere with the Fetch API and avoids framework adapters that can
+drift behind their hosts.
+
+Every integration follows the same lifecycle:
+
+1. search FishMem before the model call;
+2. inject only relevant results into model context;
+3. after the turn, store a durable conclusion with `infer:false`, or send
+   original messages with `infer:true` for one extraction pass.
+
+<Cards>
+  <Card title="Vercel AI SDK" href="/integrations/vercel-ai-sdk" description="Add recall and remember hooks around a model call." />
+  <Card title="Cloudflare Agents" href="/integrations/cloudflare-agents-sdk" description="Call FishMem from a Worker or Agent." />
+  <Card title="Mastra" href="/integrations/mastra" description="Use FishMem beside a Mastra workflow or agent." />
+  <Card title="OpenAI Agents SDK" href="/integrations/openai-agents-sdk" description="Use FishMem at run boundaries." />
+</Cards>
+
+<Callout type="info">
+FishMem does not currently publish framework-specific adapter packages. Older
+references to `@fishmem/ai-sdk`, `@fishmem/mastra`,
+`@fishmem/openai-agents`, or `@fishmem/cloudflare-agents` were removed because
+those packages do not exist in this repository.
+</Callout>

@@ -1,0 +1,40 @@
+---
+title: Cloudflare Agents
+description: Use FishMem from Cloudflare Workers or an Agent runtime.
+---
+
+`@fishmem/sdk` uses Web APIs only, so it runs directly in a Worker:
+
+```bash
+npm install @fishmem/sdk
+wrangler secret put FISHMEM_API_KEY
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+interface Env {
+  FISHMEM_API_KEY: string;
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const { query, userId } = await request.json<{
+      query: string;
+      userId: string;
+    }>();
+
+    const fishmem = new FishMem({ apiKey: env.FISHMEM_API_KEY });
+    const memories = await fishmem.memories.search({
+      query,
+      user_id: userId,
+      top_k: 5,
+    });
+
+    return Response.json(memories);
+  },
+};
+```
+
+For self-hosting on Cloudflare, pass the deployed FishMem URL as `baseUrl`.
+Store credentials as Worker secrets, never in `wrangler.jsonc`.

@@ -1,0 +1,85 @@
+---
+title: Memory inference events
+description: Poll durable asynchronous memory extraction without exposing the original conversation.
+---
+
+Memory events are a privacy-safe read projection over FishMem's durable
+`memory_infer` task. They are not a second queue or a second source of truth.
+API keys need `operations:read`.
+
+## `GET /v1/events/{id}`
+
+```bash
+curl https://fishmem.com/v1/events/task_… \
+  -H "Authorization: Bearer fm_..."
+```
+
+```json
+{
+  "id": "task_…",
+  "event_type": "ADD",
+  "status": "SUCCEEDED",
+  "scope": { "user_id": "alex" },
+  "results": [
+    { "id": "mem_…", "memory": "Prefers dark mode", "event": "ADD" }
+  ],
+  "attempts": 1,
+  "max_attempts": 5,
+  "error": null,
+  "created_at": "2026-07-31T00:00:00.000Z",
+  "updated_at": "2026-07-31T00:00:01.200Z",
+  "started_at": "2026-07-31T00:00:00.100Z",
+  "completed_at": "2026-07-31T00:00:01.200Z",
+  "latency_ms": 1100
+}
+```
+
+Statuses are:
+
+| Status | Meaning |
+| --- | --- |
+| `PENDING` | Persisted and waiting for a worker |
+| `RUNNING` | Claimed under a durable lease |
+| `RETRYING` | A bounded attempt failed and backoff is active |
+| `SUCCEEDED` | Refined canonical records committed |
+| `FAILED` | Retry budget exhausted; Cloud credits were refunded |
+
+The event never returns `content`, `messages`, or the internal task payload.
+Only structural scope, refined results, timing, attempts, and the terminal
+error are visible.
+
+## `GET /v1/events`
+
+```bash
+curl "https://fishmem.com/v1/events?status=RETRYING&limit=50" \
+  -H "Authorization: Bearer fm_..."
+```
+
+```json
+{
+  "results": [],
+  "next_cursor": null
+}
+```
+
+`limit` ranges from 1 to 100. `status` is optional. Follow only
+`next_cursor` values returned by FishMem; cursors are opaque and stable across
+newer inserts.
+
+## SDK
+
+```ts
+const receipt = await fishmem.memories.addAsync(
+  { content: "Alex prefers dark mode.", user_id: "alex" },
+  { idempotencyKey: "alex-dark-mode-v1" },
+);
+
+const event = await fishmem.events.wait(receipt.event_id, {
+  intervalMs: 500,
+  timeoutMs: 30_000,
+});
+```
+
+`memories.addAndWait(...)` is the convenience form and returns
+`{ results }`. Python exposes `memories.add_async`, `memories.add_and_wait`,
+and `events.list/get/wait` on both sync and async clients.

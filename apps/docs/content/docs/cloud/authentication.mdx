@@ -1,0 +1,79 @@
+---
+title: Authentication
+description: Create a project API key and call the FishMem API securely.
+---
+
+The FishMem API uses project-scoped API keys. Every request carries a key in the
+`Authorization` header; FishMem resolves it to a project, meters the call, and
+scopes the data you can touch.
+
+## Create a key
+
+Keys are created in the [dashboard](/cloud/dashboard) under **API keys**. A
+new key is shown to you exactly once at creation time — copy it then, because
+FishMem stores only a SHA-256 hash at rest and cannot show it to you again.
+
+Keys look like `fm_...`. They belong to a single project, so create separate
+keys for separate projects rather than sharing one across them.
+
+Choose the least privilege required:
+
+| Permission | Allows |
+| --- | --- |
+| `memory:read` | Read/search memories and document sources |
+| `memory:write` | Add/update/delete memories and ingest/delete document sources |
+| `operations:read` | Inspect durable export, import, purge, and projection tasks |
+
+## Authenticate a request
+
+Send the key as a Bearer token:
+
+```bash
+curl https://fishmem.com/v1/memories/search \
+  -H "Authorization: Bearer fm_..." \
+  -H "Content-Type: application/json" \
+  -d '{"query": "what does alex like?", "user_id": "alex"}'
+```
+
+That's the only thing you have to add to any call — see the
+[Quickstart](/cloud/quickstart) for the full add/search loop.
+
+## Keep keys server-side
+
+An API key is a project-wide credential. Its permissions can expose memories
+and exact source content, so treat it like a database password:
+
+- Call FishMem from your backend, never from browser or mobile client code.
+- Store keys in environment variables or a secrets manager, not in source.
+- Don't commit keys, log them, or paste them into shared tools.
+
+If a key needs to reach the frontend, it has leaked by definition — proxy the
+request through your own server instead.
+
+## Rotate and revoke
+
+Because keys are hashed at rest, rotation is the recovery path if one is ever
+exposed. In the dashboard you can:
+
+- **Rotate** — issue a new key, roll your deployment over to it, then delete the
+  old one.
+- **Revoke** — delete a key immediately. Any request using it starts failing at
+  once.
+
+Run more than one active key per project during a rotation so you can cut over
+without downtime.
+
+## When auth fails
+
+A missing or invalid key returns HTTP `401` with this body:
+
+```json
+{
+  "code": "INVALID_API_KEY",
+  "message": "API key invalid",
+  "request_id": "req_..."
+}
+```
+
+If you see this, check that the header is present, spelled `Authorization: Bearer
+fm_...`, and that the key hasn't been revoked or rotated out.

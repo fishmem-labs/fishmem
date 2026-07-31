@@ -1,0 +1,66 @@
+---
+title: Health
+description: Inspect authenticated project readiness, durable backlog, projections, and recent warnings.
+---
+
+## `GET /v1/health`
+
+```bash
+curl "https://fishmem.com/v1/health" \
+  -H "Authorization: Bearer fm_..."
+```
+
+```json
+{
+  "status": "ok",
+  "checked_at": "2026-07-30T12:00:00.000Z",
+  "engine": {
+    "configured": true,
+    "initialized": true,
+    "code": null
+  },
+  "operations": {
+    "pending": 0,
+    "failed": 0,
+    "oldest_pending_at": null
+  },
+  "tasks": {
+    "pending": 0,
+    "dead": 0,
+    "oldest_pending_at": null
+  },
+  "projections": {
+    "vector_pending": 0,
+    "derived_pending": 0
+  },
+  "warnings": {
+    "last_24h": 0
+  }
+}
+```
+
+The endpoint returns `200` for both `ok` and `degraded`; use the `status` field
+as the readiness signal. A project is degraded when:
+
+- the provider is not configured or the memory engine cannot initialize;
+- a canonical operation is failed;
+- a persistent task is dead; or
+- operation or task work has remained pending for at least five minutes.
+
+Pending counts below that threshold and recent warnings remain visible without
+making normal short-lived work fail readiness.
+
+`engine.initialized` checks configuration and FishMem storage initialization.
+The endpoint deliberately does not issue a paid embedding or LLM request, so it
+is safe to poll. Provider failures that occur during real traffic are recorded
+under `warnings.last_24h`.
+
+API keys need `operations:read`. In the SDKs:
+
+```ts
+const health = await fishmem.health.get();
+```
+
+```python
+health = fishmem.health.get()
+```

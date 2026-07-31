@@ -1,0 +1,186 @@
+---
+title: Document methods
+description: Ingest exact textual sources and retrieve citation-ready evidence with the TypeScript and Python SDKs.
+---
+
+## TypeScript
+
+### Ingest
+
+```ts
+const ingested = await fishmem.documents.ingest(
+  {
+    source_key: "docs/architecture.md",
+    title: "Architecture",
+    mime_type: "text/markdown",
+    content: markdown,
+    user_id: "alex",
+    metadata: { repository: "fishmem" },
+  },
+  { idempotencyKey: "architecture-v1" },
+);
+```
+
+FishMem Cloud requires the idempotency key. Replaying the same command returns
+the committed result; reusing the key for different content returns `409`.
+
+### Upload a file
+
+Browser applications can pass a `File`. Node applications can construct a
+`Blob` from bytes and provide the filename explicitly:
+
+```ts
+import { readFile } from "node:fs/promises";
+
+const queued = await fishmem.documents.upload(
+  {
+    file: new Blob([await readFile("./handbook.pdf")], {
+      type: "application/pdf",
+    }),
+    filename: "handbook.pdf",
+    source_key: "docs/handbook.pdf",
+    user_id: "alex",
+    metadata: { repository: "fishmem" },
+  },
+  { idempotencyKey: "handbook-pdf-v1" },
+);
+
+const ready = await fishmem.operations.wait(queued.operation.id, {
+  intervalMs: 1_000,
+  timeoutMs: 10 * 60_000,
+});
+```
+
+`upload()` performs create, exact-byte `PUT`, and completion. It calculates
+SHA-256 locally and returns after the durable `document_extract` operation is
+queued, not after extraction finishes. Poll `operations.wait()` or
+`documents.getUpload()` when your application needs the final `document_id`.
+If `source_key` is omitted it defaults to `File.name`, the explicit `filename`,
+or `document.bin`.
+
+Use `createUpload()`, the returned `upload.url`, `completeUpload()`, and
+`getUpload()` directly when you need to stream bytes yourself or persist each
+lifecycle checkpoint. `deleteUpload(id)` cancels and removes an upload that is
+not processing or ready. Failed extraction can be redriven with
+`operations.retry(queued.operation.id)`.
+
+`FishMemDesktop.documents.upload()` accepts the same `Blob`/`File` input. It
+is intentionally different: Desktop strictly decodes UTF-8 locally and sends
+the resulting exact content through the existing machine-oriented CLI command.
+Desktop does not run Docling, OCR, a remote file extractor, or a remote
+embedding provider.
+
+### Search
+
+```ts
+const { results } = await fishmem.documents.search({
+  query: "projection repair",
+  user_id: "alex",
+  limit: 5,
+  neighbors: 1,
+});
+
+for (const hit of results) {
+  console.log(
+    hit.document.source_key,
+    hit.chunk.start_byte,
+    hit.chunk.end_byte,
+    hit.chunk.content,
+  );
+}
+```
+
+`neighbors` returns adjacent chunks as additional local context. It does not
+change the matched chunk's provenance.
+
+### List, content, and delete
+
+```ts
+const page = await fishmem.documents.list({
+  user_id: "alex",
+  limit: 50,
+});
+
+for await (const document of fishmem.documents.listAll({
+  user_id: "alex",
+})) {
+  console.log(document.source_key);
+}
+
+const descriptor = await fishmem.documents.get(ingested.document.id);
+const original = await fishmem.documents.content(descriptor.id);
+
+await fishmem.documents.delete(descriptor.id, {
+  idempotencyKey: `delete-${descriptor.id}`,
+});
+```
+
+`content()` returns the exact original UTF-8 text. Deleting any version deletes
+the complete stable-source family.
+
+## Python
+
+The sync and async clients expose the same `documents` resource:
+
+```python
+from pathlib import Path
+
+uploaded = fishmem.documents.upload(
+    Path("./handbook.pdf"),
+    {
+        "source_key": "docs/handbook.pdf",
+        "user_id": "alex",
+        "metadata": {"repository": "fishmem"},
+    },
+    idempotency_key="handbook-pdf-v1",
+)
+
+ready = fishmem.operations.wait(
+    uploaded["operation"]["id"],
+    interval=1.0,
+    timeout=600.0,
+)
+
+ingested = fishmem.documents.ingest(
+    {
+        "source_key": "docs/architecture.md",
+        "content": markdown,
+        "mime_type": "text/markdown",
+        "user_id": "alex",
+    },
+    idempotency_key="architecture-v1",
+)
+
+hits = fishmem.documents.search(
+    {
+        "query": "projection repair",
+        "user_id": "alex",
+        "neighbors": 1,
+    }
+)
+
+original = fishmem.documents.content(ingested["document"]["id"])
+```
+
+For a manually-created upload, call `delete_upload(asset_id)` before it is
+actively processing. After a failed or dead operation, call
+`operations.retry(operation_id)` to reuse the retained raw bytes and artifact.
+
+Use `async for` with `AsyncFishMem.documents.list_all`.
+
+## Input boundary
+
+The HTTP SDKs accept supported PDF, Office, EPUB, email, image, and textual
+files up to 25,000,000 bytes and 300 extracted pages. FishMem keeps the raw
+file immutable, stores lossless extraction structure, and indexes extracted
+Markdown through the normal document RAG writer. Audio and video are not
+accepted.
+
+Direct `documents.ingest()` remains synchronous and accepts already-textual
+UTF-8 content up to 1,000,000 bytes. Desktop supports only this textual path;
+its `upload()` convenience method reads and validates UTF-8 locally.
+
+See [Asynchronous file extraction](/api-reference/document-uploads) for the
+complete lifecycle, supported media types, states, limits, retention, and
+errors. Cloudflare uses R2 for raw files and artifacts; Node/Docker uses the
+configured durable asset directory; Desktop keeps textual originals locally.

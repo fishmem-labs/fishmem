@@ -1,0 +1,16 @@
+@import "@fishmem/dashboard/theme.css";
+@source "./**/*.{ts,tsx}";
+
+.desktop-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+}
+
+@media (max-width: 1040px) {
+  .summary-hero {
+    grid-template-columns: minmax(240px, 0.75fr) minmax(360px, 1.25fr);
+    gap: 1rem;
+  }
+}

@@ -1,0 +1,73 @@
+---
+title: Self-hosting
+description: Run the open-source FishMem service and dashboard.
+---
+
+Self-hosting is the application platform path: run `apps/web`, own the database
+and credentials, and expose the same `/v1` API consumed by `@fishmem/sdk`.
+
+## Components
+
+- the TanStack Start web application and REST API;
+- the configured relational store for canonical memory and control-plane
+  data;
+- a keyword/vector projection backend;
+- optional LLM and embedding providers;
+- one durable task pickup path for memory inference, file extraction, and
+  maintenance work;
+- secrets for authentication and external providers.
+
+An LLM is required for the default `infer:true` add path and for configured
+profile/state synthesis. Applications that always submit already-distilled
+`infer:false` records do not need an LLM for writes. A semantic embedder is
+required for semantic recall.
+
+`infer:true` never keeps an HTTP request open for the provider call. The API
+commits an `operation_tasks` row, returns an Event API receipt, and a worker
+claims it under a lease. Docker Compose includes the `task-worker` poller. On
+Cloudflare, Queue delivery is the low-latency wakeup and the minute cron repairs
+lost delivery; D1 remains the only status, retry, and result authority.
+
+## Deployment flow
+
+1. Clone the repository and install workspace dependencies with pnpm.
+2. Copy `apps/web/.env.example` to your deployment's secret configuration.
+3. Provision the database and any projection bindings referenced by the web
+   configuration.
+4. Apply the migrations in `apps/web/migrations`.
+5. Set a distinct `FISHMEM_SETUP_TOKEN` deployment secret.
+6. Build and deploy `apps/web` plus the task poller, or configure the
+   Cloudflare Queue consumer and scheduled trigger.
+7. Enter the setup token once to create the initial admin, then create an API
+   key in the dashboard.
+8. Configure the SDK with your deployed origin:
+
+```ts
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+  baseUrl: "https://memory.example.com",
+});
+```
+
+Verify both worker paths before serving traffic:
+
+1. submit an `infer:true` add with `Idempotency-Key`;
+2. confirm HTTP `202` and retain its `event_id`;
+3. poll `/v1/events/{event_id}` through `PENDING`/`RUNNING` to `SUCCEEDED`;
+4. stop the immediate wakeup path once and confirm scheduled pickup repairs it;
+5. force a provider failure and confirm bounded retry, terminal error, and
+   manual Dashboard retry.
+
+The precise environment variables and platform bindings live in
+`apps/web/.env.example`, `apps/web/wrangler.jsonc`, and the app README so they
+remain versioned with the implementation.
+
+## Choose self-hosting when
+
+- memory must remain in your account or region;
+- you need network isolation or custom providers;
+- you want to integrate the service with internal observability;
+- your team accepts responsibility for migrations, backups, and upgrades.
+
+Choose FishMem Cloud when you want the same application surface without
+operating it.

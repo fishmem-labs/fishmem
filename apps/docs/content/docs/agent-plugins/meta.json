@@ -1,0 +1,10 @@
+{
+  "root": true,
+  "title": "Agent Plugins",
+  "description": "Give coding agents and CLIs persistent memory.",
+  "pages": [
+    "index",
+    "claude-code",
+    "codex"
+  ]
+}

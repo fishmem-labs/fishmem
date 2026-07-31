@@ -1,0 +1,126 @@
+---
+title: Memory filters
+description: Strict logical filtering for canonical memory search without weakening scope isolation.
+---
+
+FishMem search supports two `filters` shapes:
+
+- a legacy metadata equality map, such as `{ "environment": "production" }`;
+- a canonical logical expression with conditions combined by `and`, `or`, and
+  `not`.
+
+Structural scope is separate. `user_id`, `agent_id`, and `run_id` always remain
+top-level search fields and are ANDed with the expression. They are not valid
+logical-filter fields, so an `or` expression cannot widen the caller's scope.
+
+## Logical expression
+
+```json
+{
+  "query": "open support ticket",
+  "user_id": "ada",
+  "filters": {
+    "and": [
+      {
+        "field": "metadata.channel",
+        "operator": "eq",
+        "value": "support"
+      },
+      {
+        "field": "importance",
+        "operator": "gte",
+        "value": 0.7
+      },
+      {
+        "not": {
+          "field": "content",
+          "operator": "icontains",
+          "value": "resolved"
+        }
+      }
+    ]
+  }
+}
+```
+
+A condition has exactly three fields:
+
+| Field | Description |
+| --- | --- |
+| `field` | A built-in memory field or a safe `metadata.<path>` selector |
+| `operator` | One of the operators below |
+| `value` | One scalar, a non-empty scalar array for `in`/`nin`, or a boolean for `exists` |
+
+Logical objects contain exactly one of:
+
+```json
+{ "and": [/* one or more expressions */] }
+{ "or": [/* one or more expressions */] }
+{ "not": {/* one expression */} }
+```
+
+## Fields
+
+Built-in fields are `id`, `content`, `memory_type`, `importance`, `created_at`,
+`updated_at`, `event_date`, `last_accessed_at`, `access_count`, `subject`, and
+`attribute`.
+
+Nested metadata uses dot paths such as `metadata.source.system`. Each segment
+may contain letters, numbers, `_`, or `-`. Prototype-related paths are rejected.
+Arrays and objects cannot be submitted as filter values.
+
+## Operators
+
+| Operator | Value | Meaning |
+| --- | --- | --- |
+| `eq`, `ne` | scalar | Exact equality or inequality on an existing field |
+| `in`, `nin` | non-empty scalar array | Membership or exclusion |
+| `gt`, `gte`, `lt`, `lte` | scalar | Numeric, timestamp, or metadata comparison |
+| `contains` | string | Case-sensitive substring or exact array membership |
+| `icontains` | string | Case-insensitive substring or string-array membership |
+| `exists` | boolean | Field is present and non-null, or absent/null |
+
+Range operators are accepted for `importance`, `access_count`, timestamp
+fields, and metadata paths. `contains` and `icontains` are accepted for text
+fields and metadata paths. Timestamp values must be full ISO 8601 timestamps,
+for example `2026-07-01T00:00:00.000Z`.
+
+`ne` and `nin` do not treat a missing field as a match. Use an explicit
+`{ "operator": "exists", "value": false }` branch when absence should match.
+
+## Limits and execution
+
+- maximum logical depth: 8;
+- maximum conditions: 100;
+- maximum children in one `and` or `or`: 20;
+- maximum values in one `in` or `nin`: 100;
+- maximum scalar string length: 1,024 characters.
+
+FishMem first pushes safe structural constraints into the active store, then
+evaluates the same backend-independent expression against canonical records.
+This guarantees that returned results satisfy the requested scope and filter,
+including during vector-index propagation.
+
+In semantic modes, retrieval still begins with a bounded candidate pool.
+FishMem over-fetches up to 1,000 candidates when a logical or metadata filter
+is present, but a highly selective filter on a much larger corpus can reduce
+recall. `recent`, `important`, and `typed` modes apply the predicate over the
+structurally scoped canonical set when exact filtered enumeration is more
+important than semantic ranking.
+
+## Legacy equality map
+
+This remains valid:
+
+```json
+{
+  "filters": {
+    "environment": "production",
+    "active": true
+  }
+}
+```
+
+It means top-level metadata equality joined by AND. Use the logical expression
+for nested metadata, ranges, negation, or OR. Do not mix both shapes inside one
+`filters` object.

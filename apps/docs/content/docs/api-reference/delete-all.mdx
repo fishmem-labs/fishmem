@@ -1,0 +1,52 @@
+---
+title: Delete memories by scope
+description: Delete all memories within a scope.
+---
+
+## `DELETE /v1/memories`
+
+Deletes every memory in a scope. Provide at least one of `user_id`, `agent_id`,
+or `run_id`.
+
+## Parameters
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `user_id` | string | no | Delete all in this user scope |
+| `agent_id` | string | no | Delete all in this agent scope |
+| `run_id` | string | no | Delete all in this run scope |
+
+## Request
+
+```bash
+curl -X DELETE "https://fishmem.com/v1/memories?user_id=alex" \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: delete-all-alex-v1"
+```
+
+## Response
+
+```json
+{ "deleted": 12 }
+```
+
+FishMem freezes the exact matching memory IDs before deletion. Replaying the
+same key and scope returns the original `deleted` count without deleting
+memories created later. Reusing the key for a different scope returns `409`.
+FishMem Cloud requires the header; self-hosted FishMem strongly recommends it.
+
+One synchronous call accepts at most 25,000 matching memories. If the target
+set is larger, FishMem returns `413 DELETE_ALL_TOO_LARGE` before deleting
+anything; narrow the scope and retry with a new key.
+
+Bulk delete is permanently destructive. List and verify the exact scope before
+calling it.
+
+## Credits
+
+Free.
+
+## Errors
+
+Returns the standard [error shape](/api-reference). A missing or invalid key
+returns `401` with `code: "INVALID_API_KEY"`.

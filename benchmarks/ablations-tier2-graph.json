@@ -1,0 +1,9 @@
+[
+  { "name": "raw", "overrides": {} },
+  {
+    "name": "raw-nograph",
+    "overrides": {
+      "search": { "rrfWeights": { "vector": 1.0, "fts": 0, "graph": 0, "temporal": 0.8 } }
+    }
+  }
+]

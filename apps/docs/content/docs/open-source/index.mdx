@@ -1,0 +1,54 @@
+---
+title: Open Source
+description: The FishMem TypeScript engine and self-hostable memory service.
+---
+
+FishMem provides two open-source building blocks.
+
+## TypeScript engine
+
+The `fishmem` package runs in your process and exposes the memory engine
+directly. You choose the graph store, vector/keyword index, embedder, and
+LLM.
+
+```ts
+import { Memory } from "fishmem";
+
+const memory = await Memory.create({
+  graphStore: { provider: "memory" },
+  vectorStore: { provider: "memory" },
+  embedder: { provider: "mock" },
+  llm: { provider: "mock" },
+});
+
+await memory.add("The user says this project uses pnpm.", {
+  userId: "alex",
+  infer: true,
+});
+```
+
+The default inferred add makes one LLM extraction call and stores only refined
+canonical records. Use `infer: false` for already-distilled, verbatim content.
+State and profile remain rebuildable projections rather than parallel
+canonical stores.
+
+## Self-hosted service
+
+`apps/web` packages the memory service, REST API, dashboard, authentication,
+operations, and observability. Applications call it through
+[`@fishmem/sdk`](/sdk) or direct HTTP.
+
+Use the service when multiple applications or users need one memory platform.
+Use the embedded engine when memory belongs inside a single process.
+
+## Managed cloud
+
+FishMem Cloud is the commercial managed deployment. It adds operated
+infrastructure and service guarantees; it is not a different memory model.
+
+<Cards>
+  <Card title="Engine quickstart" href="/open-source/quickstart" description="Run add and search inside a TypeScript process." />
+  <Card title="Configuration" href="/open-source/configuration" description="Choose stores, providers, derivation, and retrieval behavior." />
+  <Card title="How memory works" href="/open-source/concepts/how-memory-works" description="Understand inferred, verbatim, and document storage paths." />
+  <Card title="Self-hosting" href="/open-source/self-hosting" description="Run the service and dashboard yourself." />
+</Cards>

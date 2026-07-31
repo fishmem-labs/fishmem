@@ -1,0 +1,107 @@
+---
+title: Webhooks
+description: Subscribe to signed, retryable memory and source mutation events.
+---
+
+Configure a webhook per project in the [dashboard](/cloud/dashboard). FishMem
+queues a delivery after a successful mutation and signs the exact request body.
+Searches and reads do not emit webhooks.
+
+## Event types
+
+| Event | Emitted after |
+| --- | --- |
+| `memory_add` | One inferred or verbatim add commits |
+| `memory_update` | An explicit memory update commits |
+| `memory_delete` | One memory or a scoped memory set is deleted |
+| `document_extract_queued` | A verified file upload enters the durable extraction queue |
+| `document_ingest` | A direct-text or extracted source version and its retrieval projection commit |
+| `document_delete` | The complete stable-source family is permanently deleted |
+
+New endpoints subscribe to the five commit/delete events by default.
+`document_extract_queued` is opt-in so receivers can choose whether they want
+both lifecycle notifications or only the final indexed source. You can select
+an exact subset in the create/edit form.
+
+## Request
+
+FishMem sends `POST` with `Content-Type: application/json`:
+
+```json
+{
+  "id": "evt_...",
+  "type": "document_ingest",
+  "created_at": "2026-07-30T08:00:00.000Z",
+  "project_id": "ws_...",
+  "data": {
+    "document_id": "doc_...",
+    "source_asset_id": "asset_...",
+    "artifact_id": "artifact_...",
+    "operation_id": "task_...",
+    "source_key": "handbook/deployments.md",
+    "content_hash": "sha256...",
+    "chunks": 4,
+    "created": true,
+    "user_id": "alex"
+  }
+}
+```
+
+Headers:
+
+| Header | Meaning |
+| --- | --- |
+| `x-fishmem-delivery` | Stable delivery attempt record id |
+| `x-fishmem-event` | Event type |
+| `x-fishmem-timestamp` | Unix timestamp used by the signature |
+| `x-fishmem-signature` | `v1=<hex HMAC-SHA256>` |
+
+The endpoint secret is shown at creation and after rotation. Store it in a
+secret manager.
+
+## Verify the signature
+
+Compute HMAC-SHA256 over `<timestamp>.<raw request body>`. Do not parse and
+re-serialize the body before verification.
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verifyFishMemWebhook(
+  rawBody: string,
+  timestamp: string,
+  signature: string,
+  secret: string,
+) {
+  const expected = `v1=${createHmac("sha256", secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest("hex")}`;
+  const receivedBytes = Buffer.from(signature);
+  const expectedBytes = Buffer.from(expected);
+  return (
+    receivedBytes.length === expectedBytes.length &&
+    timingSafeEqual(receivedBytes, expectedBytes)
+  );
+}
+```
+
+Also reject a timestamp outside your replay window—five minutes is a common
+receiver policy—and deduplicate on the top-level event `id`.
+
+## Delivery and retries
+
+Any `2xx` response succeeds. A network error or non-`2xx` response is retried
+up to five total attempts with exponential backoff starting at 60 seconds.
+After the fifth failure the delivery is marked `dead`. The dashboard shows
+attempt count, HTTP status, and the last error; an operator can replay a
+retryable/dead delivery. Delivery is at least once, so receivers must be
+idempotent and should acknowledge quickly before doing slow work.
+
+An inferred add uses a stable webhook event identity derived from its durable
+memory-inference task. Replaying the same `Idempotency-Key` therefore cannot
+create a second delivery row for the same endpoint. Transport attempts are
+still at least once, so receivers must continue deduplicating on the top-level
+event `id`.
+
+Rotating a secret affects later attempts. Disabling or deleting an endpoint
+stops pending attempts from being delivered successfully.

@@ -1,0 +1,59 @@
+---
+title: Build a support agent with memory
+description: Recall customer context without replaying the full ticket history.
+---
+
+Scope every call by customer:
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+```
+
+## Write a resolved conclusion
+
+After a ticket is resolved, let your support workflow produce a
+self-contained durable summary:
+
+```ts
+await fishmem.memories.add({
+  content:
+    "Customer uses the Enterprise plan in AWS eu-central-1; rate limit was raised under ticket T-3391.",
+  infer: false,
+  user_id: "cust_8842",
+  metadata: {
+    ticket_id: "T-3391",
+    category: "rate-limits",
+  },
+});
+```
+
+`infer:false` stores that exact text with zero LLM calls. Keep the source ticket ID in metadata so an
+operator can audit or correct it.
+
+## Recall before answering
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: question,
+  user_id: "cust_8842",
+  top_k: 5,
+});
+
+const knownContext = results
+  .map((item) => `- ${item.memory}`)
+  .join("\n");
+```
+
+Tell the model not to ask for information already present in `knownContext`,
+but also not to treat recalled memory as more authoritative than current
+account data.
+
+## Privacy boundary
+
+The same `user_id` must be used on write and recall. Enforce the customer ID on
+the server from authenticated account context; never trust a browser-supplied
+scope without authorization checks.

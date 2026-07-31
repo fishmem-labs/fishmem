@@ -1,0 +1,51 @@
+---
+title: Release Notes
+description: What's new in FishMem — engine, cloud, and SDKs.
+---
+
+Notable changes to the FishMem engine, hosted cloud, SDKs, and documentation.
+Dates are in UTC. For the engine's full commit history, see
+[github.com/fishmem-labs/fishmem](https://github.com/fishmem-labs/fishmem).
+
+<Callout type="info">
+  FishMem is launching. Treat early entries as the initial public release rather
+  than a long-running changelog.
+</Callout>
+
+## 2026-07 — Async inference and source RAG
+
+- **Breaking API:** inferred `POST /v1/memories` writes now require
+  `Idempotency-Key` and return HTTP `202` with a durable `event_id`; already
+  distilled `infer:false` writes remain synchronous.
+- **Event API:** `GET /v1/events` and `/v1/events/{id}` expose inference status,
+  bounded retries, timing, refined records, and terminal errors without
+  returning the original conversation or internal task payload.
+- **First-party SDKs:** TypeScript and Python add `addAsync`/`add_async`,
+  `addAndWait`/`add_and_wait`, and Event list/get/wait resources.
+- **Dashboard and Cloud billing:** memory-inference tasks are visible in
+  Operations; credits reserve at enqueue, settle once on success, and refund
+  once after terminal failure.
+- **Source RAG:** immutable file uploads, durable Docling extraction, retained
+  originals, citation-ready chunks, and permanent source-family deletion are
+  available across Cloud and self-hosted deployments.
+
+## 2026-06 — Public launch
+
+- **FishMem Cloud** is live at [fishmem.com](https://fishmem.com): a managed
+  REST API, dashboard, API keys, usage metering, webhooks, and Stripe billing.
+- **`fishmem` engine** open-sourced under Apache-2.0 at
+  [github.com/fishmem-labs/fishmem](https://github.com/fishmem-labs/fishmem) —
+  hybrid graph + vector recall with bi-temporal facts.
+- **Benchmarks** published on a shared, open harness against mem0 OSS (TS):
+  62.2% vs 54.5% overall recall, with the largest gap on temporal questions
+  (69.8% vs 28.3%). Methodology and judge are open-sourced.
+- **Documentation** site launched at [docs.fishmem.com](https://docs.fishmem.com)
+  covering the cloud, the open-source engine, cookbooks, integrations, agent
+  plugins, and the full API reference.
+
+## Conventions
+
+- **Engine** changes affect both self-hosted `fishmem` and the cloud.
+- **Cloud** changes affect only the hosted platform.
+- **Breaking** changes are called out explicitly and, on the cloud, are
+  versioned so existing API clients keep working.

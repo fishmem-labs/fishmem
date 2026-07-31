@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "index",
+    "install",
+    "cloud",
+    "open-source",
+    "sdk",
+    "cookbooks",
+    "integrations",
+    "agent-plugins",
+    "api-reference",
+    "release-notes"
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "FishMem"
+  short_description: "Recall and store durable project memory"
+  default_prompt: "Use $fishmem to recall relevant project context before continuing."

@@ -1,0 +1,86 @@
+---
+title: Usage and credits
+description: How FishMem meters API calls with credits.
+---
+
+FishMem Cloud meters usage in **credits**. Each metered operation costs a fixed
+number of credits, your plan sets how many credits you get each month, and you
+watch consumption in the dashboard.
+
+## What each operation costs
+
+| Operation | Credits |
+|---|---|
+| Add (inferred) | 2 |
+| Add (`infer: false`) | 1 |
+| Search | 1 |
+| Direct document ingest | 1 per projected chunk |
+| File extraction | 50 per started 5,000,000-byte block, plus 1 per projected chunk |
+| Document search | 1 |
+| Reads (get / list) | Free |
+| Document reads and delete | Free |
+
+A couple of things worth knowing:
+
+- **Inferred add** costs more because it runs one LLM extraction call and stores
+  only the resulting refined canonical records.
+- **Verbatim add** makes no LLM call and stores the submitted record(s)
+  exactly. FishMem does not dual-write raw input beside inferred records.
+- **Search** costs one credit per query.
+- **Direct document ingest** costs one credit for each deterministic chunk
+  projected into retrieval. The response reports the exact chunk count.
+- **File extraction** has a predictable raw-file charge: 50 credits for each
+  started 5,000,000-byte block. After Docling produces the immutable artifact,
+  indexing costs the same one credit per projected chunk as direct ingest.
+- **Document search** costs one credit per query.
+- **Reads are free.** Fetching a memory by id (`get`) or listing memories
+  doesn't draw down credits. Document list, metadata, original-content reads,
+  and permanent delete are also free.
+
+## When credits are committed
+
+FishMem reserves the required credits atomically before a metered operation
+starts. A successful operation settles that reservation. If the memory engine
+fails before committing, FishMem releases the reservation and writes the refund
+to the credit ledger.
+
+For `infer:true`, reservation happens before the task can be acknowledged with
+HTTP `202`. The reservation has a 24-hour recoverable lease and stays attached
+to the durable Event ID across worker retries. `SUCCEEDED` settles once;
+terminal `FAILED` refunds once and corrects the corresponding Request row to
+zero credits. A hosted worker refuses to run an inference task that has no
+valid usage authorization.
+
+For writes, the reservation uses the same `Idempotency-Key` as the memory
+operation. Replaying an inferred write returns the same Event ID without a
+second charge or task. Reusing the key with different content is rejected.
+Expired reservations left by an interrupted request are lease-recovered and
+refunded.
+
+Asynchronous file work uses two reservations. Completion reserves the
+size-based extraction charge before the task can enter the queue. If all
+extractor attempts fail before an artifact exists, that reservation is
+refunded. Once the immutable Markdown/JSON artifact exists, the extraction
+charge settles and FishMem authorizes the exact projected chunk count before
+the canonical RAG commit. Retries reuse both stable charge identities.
+
+## Credits and plan price
+
+Credits are the stable usage unit. Subscription price, included monthly
+capacity, overage policy, and currency belong to the current
+[Billing](/cloud/billing) page; do not infer a dollar amount from request logs
+alone.
+
+## Watching your usage
+
+Track consumption in the dashboard under usage and billing. It shows credits
+used against your plan's monthly allotment, so you can see how much headroom you
+have and which operations are driving spend. The **Requests** view breaks
+activity down call by call if you need to attribute usage to specific
+operations.
+
+## How plans set capacity
+
+Your plan determines your monthly credit capacity. Higher tiers include more
+credits per month; moving up a tier raises your allotment. Credits are the meter,
+the plan is the bucket. For the tiers and pricing, see [Billing](/cloud/billing).

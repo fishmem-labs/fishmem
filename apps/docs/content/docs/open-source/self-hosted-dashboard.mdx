@@ -1,0 +1,291 @@
+---
+title: Self-hosted dashboard
+description: Run the FishMem control-plane — dashboard, API keys, operations, webhooks, REST API, and file extraction — with Docker or on Cloudflare.
+---
+
+The [`fishmem`](https://github.com/fishmem-labs/fishmem) engine is a library you
+embed. This page is about the layer above it: the **control-plane**, the full
+application that wraps the engine with a UI and a REST surface. It ships as the
+`apps/web` app in the open-source
+[`fishmem-labs/fishmem`](https://github.com/fishmem-labs/fishmem) repo, and is the
+same app that powers [FishMem Cloud](/cloud).
+
+If you only need memory inside one service, self-host the engine instead — see
+[Self-hosting the engine](/open-source/self-hosting). Run the control-plane when
+you want a team-facing platform.
+
+## What it provides
+
+- A **web dashboard** to manage projects, keys, and memories.
+- A **Sources** workspace for direct text, asynchronous PDF/Office/image
+  extraction, immutable originals, and citation-ready RAG.
+- **API key management** — issue and revoke `fm_...` keys per project.
+- A **usage view** over operations and storage.
+- **Webhooks** that fire on memory events.
+- The **FishMem REST API** — the same `add` / `search` / `get` /
+  `update` / `delete` / `history` surface documented in the
+  [API reference](/api-reference).
+
+Choose one runtime:
+
+| Runtime | Durable data | File extraction |
+| --- | --- | --- |
+| Node/Docker | libSQL plus a persistent asset volume | Poll worker plus pinned Docling container |
+| Cloudflare | D1, Vectorize, and R2 | Queue plus pinned Docling Container |
+
+Both use the same document-ingestion module, task states, retry rules, and
+artifact format. The open-source control plane leaves out managed billing,
+operated infrastructure, and SLA.
+
+## Run with Docker
+
+The bundled Compose stack is the shortest complete self-host path.
+
+```bash
+git clone https://github.com/fishmem-labs/fishmem
+cd fishmem
+cp apps/web/.env.example .env
+```
+
+Set at least `OPENAI_API_KEY`, `BETTER_AUTH_SECRET`, `FISHMEM_SETUP_TOKEN`, and
+`CRON_SECRET` in the root `.env`, then start the web process and durable task
+poller:
+
+```bash
+docker compose up -d web task-worker
+docker compose logs -f web task-worker extractor
+```
+
+Compose brings up:
+
+- `web` on `http://localhost:3000`;
+- `extractor`, the pinned CPU Docling image on the private Compose network;
+- `task-worker`, which wakes due tasks every two seconds and maintenance daily;
+- one persistent `fishmem-webdata` volume containing libSQL and raw/artifact
+  objects.
+
+The web container applies schema changes before startup. Back up the whole
+volume: the relational rows and object directory form one retention unit.
+Uploads left incomplete for 24 hours are removed by maintenance.
+
+## Run on Cloudflare
+
+<Steps>
+
+<Step>
+
+### Prerequisites
+
+- A **Cloudflare account** with Workers enabled.
+- A **D1 database**, a **Vectorize index**, an **R2 bucket**, two **Queues**, and
+  **Containers** enabled in that account.
+- An OpenAI-compatible **LLM provider** and **embedding provider**. The shipped
+  defaults are `gpt-4o-mini` and `text-embedding-3-small`, but base URLs and
+  models are configurable.
+- Node.js and the Wrangler CLI installed locally.
+
+</Step>
+
+<Step>
+
+### Clone the repo
+
+```bash
+git clone https://github.com/fishmem-labs/fishmem
+cd fishmem
+pnpm install
+cd apps/web
+```
+
+</Step>
+
+<Step>
+
+### Configure env and secrets
+
+Bindings live in `wrangler.jsonc`; secrets are set with
+`wrangler secret put`.
+The required variables:
+
+| Variable | Type | Description |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | secret | LLM + embedding provider key. |
+| `BETTER_AUTH_SECRET` | secret | Signing secret for dashboard sessions. |
+| `FISHMEM_SETUP_TOKEN` | secret | One-time proof required to create the first production admin. Use a different random value from the session secret. |
+| `CRON_SECRET` | secret | Authenticates scheduled task/maintenance calls. |
+| `D1` | D1 binding | The graph and control-plane database. |
+| `VECTORIZE` | Vectorize binding | The vector index. |
+| `R2` | R2 binding | Object storage bucket. |
+| `DOCUMENT_TASKS` | Queue binding | Low-latency extraction wakeups. |
+| `DOCUMENT_EXTRACTOR` | Durable Object binding | Routes work to the Docling Container. |
+| `MEMORY_RATE_LIMITER` | Rate Limit binding | Per-key public API protection. |
+| `FISHMEM_TRUSTED_IP_HEADERS` | optional variable | Comma-separated client-IP headers trusted by auth. Cloudflare defaults to `cf-connecting-ip`; a Node reverse proxy must overwrite its configured header. |
+
+Set the secrets:
+
+```bash
+wrangler secret put OPENAI_API_KEY
+wrangler secret put BETTER_AUTH_SECRET
+wrangler secret put FISHMEM_SETUP_TOKEN
+wrangler secret put CRON_SECRET
+```
+
+The repository already declares these bindings in
+`apps/web/wrangler.jsonc`. Replace the resource names or IDs for your account.
+Create the queue resources before deployment:
+
+```bash
+wrangler queues create fishmem-document-tasks
+wrangler queues create fishmem-document-tasks-dlq
+wrangler r2 bucket create fishmem
+```
+
+The relevant binding shape is:
+
+```json title="wrangler.jsonc"
+{
+  "d1_databases": [{ "binding": "D1", "database_name": "fishmem", "database_id": "<id>" }],
+  "vectorize": [{ "binding": "VECTORIZE", "index_name": "fishmem-memories" }],
+  "r2_buckets": [{ "binding": "R2", "bucket_name": "fishmem" }],
+  "containers": [{
+    "class_name": "FishMemExtractorContainer",
+    "image": "./services/extractor/Dockerfile",
+    "max_instances": 3,
+    "instance_type": "standard-2"
+  }],
+  "durable_objects": {
+    "bindings": [{
+      "name": "DOCUMENT_EXTRACTOR",
+      "class_name": "FishMemExtractorContainer"
+    }]
+  },
+  "queues": {
+    "producers": [{
+      "binding": "DOCUMENT_TASKS",
+      "queue": "fishmem-document-tasks"
+    }]
+  },
+  "ratelimits": [{
+    "name": "MEMORY_RATE_LIMITER",
+    "namespace_id": "1001",
+    "simple": { "limit": 600, "period": 60 }
+  }]
+}
+```
+
+</Step>
+
+<Step>
+
+### Create Vectorize metadata indexes
+
+Create every filter index before accepting the first write. Cloudflare
+Vectorize applies a metadata index only to vectors inserted after that index
+exists.
+
+```bash
+wrangler vectorize create fishmem-memories --dimensions=1536 --metric=cosine
+for prop in namespaceId recordKind userId agentId runId memoryType documentId sourceKey; do
+  wrangler vectorize create-metadata-index fishmem-memories \
+    --property-name="$prop" --type=string
+done
+```
+
+`namespaceId` is the project fence. `recordKind` prevents document chunks and
+memories from entering each other's retrieval lane; `documentId` and
+`sourceKey` enable source-scoped RAG. The eight properties remain within
+Vectorize's ten metadata-index limit. FishMem still rehydrates each candidate
+from D1 and reapplies the full scope; the index is not the final authorization
+decision.
+
+</Step>
+
+<Step>
+
+### Run migrations
+
+Apply the schema to your D1 database:
+
+```bash
+pnpm run deploy:database
+```
+
+FishMem writes an immutable source version, its deterministic chunks, and the
+current-source pointer in one transactional D1 batch. Chunk rows are expanded
+from bounded JSON payloads, so a large textual source does not spend one D1
+subquery per chunk.
+
+Direct textual originals and asynchronous file assets/artifacts are written to
+R2. Reads verify SHA-256 and byte length; document deletion and project purge
+remove the linked object family. The Sources screen uses the public three-step
+upload lifecycle and exposes durable extraction status; browser-side file
+selection is not a second source writer.
+
+</Step>
+
+<Step>
+
+### Deploy to Workers
+
+```bash
+pnpm run deploy
+```
+
+Wrangler prints the deployed URL. The dashboard is served at the root; the
+FishMem API is under `/v1`.
+
+</Step>
+
+<Step>
+
+### Create your first project and API key
+
+Open the deployed URL. On `/setup`, create the first admin and enter the
+deploy-time `FISHMEM_SETUP_TOKEN`. Production rejects direct first-user signup
+without this proof, so a newly deployed public Worker cannot be claimed by its
+first visitor. The token is not stored in FishMem's database and is ignored
+after the initial account exists.
+
+Then sign in, create a project, and issue an API key from the dashboard. Call
+your own instance exactly like the hosted cloud:
+
+```bash
+curl https://<your-worker>.workers.dev/v1/memories \
+  -H "Authorization: Bearer fm_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "I prefer dark mode."}],
+    "user_id": "alex"
+  }'
+```
+
+</Step>
+
+</Steps>
+
+The Worker dispatches export/import, rebuild, derivation, and maintenance
+tasks. File completion sends a Queue wakeup; the Queue consumer processes one
+extraction task per message with bounded concurrency. A `*/1 * * * *` trigger
+repairs lost wakeups and expired leases, while `0 4 * * *` also enqueues
+nightly maintenance. Keep both cron entries and `CRON_SECRET` configured.
+
+The container image is pinned in
+`apps/web/services/extractor/Dockerfile`. Extraction uses Docling's async
+submit/status/result endpoints. The D1 task row—not the Queue or Container
+instance—owns retries and terminal status.
+
+<Callout type="info">
+Self-hosting the control-plane gives you the same engine, dashboard, and API as
+[FishMem Cloud](/cloud). The difference is operations: the managed cloud handles
+billing, scaling, and updates for you and offers an SLA. Self-hosting means you
+run the Cloudflare resources, apply migrations on upgrade, and meter usage
+yourself.
+</Callout>
+
+## Next steps
+
+<Cards>
+  <Card title="Self-host the engine" href="/open-source/self-hosting" description="Embed the fishmem library in one service, without the control-plane." />
+  <Card title="FishMem Cloud" href="/cloud" description="The managed version of this same app, with billing and SLA." />
+  <Card title="API reference" href="/api-reference" description="Every endpoint your instance exposes, with request and response shapes." />
+</Cards>

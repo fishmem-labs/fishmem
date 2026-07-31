@@ -1,0 +1,46 @@
+{
+  "name": "fishmem-monorepo",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:integration": "pnpm --filter fishmem test:integration",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "bench:locomo": "tsx benchmarks/locomo/run.ts",
+    "bench:longmemeval": "tsx benchmarks/longmemeval/run.ts",
+    "bench:beam": "tsx benchmarks/beam/run.ts",
+    "bench:membench": "tsx benchmarks/recall/membench.ts",
+    "bench:convomem": "tsx benchmarks/recall/convomem.ts",
+    "bench:report": "tsx benchmarks/eval/report.ts",
+    "bench:gate": "tsx benchmarks/eval/release-gate.ts",
+    "bench:resume": "tsx benchmarks/resume-run.ts",
+    "bench:test": "pnpm --filter fishmem exec vitest run --config ../../benchmarks/vitest.config.ts",
+    "bench:typecheck": "pnpm --filter fishmem exec tsc -p ../../benchmarks/tsconfig.json"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
+    "@types/node": "^22.19.20",
+    "gpt-tokenizer": "3.4.0",
+    "mem0ai": "3.1.2",
+    "tsx": "^4.22.4",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "bun",
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "onnxruntime-node"
+    ]
+  }
+}

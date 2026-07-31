@@ -1,0 +1,60 @@
+---
+title: SDKs
+description: First-party TypeScript and Python clients for Cloud, self-hosted FishMem, and the local Desktop CLI.
+---
+
+FishMem maintains two HTTP SDKs and one language-neutral Desktop CLI contract:
+
+- `@fishmem/sdk` for TypeScript/JavaScript;
+- `fishmem-sdk` for synchronous and asynchronous Python;
+- the `fishmem call` bridge, wrapped by both SDKs for FishMem Desktop.
+
+The TypeScript HTTP client uses only
+standard web APIs—`fetch`, `Headers`, `URL`, and `AbortSignal`—so the same
+package runs without platform adapters in:
+
+- Node.js 20 and newer
+- Bun
+- Deno
+- Cloudflare Workers
+- Vercel Functions and Edge Functions
+- other WinterCG-compatible serverless runtimes
+
+```bash
+npm install @fishmem/sdk
+pip install fishmem-sdk
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+
+const { results } = await fishmem.memories.search({
+  query: "How does this user prefer answers?",
+  user_id: "alex",
+  top_k: 5,
+});
+```
+
+The SDK works with both FishMem Cloud and a self-hosted `apps/web` deployment.
+Set `baseUrl` when you self-host.
+
+Long text and files use the separate `fishmem.documents` resource. Direct text
+ingest is synchronous; PDF, Office, EPUB, email, image, and text-file upload
+queues durable extraction. Raw originals stay canonical while extracted
+Markdown, chunks, and vectors remain rebuildable retrieval projections.
+
+<Cards>
+  <Card title="TypeScript quickstart" href="/sdk/quickstart" description="Add and recall the first memory." />
+  <Card title="Async inference events" href="/api-reference/events" description="Queue extraction and poll its durable, privacy-safe result." />
+  <Card title="Python SDK" href="/sdk/python" description="Use sync or async clients against the same API." />
+  <Card title="Desktop SDK" href="/sdk/desktop" description="Connect to the running local app through fishmem CLI." />
+  <Card title="Scope entities" href="/sdk/entities" description="Browse and remove structural user, agent, and run memory owners." />
+  <Card title="Document methods" href="/sdk/documents" description="Ingest text or extract files asynchronously, then retrieve citation-ready evidence." />
+  <Card title="Runtime guides" href="/sdk/runtimes" description="Node, Bun, Deno, Cloudflare, and Vercel examples." />
+  <Card title="All resources" href="/sdk/resources" description="State, profile, operations, exports, and imports." />
+  <Card title="Errors and idempotency" href="/sdk/errors-and-idempotency" description="Build safe production request handling." />
+</Cards>

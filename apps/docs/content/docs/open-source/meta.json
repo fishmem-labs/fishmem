@@ -1,0 +1,15 @@
+{
+  "root": true,
+  "title": "FishMem Open Source",
+  "description": "Self-host the Apache-2.0 fishmem engine and dashboard.",
+  "pages": [
+    "index",
+    "quickstart",
+    "configuration",
+    "architecture",
+    "concepts",
+    "---Self-hosting---",
+    "self-hosting",
+    "self-hosted-dashboard"
+  ]
+}

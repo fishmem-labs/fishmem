@@ -1,0 +1,106 @@
+---
+title: Migrate from mem0
+description: Map an existing mem0 integration to FishMem and verify behavior.
+---
+
+FishMem uses familiar `user_id`, `agent_id`, and `run_id` scopes and exposes
+add, search, get, update, delete, and history operations. It is not safe to
+assume every mem0 client can be redirected without code changes.
+
+## Migration checklist
+
+1. Export or replay the source memories you are allowed to retain.
+2. Create a FishMem project and server-side API key.
+3. Replace the mem0 client with [`@fishmem/sdk`](/sdk) or direct REST calls.
+4. Preserve your existing scope identifiers.
+5. Validate add response shapes, pagination, ranking, and update semantics.
+6. Run both systems in shadow-read mode before switching production recall.
+
+## Operation mapping
+
+| mem0 concept | FishMem method | Verify |
+| --- | --- | --- |
+| add | `memories.add` | `infer=true` extraction and `infer=false` verbatim behavior |
+| search | `memories.search` | Ranking and `top_k` behavior |
+| list | `memories.list` | Cursor pagination |
+| users/agents/runs | `entities.list` | FishMem derives structural scope entities from active records |
+| get | `memories.get` | Memory object fields |
+| update | `memories.update` | Audit history and metadata merge |
+| batch update/delete | `memories.batchUpdate` / `batchDelete` | FishMem returns a durable operation with per-item results |
+| feedback | `memories.setFeedback` | FishMem uses lowercase ratings, a memory-scoped path, idempotency, and an immutable audit event |
+| delete | `memories.delete` | Retention and downstream projections |
+
+Mem0's `POST /v1/feedback/` uses uppercase `POSITIVE`, `NEGATIVE`, and
+`VERY_NEGATIVE`. FishMem deliberately does not expose that route as a
+compatibility alias. Use `POST /v1/memories/{id}/feedback` with lowercase
+ratings and an `Idempotency-Key`; missing memories return a deterministic 404.
+
+## Filter migration
+
+Mem0 integrations may place entity scope and logical predicates in one filter
+object. FishMem deliberately separates them:
+
+```ts
+await fishmem.memories.search({
+  query: "open ticket",
+  user_id: "alex", // hard structural scope
+  filters: {
+    or: [
+      { field: "metadata.priority", operator: "gte", value: 8 },
+      { field: "content", operator: "icontains", value: "urgent" },
+    ],
+  },
+});
+```
+
+Do not translate `user_id`, `agent_id`, or `run_id` into logical conditions.
+FishMem always ANDs those top-level fields with the expression so OR cannot
+widen tenant or application scope. See [Memory filters](/api-reference/filters)
+for field names and operator differences.
+
+## Application scope
+
+Do not migrate mem0 `app_id` into a fourth FishMem entity type. A FishMem
+project/workspace is already the application namespace, API-key boundary, and
+dashboard boundary. Keep `user_id`, `agent_id`, and `run_id` as record scopes;
+use separate projects/workspaces when applications require hard isolation.
+
+`fishmem.entities` lists those structural scopes and can remove all matching
+active memories with a required idempotency key. It is separate from the named
+entity graph extracted from memory content.
+
+## Client replacement
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+  baseUrl: "https://fishmem.com",
+});
+```
+
+## Inference semantics
+
+FishMem follows the same high-level split as current mem0:
+
+- `infer: true` extracts refined records;
+- `infer: false` stores the submitted content verbatim.
+
+Do not assume exact prompt output, deduplication, response envelopes, pagination,
+or ranking are identical. FishMem performs one extraction call, stores no
+parallel raw copy for inferred adds, and fails instead of silently falling back
+to raw content.
+
+## Cutover test
+
+For a representative sample, compare:
+
+- scope isolation;
+- inferred records and verbatim `infer:false` records;
+- top results for real queries;
+- behavior after correction and deletion;
+- retry behavior with idempotency keys;
+- latency and error handling in the target runtime.
+
+Only cut over after these behaviors meet your application contract.

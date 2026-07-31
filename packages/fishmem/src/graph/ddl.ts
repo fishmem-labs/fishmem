@@ -1,0 +1,413 @@
+/** Hand-written DDL used by the convenience `migrate` bootstrap in factories. */
+
+export const PG_DDL: string[] = [
+  `CREATE TABLE IF NOT EXISTS fishmem_memories (
+     id TEXT PRIMARY KEY,
+     content TEXT NOT NULL,
+     memory_type TEXT NOT NULL,
+     importance DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+     hash TEXT,
+     namespace_id TEXT,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     source TEXT,
+     metadata JSONB,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+     last_accessed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+     access_count INTEGER NOT NULL DEFAULT 0,
+     forgotten BOOLEAN NOT NULL DEFAULT false,
+     tier TEXT NOT NULL DEFAULT 'graph',
+     demoted_at TIMESTAMPTZ,
+     event_date TIMESTAMPTZ,
+     valid_from TIMESTAMPTZ,
+     valid_to TIMESTAMPTZ,
+     superseded_by TEXT,
+     subject TEXT,
+     attribute TEXT,
+     episode_id TEXT
+   )`,
+  `ALTER TABLE fishmem_memories ADD COLUMN IF NOT EXISTS namespace_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mem_event_date_idx ON fishmem_memories(event_date)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mem_type_idx ON fishmem_memories(memory_type)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mem_importance_idx ON fishmem_memories(importance)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mem_scope_idx ON fishmem_memories(user_id, agent_id, run_id)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mem_namespace_scope_idx ON fishmem_memories(namespace_id, user_id, agent_id, run_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_associations (
+     id TEXT PRIMARY KEY,
+     source_id TEXT NOT NULL,
+     target_id TEXT NOT NULL,
+     relation_type TEXT NOT NULL,
+     weight DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_assoc_uniq ON fishmem_associations(source_id, target_id, relation_type)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_assoc_source_idx ON fishmem_associations(source_id)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_assoc_target_idx ON fishmem_associations(target_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_history (
+     id TEXT PRIMARY KEY,
+     memory_id TEXT NOT NULL,
+     event TEXT NOT NULL,
+     previous_value TEXT,
+     new_value TEXT,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE TABLE IF NOT EXISTS fishmem_operations (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT NOT NULL,
+     idempotency_key TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     request_hash TEXT NOT NULL,
+     command JSONB NOT NULL,
+     memory_ids JSONB NOT NULL,
+     episode_id TEXT,
+     status TEXT NOT NULL,
+     raw_status TEXT NOT NULL,
+     vector_status TEXT NOT NULL,
+     derived_status TEXT NOT NULL,
+     result JSONB,
+     error TEXT,
+     lease_expires_at TIMESTAMPTZ,
+     attempts INTEGER NOT NULL DEFAULT 1,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `ALTER TABLE fishmem_operations ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`,
+  `ALTER TABLE fishmem_operations ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE fishmem_operations ADD COLUMN IF NOT EXISTS command JSONB NOT NULL DEFAULT '{}'::jsonb`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_operation_idempotency_uniq ON fishmem_operations(namespace_id, idempotency_key)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_events (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT NOT NULL,
+     operation_id TEXT NOT NULL,
+     memory_id TEXT NOT NULL,
+     event_type TEXT NOT NULL,
+     payload JSONB NOT NULL,
+     occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS fishmem_event_namespace_time_idx ON fishmem_events(namespace_id, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_event_operation_idx ON fishmem_events(operation_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_entities (
+     id TEXT PRIMARY KEY,
+     name TEXT NOT NULL,
+     normalized TEXT NOT NULL,
+     namespace_id TEXT,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     embedding JSONB,
+     mention_count INTEGER NOT NULL DEFAULT 0,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `ALTER TABLE fishmem_entities ADD COLUMN IF NOT EXISTS namespace_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS fishmem_ent_norm_idx ON fishmem_entities(normalized)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_ent_scope_idx ON fishmem_entities(user_id, agent_id, run_id)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_ent_namespace_scope_idx ON fishmem_entities(namespace_id, user_id, agent_id, run_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_memory_entities (
+     memory_id TEXT NOT NULL,
+     entity_id TEXT NOT NULL
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_mement_uniq ON fishmem_memory_entities(memory_id, entity_id)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mement_ent_idx ON fishmem_memory_entities(entity_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_episodes (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     messages JSONB NOT NULL,
+     source TEXT,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `ALTER TABLE fishmem_episodes ADD COLUMN IF NOT EXISTS namespace_id TEXT`,
+  `CREATE TABLE IF NOT EXISTS fishmem_documents (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT NOT NULL,
+     source_key TEXT NOT NULL,
+     content_hash TEXT NOT NULL,
+     version_hash TEXT NOT NULL,
+     content TEXT NOT NULL,
+     title TEXT,
+     mime_type TEXT NOT NULL,
+     source_uri TEXT,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     metadata JSONB,
+     size_bytes INTEGER NOT NULL,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_document_source_version_uniq ON fishmem_documents(namespace_id, source_key, version_hash)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_document_scope_idx ON fishmem_documents(namespace_id, user_id, agent_id, run_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_document_heads (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT NOT NULL,
+     source_key TEXT NOT NULL,
+     document_id TEXT NOT NULL,
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_document_head_source_uniq ON fishmem_document_heads(namespace_id, source_key)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_document_head_document_idx ON fishmem_document_heads(document_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_document_chunks (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT NOT NULL,
+     document_id TEXT NOT NULL,
+     source_key TEXT NOT NULL,
+     chunk_index INTEGER NOT NULL,
+     content TEXT NOT NULL,
+     start_offset INTEGER NOT NULL,
+     end_offset INTEGER NOT NULL,
+     content_hash TEXT NOT NULL,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_document_chunk_index_uniq ON fishmem_document_chunks(document_id, chunk_index)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_document_chunk_namespace_idx ON fishmem_document_chunks(namespace_id, document_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_state_slots (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     subject TEXT NOT NULL,
+     attribute TEXT NOT NULL,
+     subject_key TEXT NOT NULL,
+     attribute_key TEXT NOT NULL,
+     value TEXT NOT NULL,
+     valid_from TIMESTAMPTZ NOT NULL,
+     valid_to TIMESTAMPTZ,
+     superseded_by TEXT,
+     sources JSONB NOT NULL
+   )`,
+  `ALTER TABLE fishmem_state_slots ADD COLUMN IF NOT EXISTS namespace_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS fishmem_slot_key_idx ON fishmem_state_slots(user_id, agent_id, run_id, subject_key, attribute_key)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_slot_namespace_key_idx ON fishmem_state_slots(namespace_id, user_id, agent_id, run_id, subject_key, attribute_key)`,
+];
+
+export const SQLITE_DDL: string[] = [
+  `CREATE TABLE IF NOT EXISTS fishmem_memories (
+     id TEXT PRIMARY KEY,
+     content TEXT NOT NULL,
+     memory_type TEXT NOT NULL,
+     importance REAL NOT NULL DEFAULT 0.5,
+     hash TEXT,
+     namespace_id TEXT,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     source TEXT,
+     metadata TEXT,
+     created_at INTEGER NOT NULL,
+     updated_at INTEGER NOT NULL,
+     last_accessed_at INTEGER NOT NULL,
+     access_count INTEGER NOT NULL DEFAULT 0,
+     forgotten INTEGER NOT NULL DEFAULT 0,
+     tier TEXT NOT NULL DEFAULT 'graph',
+     demoted_at INTEGER,
+     event_date INTEGER,
+     valid_from INTEGER,
+     valid_to INTEGER,
+     superseded_by TEXT,
+     subject TEXT,
+     attribute TEXT,
+     episode_id TEXT
+   )`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mem_event_date_idx ON fishmem_memories(event_date)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mem_type_idx ON fishmem_memories(memory_type)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mem_importance_idx ON fishmem_memories(importance)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mem_scope_idx ON fishmem_memories(user_id, agent_id, run_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_associations (
+     id TEXT PRIMARY KEY,
+     source_id TEXT NOT NULL,
+     target_id TEXT NOT NULL,
+     relation_type TEXT NOT NULL,
+     weight REAL NOT NULL DEFAULT 0.5,
+     created_at INTEGER NOT NULL
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_assoc_uniq ON fishmem_associations(source_id, target_id, relation_type)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_assoc_source_idx ON fishmem_associations(source_id)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_assoc_target_idx ON fishmem_associations(target_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_history (
+     id TEXT PRIMARY KEY,
+     memory_id TEXT NOT NULL,
+     event TEXT NOT NULL,
+     previous_value TEXT,
+     new_value TEXT,
+     created_at INTEGER NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS fishmem_operations (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT NOT NULL,
+     idempotency_key TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     request_hash TEXT NOT NULL,
+     command TEXT NOT NULL,
+     memory_ids TEXT NOT NULL,
+     episode_id TEXT,
+     status TEXT NOT NULL,
+     raw_status TEXT NOT NULL,
+     vector_status TEXT NOT NULL,
+     derived_status TEXT NOT NULL,
+     result TEXT,
+     error TEXT,
+     lease_expires_at INTEGER,
+     attempts INTEGER NOT NULL DEFAULT 1,
+     created_at INTEGER NOT NULL,
+     updated_at INTEGER NOT NULL
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_operation_idempotency_uniq ON fishmem_operations(namespace_id, idempotency_key)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_events (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT NOT NULL,
+     operation_id TEXT NOT NULL,
+     memory_id TEXT NOT NULL,
+     event_type TEXT NOT NULL,
+     payload TEXT NOT NULL,
+     occurred_at INTEGER NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS fishmem_event_namespace_time_idx ON fishmem_events(namespace_id, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_event_operation_idx ON fishmem_events(operation_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_entities (
+     id TEXT PRIMARY KEY,
+     name TEXT NOT NULL,
+     normalized TEXT NOT NULL,
+     namespace_id TEXT,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     embedding TEXT,
+     mention_count INTEGER NOT NULL DEFAULT 0,
+     created_at INTEGER NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS fishmem_ent_norm_idx ON fishmem_entities(normalized)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_ent_scope_idx ON fishmem_entities(user_id, agent_id, run_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_memory_entities (
+     memory_id TEXT NOT NULL,
+     entity_id TEXT NOT NULL
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_mement_uniq ON fishmem_memory_entities(memory_id, entity_id)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_mement_ent_idx ON fishmem_memory_entities(entity_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_episodes (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     messages TEXT NOT NULL,
+     source TEXT,
+     created_at INTEGER NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS fishmem_documents (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT NOT NULL,
+     source_key TEXT NOT NULL,
+     content_hash TEXT NOT NULL,
+     version_hash TEXT NOT NULL,
+     content TEXT NOT NULL,
+     title TEXT,
+     mime_type TEXT NOT NULL,
+     source_uri TEXT,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     metadata TEXT,
+     size_bytes INTEGER NOT NULL,
+     created_at INTEGER NOT NULL
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_document_source_version_uniq ON fishmem_documents(namespace_id, source_key, version_hash)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_document_scope_idx ON fishmem_documents(namespace_id, user_id, agent_id, run_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_document_heads (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT NOT NULL,
+     source_key TEXT NOT NULL,
+     document_id TEXT NOT NULL,
+     updated_at INTEGER NOT NULL
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_document_head_source_uniq ON fishmem_document_heads(namespace_id, source_key)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_document_head_document_idx ON fishmem_document_heads(document_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_document_chunks (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT NOT NULL,
+     document_id TEXT NOT NULL,
+     source_key TEXT NOT NULL,
+     chunk_index INTEGER NOT NULL,
+     content TEXT NOT NULL,
+     start_offset INTEGER NOT NULL,
+     end_offset INTEGER NOT NULL,
+     content_hash TEXT NOT NULL,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     created_at INTEGER NOT NULL
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS fishmem_document_chunk_index_uniq ON fishmem_document_chunks(document_id, chunk_index)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_document_chunk_namespace_idx ON fishmem_document_chunks(namespace_id, document_id)`,
+  `CREATE TABLE IF NOT EXISTS fishmem_state_slots (
+     id TEXT PRIMARY KEY,
+     namespace_id TEXT,
+     user_id TEXT,
+     agent_id TEXT,
+     run_id TEXT,
+     subject TEXT NOT NULL,
+     attribute TEXT NOT NULL,
+     subject_key TEXT NOT NULL,
+     attribute_key TEXT NOT NULL,
+     value TEXT NOT NULL,
+     valid_from INTEGER NOT NULL,
+     valid_to INTEGER,
+     superseded_by TEXT,
+     sources TEXT NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS fishmem_slot_key_idx ON fishmem_state_slots(user_id, agent_id, run_id, subject_key, attribute_key)`,
+];
+
+export const SQLITE_NAMESPACE_INDEX_DDL: string[] = [
+  `CREATE INDEX IF NOT EXISTS fishmem_mem_namespace_scope_idx ON fishmem_memories(namespace_id, user_id, agent_id, run_id)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_ent_namespace_scope_idx ON fishmem_entities(namespace_id, user_id, agent_id, run_id)`,
+  `CREATE INDEX IF NOT EXISTS fishmem_slot_namespace_key_idx ON fishmem_state_slots(namespace_id, user_id, agent_id, run_id, subject_key, attribute_key)`,
+];
+
+const SQLITE_REQUIRED_COLUMNS = [
+  [
+    "fishmem_memories",
+    [
+      ["namespace_id", "TEXT"],
+      ["subject", "TEXT"],
+      ["attribute", "TEXT"],
+      ["episode_id", "TEXT"],
+    ],
+  ],
+  ["fishmem_entities", [["namespace_id", "TEXT"]]],
+  ["fishmem_episodes", [["namespace_id", "TEXT"]]],
+  ["fishmem_state_slots", [["namespace_id", "TEXT"]]],
+  [
+    "fishmem_operations",
+    [
+      ["command", "TEXT NOT NULL DEFAULT '{}'"],
+      ["lease_expires_at", "INTEGER"],
+      ["attempts", "INTEGER NOT NULL DEFAULT 1"],
+    ],
+  ],
+] as const;
+
+export async function ensureSqliteSchemaColumns(adapter: {
+  columns(table: string): Promise<Set<string>>;
+  execute(sql: string): Promise<unknown>;
+}): Promise<void> {
+  for (const [table, requiredColumns] of SQLITE_REQUIRED_COLUMNS) {
+    const columns = await adapter.columns(table);
+    for (const [column, type] of requiredColumns) {
+      if (!columns.has(column)) {
+        await adapter.execute(
+          `ALTER TABLE ${table} ADD COLUMN ${column} ${type}`,
+        );
+      }
+    }
+  }
+  for (const statement of SQLITE_NAMESPACE_INDEX_DDL) {
+    await adapter.execute(statement);
+  }
+}

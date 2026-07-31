@@ -1,0 +1,43 @@
+---
+title: Profile
+description: Read the synthesized profile or retrieve only the sections relevant to a query.
+---
+
+## `GET /v1/profile`
+
+Provide at least one of `user_id`, `agent_id`, or `run_id`.
+
+Without `query`, `data` is the complete profile string or `null`:
+
+```bash
+curl "https://fishmem.com/v1/profile?user_id=alex" \
+  -H "Authorization: Bearer fm_..."
+```
+
+```json
+{ "data": "## Preferences\n- Prefers concise answers." }
+```
+
+With `query`, `data` is an array of relevant sections:
+
+```bash
+curl "https://fishmem.com/v1/profile?user_id=alex&query=answer+style&limit=3" \
+  -H "Authorization: Bearer fm_..."
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "profile-section-...",
+      "title": "Preferences",
+      "content": "Prefers concise answers.",
+      "score": 0.91
+    }
+  ]
+}
+```
+
+`limit` ranges from `1` to `20` and defaults to `5`. A profile is a derived,
+rebuildable view; canonical records and their history remain the correction
+surface.

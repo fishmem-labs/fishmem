@@ -1,0 +1,69 @@
+---
+title: Quickstart
+description: Run the FishMem TypeScript engine inside your own application.
+---
+
+The `fishmem` package is the low-level TypeScript engine. It is different from
+`@fishmem/sdk`, which calls a FishMem service over HTTP.
+
+## Install
+
+```bash
+npm install fishmem
+```
+
+The embedded engine is TypeScript-first. Python applications use the
+first-party HTTP SDK described at [/sdk/python](/sdk/python).
+
+## Create the engine
+
+The engine accepts explicit graph, vector, LLM, and embedder implementations.
+This example uses deterministic in-memory components so it can run without
+provider keys:
+
+```ts
+import { Memory } from "fishmem";
+
+const memory = await Memory.create({
+  graphStore: { provider: "memory" },
+  vectorStore: { provider: "memory" },
+  embedder: { provider: "mock" },
+  llm: { provider: "mock" },
+});
+```
+
+For persistent deployments, replace the in-memory stores with SQLite,
+Postgres, D1, Qdrant, Vectorize, or another supported adapter. See
+[Configuration](/open-source/configuration).
+
+## Store a memory
+
+```ts
+await memory.add("Alex prefers dark mode and writes TypeScript.", {
+  userId: "alex",
+  infer: false,
+  metadata: { source: "onboarding" },
+});
+```
+
+`infer: false` stores the submitted string verbatim and makes zero LLM calls.
+For conversational input, omit `infer` (or set it to `true`) to make one
+extraction call and store only refined canonical records.
+
+## Recall it
+
+```ts
+const { results } = await memory.search("How should I present examples to Alex?", {
+  userId: "alex",
+  limit: 5,
+});
+```
+
+Search with the same scope used on write. Depending on configuration, recall
+can combine keyword, vector, temporal, and graph signals.
+
+## Use the service instead
+
+If your application should call a shared or remotely deployed FishMem instance,
+use [`@fishmem/sdk`](/sdk/quickstart). It provides the same client across Node,
+Bun, Deno, Cloudflare Workers, and Vercel.

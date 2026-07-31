@@ -1,0 +1,44 @@
+---
+title: Mastra
+description: Use FishMem at the boundaries of a Mastra workflow or agent.
+---
+
+FishMem does not publish a Mastra adapter. Use the universal SDK in a workflow
+step or tool:
+
+```bash
+npm install @mastra/core @fishmem/sdk
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+
+export async function recallForTask(task: string, userId: string) {
+  return fishmem.memories.search({
+    query: task,
+    user_id: userId,
+    top_k: 5,
+  });
+}
+
+export async function rememberConclusion(
+  content: string,
+  userId: string,
+) {
+  return fishmem.memories.add({
+    content,
+    infer: false,
+    user_id: userId,
+    metadata: { source: "mastra" },
+  });
+}
+```
+
+Call `recallForTask` before the model-facing step and
+`rememberConclusion` only after your workflow has identified a durable
+conclusion. This keeps the memory policy visible in your workflow instead of
+hiding it in an adapter.

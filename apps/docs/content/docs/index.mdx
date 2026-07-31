@@ -1,0 +1,52 @@
+---
+title: Overview
+description: One private memory. Every agent.
+---
+
+FishMem is a privacy-first memory layer for AI agents. It turns conversations
+into compact durable records by default, stores already-distilled input
+verbatim when requested, keeps records isolated by scope, and recalls the
+relevant parts in later sessions.
+
+FishMem has three product surfaces:
+
+- **FishMem Desktop** — local memory for Codex and Claude Code.
+- **FishMem Open Source** — a self-hosted memory service, REST API, dashboard,
+  and TypeScript engine.
+- **FishMem Cloud** — the managed commercial service, with API keys,
+  observability, operations, and webhooks.
+
+## Start here
+
+<Cards>
+  <Card title="Desktop agents" href="/agent-plugins" description="Connect Codex or Claude Code to private local memory." />
+  <Card title="TypeScript and Python SDKs" href="/sdk" description="Use the HTTP API or the local Desktop CLI through first-party clients." />
+  <Card title="Self-host FishMem" href="/open-source/self-hosting" description="Run the service and dashboard on your own infrastructure." />
+  <Card title="REST API" href="/api-reference" description="Use every memory endpoint directly over HTTP." />
+</Cards>
+
+## The memory contract
+
+`infer: true` is the application default: one LLM call extracts refined
+canonical records, and only those records are stored. `infer: false` stores
+submitted content records verbatim and makes zero LLM calls. FishMem never
+writes both forms for one add and never silently falls back when extraction
+fails.
+
+Long text and files follow a separate document path: retain the source and
+index chunks for RAG instead of pretending every passage is a durable personal
+fact. Derived state and profile views remain rebuildable projections with
+provenance back to canonical records.
+
+Recall can combine keyword, vector, temporal, and graph signals when configured.
+The exact storage and retrieval capabilities depend on the deployment profile;
+basic storage does not require a hosted embedding provider.
+
+## Choose your path
+
+<Cards>
+  <Card title="FishMem Cloud" href="/cloud" description="Managed memory API and control plane." />
+  <Card title="FishMem Open Source" href="/open-source" description="Self-hosted service and embeddable TypeScript engine." />
+  <Card title="SDK reference" href="/sdk" description="Client configuration, memory methods, pagination, and errors." />
+  <Card title="Cookbooks" href="/cookbooks" description="End-to-end memory patterns for real agent workflows." />
+</Cards>

@@ -1,0 +1,117 @@
+---
+title: Search memories
+description: Semantic search for relevant memories within a scope.
+---
+
+## `POST /v1/memories/search`
+
+Returns the most relevant memories for a query, ranked by `score`. Scope the
+search with `user_id`, `agent_id`, and/or `run_id`.
+
+## Parameters
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `query` | string | yes | Search query |
+| `user_id` | string | no | User scope |
+| `agent_id` | string | no | Agent scope |
+| `run_id` | string | no | Run scope |
+| `top_k` | number | no | Max results (default `10`, range `1`–`50`; alias `limit`) |
+| `memory_type` | string | no | Exact type filter: `fact`, `preference`, `decision`, `identity`, `event`, `observation`, `goal`, or `todo` |
+| `filters` | object | no | Legacy metadata equality map or a bounded logical [filter expression](/api-reference/filters) |
+| `mode` | string | no | `hybrid` (default), `recent`, `important`, or `typed` |
+| `search_strategy` | string | no | `balanced` (default), `precision`, `recall`, or `auto` |
+| `sort_by` | string | no | `recent`, `importance`, `most_accessed`, or `last_accessed` |
+| `min_score` | number | no | Final ranking-score floor from `0` to `1` |
+| `trace` | boolean | no | Include per-lane retrieval evidence (default `false`) |
+
+## Request
+
+```bash
+curl https://fishmem.com/v1/memories/search \
+  -H "Authorization: Bearer fm_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "what does alex like?",
+    "user_id": "alex",
+    "top_k": 5,
+    "memory_type": "preference",
+    "filters": {"environment": "production"},
+    "search_strategy": "precision"
+  }'
+```
+
+The legacy `filters` shape compares top-level metadata fields by exact scalar
+equality. The logical shape supports nested metadata, ranges, membership,
+negation, AND, and OR. `user_id`, `agent_id`, and `run_id` stay outside the
+expression and are always ANDed with it. See [Memory filters](/api-reference/filters)
+for the grammar, limits, and semantic-candidate recall boundary.
+
+FishMem reloads every candidate from the canonical memory store and applies the
+scope, type, and filter there; a stale or broadly matched vector candidate
+cannot bypass them.
+
+`search_strategy` changes the hybrid retrieval lane. Use `precision` for narrow
+point facts, `recall` for enumeration and multi-hop recall, or `auto` to route
+with FishMem's local query-intent heuristic. It never invokes an LLM.
+
+The public API intentionally does not expose the core engine's experimental
+`deep` mode because it can perform an additional LLM call. Hosted pricing and
+authorization must cover that work before it becomes a stable API capability.
+`score` is FishMem's final fused ranking score, not raw cosine similarity, so
+calibrate `min_score` against your own queries.
+
+## Response
+
+```json
+{
+  "results": [
+    {
+      "id": "mem_…",
+      "memory": "Prefers dark mode",
+      "memory_type": "fact",
+      "importance": 0.7,
+      "user_id": "alex",
+      "agent_id": null,
+      "run_id": null,
+      "metadata": null,
+      "created_at": "2026-01-01T00:00:00.000Z",
+      "updated_at": "2026-01-01T00:00:00.000Z",
+      "event_date": null,
+      "valid_from": null,
+      "valid_to": null,
+      "score": 0.83
+    }
+  ]
+}
+```
+
+When `trace: true`, the response also contains `trace.lists`, `trace.fused`,
+`trace.selected`, and `trace.selected_items`. If belief-chain reconstruction
+is enabled and relevant, `beliefs` contains ordered facts for each
+`(subject, attribute)` slot.
+
+## Hosted consistency
+
+The Hosted and self-hosted Cloudflare backends commit canonical memory state
+to D1 before returning a successful write. Exact get, list, and history reads
+therefore see that state immediately. Cloudflare Vectorize applies vector
+upserts asynchronously, so a newly added memory can take several seconds to
+appear in semantic search.
+
+If an application must search immediately after adding a memory, retry the
+search with bounded backoff. Reuse the original idempotency key if the write
+itself must be retried; do not create duplicate writes while waiting for the
+search projection. FishMem rehydrates vector candidates from canonical D1, so
+stale vector entries cannot bypass scope checks or return a deleted record.
+See Cloudflare's
+[Vectorize API consistency notes](https://developers.cloudflare.com/vectorize/reference/client-api/).
+
+## Credits
+
+1 credit per search.
+
+## Errors
+
+Returns the standard [error shape](/api-reference). A missing or invalid key
+returns `401` with `code: "INVALID_API_KEY"`.

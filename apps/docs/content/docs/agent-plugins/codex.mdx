@@ -1,0 +1,48 @@
+---
+title: Codex
+description: Connect Codex to FishMem Desktop with a global Skill and local CLI.
+---
+
+## Connect
+
+1. Open FishMem Desktop.
+2. Open **Codex & Claude**.
+3. Select **Connect to Codex**.
+4. Restart Codex so it discovers the newly installed Skill.
+
+Desktop installs the Skill at:
+
+```text
+~/.agents/skills/fishmem
+```
+
+It also installs the `fishmem` command under `~/.fishmem/bin` and links it into
+`~/.local/bin`.
+
+## Verify
+
+Ask Codex:
+
+```text
+Remember that this project uses pnpm and TypeScript strict mode.
+```
+
+Then verify from a terminal:
+
+```bash
+fishmem search --query "project package manager and TypeScript settings" \
+  --limit 10 \
+  --json
+```
+
+FishMem Desktop must be running because the CLI connects to its authenticated
+private local socket. If Desktop is closed, the command fails explicitly
+instead of writing to a second hidden store.
+
+## What gets stored
+
+Codex turns the durable conclusion into a concise, self-contained memory before
+calling the CLI. FishMem preserves that submitted text verbatim and records
+`codex` as the client provenance.
+
+FishMem does not install an MCP server for Codex.

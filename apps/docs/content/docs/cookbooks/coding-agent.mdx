@@ -1,0 +1,62 @@
+---
+title: Give a coding agent project memory
+description: Recall project decisions before work and preserve durable conclusions afterward.
+---
+
+Use `agent_id` for the agent and `run_id` for the repository. Together they
+keep conventions from one project out of another.
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+
+const scope = {
+  agent_id: "codex",
+  run_id: "repo:billing-service",
+};
+```
+
+## Recall before work
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: task,
+  ...scope,
+  top_k: 8,
+});
+
+const projectMemory = results
+  .map((item) => `- ${item.memory}`)
+  .join("\n");
+```
+
+Inject `projectMemory` as context, not as user-authored instructions. Treat
+memories as potentially stale evidence and allow current repository files to
+override them.
+
+## Remember after work
+
+Store only conclusions that will matter in another session:
+
+```ts
+await fishmem.memories.add({
+  content:
+    "Billing API handlers live in src/handlers and export a default async function.",
+  infer: false,
+  ...scope,
+  metadata: {
+    kind: "convention",
+    source: "architecture-review",
+  },
+});
+```
+
+Good coding memories include architectural decisions, stable commands,
+repository conventions, and hard-won gotchas. Avoid transient task state,
+generated logs, or information that already has a clear canonical file.
+
+FishMem Desktop automates this loop for Codex and Claude Code through a Skill
+and the local CLI.

@@ -1,0 +1,105 @@
+---
+title: Install
+description: Install FishMem for coding agents, applications, or self-hosting.
+---
+
+Choose the surface that matches what you are building.
+
+## Codex and Claude Code
+
+[Download FishMem Desktop for macOS (Universal DMG)](https://downloads.fishmem.com/desktop/mac/latest/FishMem.dmg).
+The signed and notarized build supports Apple silicon and Intel Macs on macOS
+13.4 or newer. The [ZIP archive](https://downloads.fishmem.com/desktop/mac/latest/FishMem.zip)
+and [release manifest with SHA-256 checksums](https://downloads.fishmem.com/desktop/mac/latest/manifest.json)
+are also available.
+
+Install and open FishMem Desktop, then select **Connect to Codex** or
+**Connect to Claude Code**. Desktop installs:
+
+- the local `fishmem` command;
+- a host-specific FishMem Skill;
+- the connection metadata needed to reach the local Desktop service.
+
+No MCP server is required. The Skill tells the agent when to remember and
+recall; the CLI provides the small, deterministic command surface.
+
+After connecting, restart the agent and ask:
+
+```text
+Remember that this project uses pnpm and TypeScript strict mode.
+```
+
+Then start a new session and ask:
+
+```text
+What project conventions do you remember?
+```
+
+Codex and Claude Code are the supported Desktop integrations.
+
+## Application SDK
+
+```bash
+npm install @fishmem/sdk
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+  // baseUrl: "https://memory.example.com", // self-hosted
+});
+
+await fishmem.memories.add({
+  content: "Alex prefers concise answers.",
+  user_id: "alex",
+});
+```
+
+The same package runs on Node.js, Bun, Deno, Cloudflare Workers, and Vercel.
+See the [SDK quickstart](/sdk/quickstart).
+
+Python applications use the same API:
+
+```bash
+pip install fishmem-sdk
+```
+
+```python
+from fishmem import FishMem
+
+fishmem = FishMem(api_key="fm_...")
+```
+
+See the [Python SDK guide](/sdk/python).
+
+## Direct REST API
+
+```bash
+curl https://fishmem.com/v1/memories \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"Alex prefers concise answers.","user_id":"alex"}'
+```
+
+Use your own instance URL when self-hosting. See the
+[API reference](/api-reference) for every endpoint.
+
+## Embedded TypeScript engine
+
+Use the lower-level `fishmem` package when the engine must run inside your
+process:
+
+```bash
+npm install fishmem
+```
+
+This path exposes storage, LLM, embedder, and retrieval configuration directly.
+It is separate from `@fishmem/sdk`, which calls the FishMem service over HTTP.
+
+## Self-hosted service
+
+Self-hosting includes the REST API and web dashboard. Follow the
+[self-hosting guide](/open-source/self-hosting), then pass your deployment URL
+as the SDK `baseUrl`.

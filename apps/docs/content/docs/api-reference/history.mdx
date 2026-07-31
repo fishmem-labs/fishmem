@@ -1,0 +1,49 @@
+---
+title: Memory history
+description: Retrieve the audit trail of changes to a memory.
+---
+
+## `GET /v1/memories/{id}/history`
+
+Returns the ordered change log for the memory identified by `{id}`.
+
+## Parameters
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | string | yes | Memory ID (path parameter), e.g. `mem_…` |
+
+## Request
+
+```bash
+curl https://fishmem.com/v1/memories/mem_123/history \
+  -H "Authorization: Bearer fm_..."
+```
+
+## Response
+
+```json
+{
+  "results": [
+    {
+      "id": "evt_…",
+      "memory_id": "mem_…",
+      "event": "ADD",
+      "previous_value": null,
+      "new_value": "Prefers dark mode",
+      "created_at": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+Each entry's `event` is one of `ADD`, `UPDATE`, `INVALIDATE`, or `DELETE`.
+
+## Credits
+
+Free.
+
+## Errors
+
+Returns the standard [error shape](/api-reference). A missing or invalid key
+returns `401` with `code: "INVALID_API_KEY"`.

@@ -1,0 +1,32 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Smallest code snippet that reproduces it (mock providers preferred — `Memory.create({ llm: {provider:"mock"}, embedder: {provider:"mock"} })`).
+      render: ts
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: fishmem version
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Runtime & stores
+      placeholder: "Node 22 / Workers; graphStore=sqlite, vectorStore=pgvector"
+    validations:
+      required: true

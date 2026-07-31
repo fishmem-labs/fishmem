@@ -1,0 +1,100 @@
+---
+title: Errors and idempotency
+description: Handle structured failures, timeouts, retries, and mutation safety.
+---
+
+## Structured errors
+
+Non-2xx responses throw `FishMemError`:
+
+```ts
+import { FishMemError } from "@fishmem/sdk";
+
+try {
+  await fishmem.memories.search({
+    query: "preferences",
+    user_id: "alex",
+  });
+} catch (error) {
+  if (error instanceof FishMemError) {
+    console.error(error.status, error.code, error.requestId);
+  }
+  throw error;
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `status` | HTTP status code. |
+| `code` | Stable FishMem error code when supplied by the server. |
+| `requestId` | Request identifier for logs and support. |
+| `details` | Structured validation or conflict details. |
+
+The SDK also rejects invalid JSON responses. It does not return a partially
+parsed success value.
+
+## Timeouts
+
+```ts
+await fishmem.memories.search(
+  { query: "preferences", user_id: "alex" },
+  { signal: AbortSignal.timeout(5_000) },
+);
+```
+
+## Safe retries
+
+Reads can normally be retried. Mutations should be retried only with an
+idempotency key:
+
+```ts
+await fishmem.memories.add(
+  {
+    content: "Alex prefers dark mode.",
+    user_id: "alex",
+  },
+  { idempotencyKey: "alex-dark-mode-v1" },
+);
+```
+
+Reusing the same key with the same request returns the original operation
+result. Reusing it with different content returns HTTP 409.
+
+`infer:true` always requires a key because the HTTP request and worker are
+separate failure domains. The initial call returns an event receipt. A safe
+retry returns the same event without repeating the charge or creating another
+inference task.
+
+```ts
+import { FishMemEventError } from "@fishmem/sdk";
+
+const receipt = await fishmem.memories.addAsync(
+  { content: "Alex prefers dark mode.", user_id: "alex" },
+  { idempotencyKey: "alex-dark-mode-v1" },
+);
+
+try {
+  await fishmem.events.wait(receipt.event_id);
+} catch (error) {
+  if (error instanceof FishMemEventError) {
+    console.error(error.event.attempts, error.event.error);
+  }
+  throw error;
+}
+```
+
+File upload uses one idempotency key for source-asset creation. A safe retry
+continues from the returned asset:
+
+1. repeat create with the same key and command;
+2. repeat the exact-byte `PUT` if needed;
+3. repeat completion;
+4. poll the same operation id.
+
+Each step is idempotent. The server rejects a different command or different
+bytes instead of silently replacing an immutable source. SDK `upload()` runs
+those steps for you, but it deliberately does not hide extraction polling.
+
+The SDK intentionally does not apply hidden automatic retries. Your application
+controls retry policy, deadlines, and backoff, while FishMem's idempotency
+contract keeps writes deterministic.

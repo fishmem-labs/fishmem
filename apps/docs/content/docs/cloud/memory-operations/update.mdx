@@ -1,0 +1,81 @@
+---
+title: Update
+description: Deterministically correct a memory's canonical content or metadata.
+---
+
+Update corrects an existing canonical record by `id`. It is deterministic and
+does not invoke extraction. Use it when the application or operator knows the
+replacement value.
+
+## What you can change
+
+- **`content`** — replaces the memory's stored content.
+- **`metadata`** — replaces the memory's metadata object.
+- **`importance`** — sets a value from `0` through `1`.
+- **`memory_type`** — sets the canonical memory type.
+- **`version`** — asserts the current `updated_at` value for optimistic
+  concurrency.
+
+Send either or both. The path carries the memory `id` you're updating.
+
+```bash
+curl -X PUT https://fishmem.com/v1/memories/mem_124 \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: alice-diet-v2" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Is vegan",
+    "metadata": {"source": "profile-edit"},
+    "version": "2026-06-13T10:00:00Z"
+  }'
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({ apiKey });
+await fishmem.memories.update(
+  "mem_124",
+  {
+    content: "Is vegan",
+    metadata: { source: "profile-edit" },
+    version: "2026-06-13T10:00:00Z",
+  },
+  { idempotencyKey: "alice-diet-v2" },
+);
+```
+
+## Parameters
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `{id}` (path) | string | The memory id to update. |
+| `content` | string | Optional. New content for the memory. |
+| `metadata` | object | Optional. Replaces existing metadata. |
+| `importance` | number | Optional. Value from 0 through 1. |
+| `memory_type` | string | Optional. Canonical memory type. |
+| `version` | string | Optional. Expected current `updated_at`. |
+
+## Response
+
+```json
+{
+  "id": "mem_124",
+  "memory": "Is vegan",
+  "event": "UPDATE"
+}
+```
+
+`event` will be `UPDATE` when the change is applied.
+
+## Notes
+
+An update is recorded in the immutable history. Scope fields are structural:
+they cannot be moved or overwritten through metadata. A stale `version`
+returns `409 VERSION_CONFLICT` instead of overwriting a concurrent correction.
+
+## Credits
+
+Updates are free.
+
+See the full contract at [/api-reference/update](/api-reference/update).

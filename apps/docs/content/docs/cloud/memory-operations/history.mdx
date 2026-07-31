@@ -1,0 +1,72 @@
+---
+title: History
+description: Read the full change log for a memory — every add, update, invalidation, and delete.
+---
+
+History returns the change log for a single memory: every event that ever touched it, in order, with the value before and after. This is what makes FishMem auditable — you can see not just what a memory says now, but how it got there. It's a `GET`, and it's **free**.
+
+## What it returns
+
+Each entry records one change to the memory identified by `{id}`. You get the event type, the previous value, the new value, and a timestamp.
+
+```bash
+curl https://fishmem.com/v1/memories/mem_124/history \
+  -H "Authorization: Bearer fm_..."
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({ apiKey });
+const { results } = await fishmem.memories.history("mem_124");
+```
+
+Response:
+
+```json
+{
+  "results": [
+    {
+      "id": "evt_1",
+      "memory_id": "mem_124",
+      "event": "ADD",
+      "previous_value": null,
+      "new_value": "Is vegetarian",
+      "created_at": "2026-06-13T10:00:00Z"
+    },
+    {
+      "id": "evt_2",
+      "memory_id": "mem_124",
+      "event": "UPDATE",
+      "previous_value": "Is vegetarian",
+      "new_value": "Is vegan",
+      "created_at": "2026-06-14T09:30:00Z"
+    }
+  ]
+}
+```
+
+## Event types
+
+| Event | Meaning |
+|-------|---------|
+| `ADD` | The memory was created. |
+| `UPDATE` | Its content was revised. |
+| `INVALIDATE` | It was superseded — no longer valid as of some point in time. |
+| `DELETE` | The memory was removed. |
+
+## Ties to bi-temporal tracking
+
+`INVALIDATE` is the key to FishMem's bi-temporal model. When a newer fact contradicts an older one, the old memory isn't erased — it's invalidated, with a `valid_to` set on the memory object. History plus `valid_from` / `valid_to` lets you reconstruct what was known and true at any past moment. See [bi-temporal](/open-source/concepts/bi-temporal) for how this works end to end.
+
+## Parameters
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `{id}` (path) | string | The memory id to read history for. |
+
+## Credits
+
+History is a read and is **free**.
+
+See the full contract at [/api-reference/history](/api-reference/history).

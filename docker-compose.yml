@@ -1,0 +1,86 @@
+# Self-hosting stack for the FishMem OSS edition.
+#
+#   docker compose up -d web task-worker docs  # complete app + extraction + docs
+#   docker compose up -d postgres   # just the database (for the library / dashboard)
+#
+# The Cloudflare-backed Cloud/EE edition deploys separately (wrangler) and does
+# not use this file. See DEPLOY.md.
+
+services:
+  # Postgres with the pgvector extension — the database for self-hosted fishmem
+  # (the library's PgVectorStore + Postgres graph store, and the dashboard when
+  # DATABASE_URL is set). Vectors and the relational graph live here together.
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: fishmem
+      POSTGRES_PASSWORD: fishmem
+      POSTGRES_DB: fishmem
+    ports:
+      - "5432:5432"
+    volumes:
+      - fishmem-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fishmem"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Documentation site (Fumadocs static export, served by nginx).
+  docs:
+    build:
+      context: .
+      dockerfile: apps/docs/Dockerfile
+    ports:
+      - "8080:80"
+
+  # OSS dashboard on Node + libSQL (embedded SQLite in a volume — the verified
+  # self-host path). The container runs `drizzle-kit push` then serves the app.
+  web:
+    image: fishmem-web:local
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      FISHMEM_RUNTIME: node
+      FISHMEM_DB: libsql
+      DATABASE_URL: file:/data/fishmem.db
+      FISHMEM_ASSET_DIR: /data/assets
+      FISHMEM_EXTRACTOR_URL: http://extractor:5001
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CRON_SECRET: ${CRON_SECRET:-change-me-task-secret}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-change-me-min-32-characters-long}
+      BETTER_AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - fishmem-webdata:/data
+    depends_on:
+      - extractor
+
+  # CPU-only Docling v1.21.0. Cloudflare Containers build this same Dockerfile,
+  # so extraction semantics and artifact versioning stay identical.
+  extractor:
+    build:
+      context: apps/web/services/extractor
+      dockerfile: Dockerfile
+    expose:
+      - "5001"
+
+  # Durable Node task pickup. It calls the existing authenticated cron handler;
+  # the database remains the only retry/status source.
+  task-worker:
+    image: fishmem-web:local
+    command: ["node", "scripts/poll-tasks.mjs"]
+    environment:
+      FISHMEM_TASK_WORKER_BASE_URL: http://web:3000
+      FISHMEM_TASK_POLL_MS: 2000
+      FISHMEM_MAINTENANCE_MS: 86400000
+      CRON_SECRET: ${CRON_SECRET:-change-me-task-secret}
+    depends_on:
+      - web
+
+volumes:
+  fishmem-pgdata:
+  fishmem-webdata:

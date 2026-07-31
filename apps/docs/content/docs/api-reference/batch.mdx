@@ -1,0 +1,133 @@
+---
+title: Batch memory mutations
+description: Queue durable updates or deletes for up to 1,000 memories with explicit per-item results.
+---
+
+FishMem batch mutations are durable asynchronous operations. They validate the
+whole request, persist one operation, and process bounded chunks through the
+same task worker used by other long-running work.
+
+## Batch update
+
+### `PUT /v1/memories/batch`
+
+```bash
+curl -X PUT https://fishmem.com/v1/memories/batch \
+  -H "Authorization: Bearer fm_..." \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: customer-refresh-2026-07-30" \
+  -d '{
+    "memories": [
+      {
+        "memory_id": "mem_1",
+        "content": "Customer uses the Pro plan.",
+        "version": "2026-07-30T00:00:00.000Z"
+      },
+      {
+        "memory_id": "mem_2",
+        "metadata": {"source": "crm"}
+      }
+    ]
+  }'
+```
+
+Each item accepts the same mutable fields as
+[`PUT /v1/memories/{id}`](/api-reference/update): `content`, `metadata`,
+`importance`, `memory_type`, and optional optimistic `version`. At least one
+mutable field is required.
+
+## Batch delete
+
+### `DELETE /v1/memories/batch`
+
+```bash
+curl -X DELETE https://fishmem.com/v1/memories/batch \
+  -H "Authorization: Bearer fm_..." \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: remove-import-42" \
+  -d '{
+    "memories": [
+      {"memory_id": "mem_1"},
+      {"memory_id": "mem_2"}
+    ]
+  }'
+```
+
+## Request limits
+
+- `memories` must contain 1–1,000 items.
+- Every `memory_id` must be unique within the request.
+- The encoded request must be at most 750,000 UTF-8 bytes.
+- `Idempotency-Key` is required and must contain 1–200 characters.
+
+The byte limit keeps the durable task row below the strictest supported
+runtime's row-size boundary. Split larger payloads into several independently
+identifiable batches.
+
+## Accepted operation
+
+Both endpoints return HTTP `202` with an operation:
+
+```json
+{
+  "id": "task_...",
+  "kind": "batch_update",
+  "status": "pending",
+  "attempts": 0,
+  "max_attempts": 5,
+  "error": null,
+  "next_attempt_at": "2026-07-30T00:00:00.000Z",
+  "result": null,
+  "created_at": "2026-07-30T00:00:00.000Z",
+  "updated_at": "2026-07-30T00:00:00.000Z"
+}
+```
+
+Poll [`GET /v1/operations/{id}`](/api-reference/operations). A completed task
+returns explicit per-item results:
+
+```json
+{
+  "id": "task_...",
+  "kind": "batch_update",
+  "status": "success",
+  "result": {
+    "total": 2,
+    "processed": 2,
+    "succeeded": 1,
+    "failed": 1,
+    "items": [
+      {
+        "memory_id": "mem_1",
+        "status": "succeeded",
+        "event": "UPDATE"
+      },
+      {
+        "memory_id": "missing",
+        "status": "failed",
+        "error": {
+          "code": "MEMORY_NOT_FOUND",
+          "message": "Memory not found"
+        }
+      }
+    ]
+  }
+}
+```
+
+## Failure and retry semantics
+
+Batch mutations are not falsely described as an all-or-nothing transaction:
+canonical storage and vector projections cross different durable systems.
+Validation happens before enqueue. During execution, permanent item errors such
+as not-found and version conflicts are recorded on that item and processing
+continues. Infrastructure failures retry the current chunk; already completed
+items replay through deterministic child idempotency keys.
+
+Reusing the parent key with the exact request returns the same operation.
+Reusing it with different items returns `409 IDEMPOTENCY_CONFLICT`.
+
+## Credits
+
+Batch update and delete are free. They still appear in request and operation
+observability.

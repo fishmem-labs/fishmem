@@ -1,0 +1,41 @@
+---
+title: Scoping
+description: How user_id, agent_id, and run_id partition memories — and how workspace isolation sits underneath all of them.
+---
+
+## Why scoping exists
+
+A single assistant serves many end users, has its own persona, and runs many sessions. If all of that memory lands in one undifferentiated pool, recall gets noisy fast — you'd surface one user's facts to another, or drag stale session context into a fresh conversation. Scoping is how you tell FishMem who a memory belongs to so reads stay relevant.
+
+You attach scope on `add` and filter by the same scope on search. The three scopes are independent and composable.
+
+## The three scopes
+
+### `user_id` — facts about an end user
+
+Use this for things that are true about the person your assistant is talking to: where they live, their preferences, their account details, decisions they've made. This is the most common scope and the one most "memory" features are really about.
+
+```ts
+await client.add(messages, { user_id: "u_8417" });
+```
+
+### `agent_id` — the assistant's own facts
+
+Use this for the assistant's persona, operating rules, or knowledge it should carry across every user — "I am a concise support agent," "always quote prices in EUR." These facts belong to the assistant, not to any one person, so they're scoped to the agent rather than a user.
+
+### `run_id` — a single session
+
+Use this for facts that only matter within one conversation or task run and shouldn't leak into the next one. Scratch context, a temporary goal, the state of an in-progress workflow. When the run ends, you simply stop reading that `run_id`.
+
+## Combining scopes
+
+Scopes stack. A typical read passes `user_id` (who we're serving) plus `agent_id` (the assistant's own context), and optionally `run_id` to pull session-local state. Pass only what's relevant to the query — narrower scope means tighter, more relevant recall.
+
+## Underneath: workspace isolation
+
+Scoping organizes memory *within* your project. It is not the security boundary. Every memory is also tagged with your project id, and every read is filtered by it automatically — so a `user_id` in one project can never collide with the same `user_id` in another. See [workspace isolation](/open-source/concepts/workspace-isolation) for how that's enforced.
+
+## Next
+
+- [Workspace isolation](/open-source/concepts/workspace-isolation) — the data-layer boundary around your project.
+- [add](/cloud/memory-operations/add) — passing scope when you write memories.

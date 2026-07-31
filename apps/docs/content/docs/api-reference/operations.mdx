@@ -1,0 +1,114 @@
+---
+title: Operations
+description: Inspect asynchronous batch mutations, document extraction, export, import, derivation, and maintenance work.
+---
+
+## `GET /v1/operations`
+
+```bash
+curl "https://fishmem.com/v1/operations?limit=20" \
+  -H "Authorization: Bearer fm_..."
+```
+
+```json
+{
+  "results": [
+    {
+      "id": "op_...",
+      "kind": "export",
+      "status": "processing",
+      "attempts": 1,
+      "max_attempts": 5,
+      "error": null,
+      "next_attempt_at": null,
+      "result": null,
+      "started_at": "2026-07-30T00:00:00.100Z",
+      "completed_at": null,
+      "created_at": "2026-07-30T00:00:00.000Z",
+      "updated_at": "2026-07-30T00:00:01.000Z"
+    }
+  ]
+}
+```
+
+`limit` ranges from `1` to `100`.
+
+Operation kinds include `batch_update`, `batch_delete`, `document_extract`,
+`memory_infer`, `export`, `import`, `derive`, `rebuild`, `maintenance`, and
+`purge`. Some deployments may expose additional operator tasks.
+
+For application-facing memory inference, prefer the privacy-safe
+[Event API](/api-reference/events). The operations API is the broader
+operator view and also exposes document, batch, import/export, derivation, and
+maintenance jobs.
+
+## `GET /v1/operations/{id}`
+
+Returns one operation or `404 OPERATION_NOT_FOUND`.
+
+Terminal success states are `success` and `committed`. Terminal failure states
+are `dead` and `failed`. `awaiting_upload`, `pending`, `retry`, and `processing`
+are non-terminal. `cancelled` is terminal and may appear briefly if external
+cleanup or hosted accounting must be retried.
+
+`result` contains the export snapshot, import counts, or task-specific output
+after success. A successful `document_extract` result has this shape:
+
+```json
+{
+  "source_asset": {
+    "id": "asset_...",
+    "status": "ready",
+    "document_id": "doc_..."
+  },
+  "artifact": {
+    "id": "artifact_...",
+    "page_count": 12,
+    "extractor": "docling",
+    "extractor_version": "docling-serve@1.21.0"
+  },
+  "document": {
+    "id": "doc_...",
+    "source_key": "handbook/product.pdf"
+  },
+  "chunks": 34,
+  "created": true,
+  "retrieval": {
+    "status": "propagating",
+    "visibility_target_ms": 120000
+  }
+}
+```
+
+Batch mutation results contain `total`, `processed`, `succeeded`, `failed`, and
+an ordered `items` array. `status: "success"` means the durable worker completed
+the batch; inspect `result.failed` for permanent per-item errors.
+
+## `POST /v1/operations/{id}/retry`
+
+Redrives an operation in `retry` or `dead`:
+
+```bash
+curl -X POST "https://fishmem.com/v1/operations/op_.../retry" \
+  -H "Authorization: Bearer fm_..."
+```
+
+The response is `202`; attempts, terminal error, result, and lease timestamps
+are reset before the main queue is notified. For `document_extract`, its source
+asset also returns to `queued`. Existing raw bytes and immutable extraction
+artifacts are reused. A missing, successful, cancelled, or otherwise terminal
+non-retryable operation returns `404 OPERATION_NOT_RETRYABLE`.
+Repeating the request after the task has already returned to `pending` or
+advanced to `processing` is an idempotent no-op and still returns `202`.
+
+Read methods need `operations:read`; retry needs `memory:write`. The TypeScript
+and Python SDKs provide `operations.get`, `operations.list`,
+`operations.retry`, and `operations.wait`. Polling is explicit and SDKs do not
+hide task retries.
+
+Queue delivery is a wakeup, not the authority. A durable task row owns status,
+leases, attempts, exponential backoff, and terminal result. Scheduled pickup
+repairs a lost queue notification. If Queue delivery itself exhausts its retry
+budget, the DLQ consumer makes that terminal failure visible in the same task
+and Dashboard event timeline; manual retry redrives that task rather than
+copying it.

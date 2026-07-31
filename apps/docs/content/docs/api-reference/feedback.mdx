@@ -1,0 +1,118 @@
+---
+title: Memory feedback
+description: Read, set, or clear an audited quality signal on a memory.
+---
+
+## `GET /v1/memories/{id}/feedback`
+
+Returns the current feedback signal for one memory. A memory with no current
+signal returns `200` with `feedback: null`; an unknown or inaccessible memory
+returns `404 MEMORY_NOT_FOUND`.
+
+```bash
+curl https://fishmem.com/v1/memories/mem_123/feedback \
+  -H "Authorization: Bearer fm_..."
+```
+
+## `POST /v1/memories/{id}/feedback`
+
+Sets the current signal. FishMem Cloud requires an `Idempotency-Key`, so a
+network retry cannot append the same signal twice.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `rating` | string | yes | `positive`, `negative`, or `very_negative` |
+| `reason` | string | no | Actionable explanation, at most 2,000 characters |
+| `request_id` | string | no | Retrieval/request trace that produced this result |
+
+```bash
+curl -X POST https://fishmem.com/v1/memories/mem_123/feedback \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: support-answer-42-feedback-v1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rating": "negative",
+    "reason": "The preference is no longer current",
+    "request_id": "req_01H..."
+  }'
+```
+
+```json
+{
+  "feedback": {
+    "id": "op_...:feedback",
+    "memory_id": "mem_123",
+    "rating": "negative",
+    "reason": "The preference is no longer current",
+    "request_id": "req_01H...",
+    "created_at": "2026-07-31T13:00:00.000Z"
+  }
+}
+```
+
+## `DELETE /v1/memories/{id}/feedback`
+
+Clears the current signal. It does not erase the audit event. Cloud requires
+an `Idempotency-Key`.
+
+```bash
+curl -X DELETE https://fishmem.com/v1/memories/mem_123/feedback \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: support-answer-42-feedback-clear-v1"
+```
+
+```json
+{ "cleared": true }
+```
+
+## Storage and ranking semantics
+
+Feedback is an immutable `FEEDBACK` event in the same memory history and
+operation journal used by updates and deletes. It is therefore included in
+namespace export/import. Setting feedback does not rewrite memory content,
+metadata, importance, or vector projections.
+
+The current release records feedback for audit, analysis, and future calibrated
+ranking. It does **not** silently train on a signal or change recall ranking at
+request time. Applications that know a fact is wrong should also call
+[`PUT /v1/memories/{id}`](/api-reference/update) or delete it explicitly.
+
+## SDK
+
+```ts
+const current = await fishmem.memories.getFeedback("mem_123");
+
+await fishmem.memories.setFeedback(
+  "mem_123",
+  {
+    rating: "negative",
+    reason: "The preference is no longer current",
+    request_id: "req_01H...",
+  },
+  { idempotencyKey: "support-answer-42-feedback-v1" },
+);
+
+await fishmem.memories.clearFeedback("mem_123", {
+  idempotencyKey: "support-answer-42-feedback-clear-v1",
+});
+```
+
+The same methods work through `FishMemDesktop`; the local call does not need
+the embedding model to be ready.
+
+```python
+current = fishmem.memories.get_feedback("mem_123")
+fishmem.memories.set_feedback(
+    "mem_123",
+    {"rating": "negative", "reason": "The preference is stale"},
+    idempotency_key="support-answer-42-feedback-v1",
+)
+fishmem.memories.clear_feedback(
+    "mem_123",
+    idempotency_key="support-answer-42-feedback-clear-v1",
+)
+```
+
+## Credits
+
+Feedback reads and writes are free.

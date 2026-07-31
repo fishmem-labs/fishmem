@@ -1,0 +1,157 @@
+---
+title: Desktop SDK
+description: Call the running local FishMem app through the stable machine-oriented fishmem CLI.
+---
+
+FishMem Desktop is local-only. It uses the quantized multilingual E5 model and
+does not support a remote embedding provider, API key, or hosted fallback.
+Codex or Claude Code distills a durable record first; Desktop stores it with
+`infer=false`.
+
+The `fishmem` command must be installed from the Desktop integration screen.
+It can start the installed app and wait for the authenticated local socket:
+
+```bash
+fishmem desktop start --json
+```
+
+The command is idempotent when Desktop is already running. It launches the app;
+it does not create a second daemon or switch to a hosted service.
+
+## TypeScript
+
+The Desktop adapter is an explicit Node-only subpath. The normal HTTP import
+remains safe for Workers, Deno, and edge runtimes.
+
+```ts
+import { FishMemDesktop } from "@fishmem/sdk/desktop";
+
+const desktop = new FishMemDesktop();
+
+await desktop.memories.add(
+  {
+    content: "Use the canonical deployment pipeline.",
+    infer: false,
+  },
+  { idempotencyKey: "deployment-pipeline-v1" },
+);
+
+const { results } = await desktop.memories.search({
+  query: "How do we deploy?",
+  filters: {
+    and: [
+      { field: "metadata.environment", operator: "eq", value: "production" },
+      { field: "importance", operator: "gte", value: 0.7 },
+    ],
+  },
+});
+
+const source = await desktop.documents.ingest(
+  {
+    source_key: "handbook/deployments.md",
+    content: "# Deployments\n\nProduction deploys require...",
+    mime_type: "text/markdown",
+  },
+  { idempotencyKey: "local-handbook-deployments-v1" },
+);
+const uploaded = await desktop.documents.upload(
+  {
+    file: new Blob(["# Local exact source\n"], {
+      type: "text/markdown",
+    }),
+    filename: "local.md",
+    agent_id: "codex",
+  },
+  { idempotencyKey: "local-file-v1" },
+);
+
+const evidence = await desktop.documents.search({
+  query: "What is required before deployment?",
+});
+const original = await desktop.documents.content(source.document.id);
+
+for await (const entity of desktop.entities.listAll({ type: "user" })) {
+  console.log(entity.id, entity.total_memories);
+}
+```
+
+## Python
+
+```python
+from fishmem import FishMemDesktop
+
+desktop = FishMemDesktop()
+desktop.memories.add(
+    {
+        "content": "Use the canonical deployment pipeline.",
+        "infer": False,
+    },
+    idempotency_key="deployment-pipeline-v1",
+)
+
+source = desktop.documents.ingest(
+    {
+        "source_key": "handbook/deployments.md",
+        "content": "# Deployments\n\nProduction deploys require...",
+        "mime_type": "text/markdown",
+    },
+    idempotency_key="local-handbook-deployments-v1",
+)
+uploaded = desktop.documents.upload(
+    "./handbook/deployments.md",
+    {"source_key": "handbook/deployments.md", "agent_id": "codex"},
+    idempotency_key="local-file-v1",
+)
+evidence = desktop.documents.search(
+    {"query": "What is required before deployment?"}
+)
+original = desktop.documents.content(source["document"]["id"])
+
+for entity in desktop.entities.list_all(entity_type="user"):
+    print(entity["id"], entity["total_memories"])
+```
+
+Both adapters expose add, search, list, streamed pagination, get, update,
+delete, delete-all, and history. Returned memory objects use the same
+snake-case wire shape as the HTTP SDK. Their `documents` resource also exposes
+ingest, textual upload, search, list/list-all, get, exact content, and
+permanent source-family deletion. Uploads are decoded as strict UTF-8 locally
+before the same `documentIngest` command runs.
+
+Their `entities` resource lists, gets, and idempotently removes structural
+user, agent, and run scopes through `entityList`, `entityGet`, and
+`entityDelete`. It is a canonical aggregation, not a second local database.
+
+Advanced search filters use the same grammar and backend-independent evaluator
+as Hosted and self-hosted HTTP. Desktop still performs embedding and candidate
+retrieval locally; filters do not introduce a remote provider.
+
+## CLI contract
+
+SDKs invoke `execFile`/`subprocess` with an argument array, never a shell:
+
+```bash
+fishmem call search --input '{"query":"deployment","limit":5}'
+```
+
+SDKs send JSON with `--input-stdin`, keeping long text out of the process
+argument list:
+
+```bash
+printf '%s' '{"query":"deployment","limit":5}' \
+  | fishmem call search --input-stdin
+```
+
+All results and errors are JSON. The CLI connects to the app through its
+authenticated private local socket. Add and search fail explicitly with
+`LOCAL_EMBEDDING_NOT_READY` or `LOCAL_EMBEDDING_UNAVAILABLE` until the local
+model and index are ready; document ingest/search have the same fail-closed
+contract. No keyword-only fallback is substituted.
+
+Cloud-only resources—billing, team authorization, webhooks, and managed
+operations—do not exist in the Desktop adapter.
+
+The Desktop adapter also does not expose HTTP `addAsync`, `addAndWait`, or
+`events`: it performs an already-distilled `infer=false` local write in one CLI
+call. Async inference belongs to Cloud and self-hosted HTTP deployments, where
+an LLM worker and durable task store are configured.

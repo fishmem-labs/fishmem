@@ -1,0 +1,28 @@
+packages:
+  - packages/*
+  - apps/*
+
+# macOS releases are Universal. Install optional native packages for both CPU
+# families even when pnpm runs on an Apple silicon release machine.
+supportedArchitectures:
+  os:
+    - current
+  cpu:
+    - arm64
+    - x64
+
+# ONNX Runtime 1.24 stopped publishing macOS x86_64 binaries. Keep the
+# Transformers runtime on the last upstream line that contains both slices.
+overrides:
+  '@huggingface/transformers>onnxruntime-node': 1.23.2
+
+allowBuilds:
+  '@google/genai': false
+  better-sqlite3: true
+  electron: true
+  esbuild: true
+  onnxruntime-node: true
+  protobufjs: false
+  sharp: false
+  unrs-resolver: false
+  workerd: false

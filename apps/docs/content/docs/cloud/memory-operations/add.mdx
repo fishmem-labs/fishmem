@@ -1,0 +1,110 @@
+---
+title: Add
+description: Extract refined canonical records or store submitted records verbatim.
+---
+
+`POST /v1/memories` accepts either `content` or `messages`.
+
+## With the SDK
+
+```ts
+const result = await fishmem.memories.addAndWait(
+  {
+    content: "Alice moved to Berlin and is vegetarian.",
+    user_id: "alice",
+    metadata: { source: "profile-update" },
+  },
+  { idempotencyKey: "alice-profile-2026-07-19" },
+);
+```
+
+## With HTTP
+
+```bash
+curl https://fishmem.com/v1/memories \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: alice-profile-2026-07-19" \
+  -d '{
+    "content": "Alice moved to Berlin and is vegetarian.",
+    "user_id": "alice",
+    "metadata": {"source": "profile-update"}
+  }'
+```
+
+## Content versus messages
+
+| Field | Use |
+| --- | --- |
+| `content` | One self-contained memory |
+| `messages` | A role-tagged conversation to extract, or multiple verbatim records when `infer=false` |
+
+Send one form, not both. Applications should normally summarize a durable
+conclusion before writing rather than automatically storing every transcript
+turn.
+
+## Inference
+
+`infer` controls the canonical write:
+
+- omit `infer` or use `true`: one LLM extraction call, then store only the
+  additive refined records;
+- use `false`: zero LLM calls; `content` becomes one verbatim record and each
+  non-empty message becomes one verbatim record.
+
+FishMem does not dual-write the raw input plus derived records. Invalid
+extraction output fails the request without raw fallback. Current state and
+profile are separate, rebuildable projections over canonical records.
+
+## Scope
+
+Attach at least one of `user_id`, `agent_id`, or `run_id`. Use the same scope on
+recall. Server applications should derive scope from authenticated context
+instead of trusting arbitrary client input.
+
+## Asynchronous response
+
+The default `infer:true` path persists a durable task and returns HTTP `202`
+before the extraction provider runs:
+
+```json
+{
+  "message": "Memory inference queued",
+  "status": "PENDING",
+  "event_id": "task_…"
+}
+```
+
+Poll `GET /v1/events/{event_id}` or call `fishmem.events.wait(event_id)`.
+`memories.addAndWait(...)` performs that polling and returns the terminal
+`{ results }` value shown below.
+
+```json
+{
+  "results": [
+    {
+      "id": "mem_123",
+      "memory": "Alice lives in Berlin.",
+      "event": "ADD"
+    },
+    {
+      "id": "mem_124",
+      "memory": "Alice is vegetarian.",
+      "event": "ADD"
+    }
+  ]
+}
+```
+
+With `infer:false`, the canonical write is synchronous and returns the same
+`{ results }` shape directly with HTTP `200`. Use returned memory IDs for get,
+update, delete, and history operations.
+
+## Retries
+
+`infer:true` always requires `Idempotency-Key`; it identifies both the
+inference task and its credit reservation. A safe replay returns the same
+event. Reusing the key with a different payload is an error.
+
+See the exact contracts at [/api-reference/add](/api-reference/add) and
+[/api-reference/events](/api-reference/events).

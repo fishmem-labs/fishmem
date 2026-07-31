@@ -1,0 +1,68 @@
+---
+title: State and state history
+description: Query the current value or full timeline of a derived subject attribute.
+---
+
+State is a rebuildable projection of canonical memory records. It is useful for
+questions such as “where does Ada live now?” without making a second canonical
+writer.
+
+## `GET /v1/state`
+
+Required query parameters:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `user_id`, `agent_id`, or `run_id` | string | At least one memory scope |
+| `subject` | string | Entity or subject, for example `Ada` |
+| `attribute` | string | State slot, for example `residence` |
+| `as_of` | ISO date-time | Optional historical point in time |
+
+```bash
+curl "https://fishmem.com/v1/state?user_id=ada&subject=Ada&attribute=residence" \
+  -H "Authorization: Bearer fm_..."
+```
+
+```json
+{
+  "data": {
+    "id": "state_...",
+    "subject": "Ada",
+    "attribute": "residence",
+    "value": "Taipei",
+    "valid_from": "2026-07-01T00:00:00.000Z",
+    "valid_to": null,
+    "superseded_by": null,
+    "source_ids": ["mem_..."]
+  }
+}
+```
+
+`data` is `null` when no value exists. `source_ids` always points back to the
+canonical records that support the projection.
+
+## `GET /v1/state/history`
+
+Use the same scope, `subject`, and `attribute` parameters. The response is
+oldest first:
+
+```json
+{
+  "data": [
+    {
+      "id": "state_old",
+      "subject": "Ada",
+      "attribute": "residence",
+      "value": "Tainan",
+      "valid_from": "2025-01-01T00:00:00.000Z",
+      "valid_to": "2026-07-01T00:00:00.000Z",
+      "superseded_by": "state_new",
+      "source_ids": ["mem_old"]
+    }
+  ]
+}
+```
+
+State endpoints require derivation to be enabled and successfully built. An
+empty result is not permission to invent a value; use normal memory search as
+the fallback evidence path in your application.

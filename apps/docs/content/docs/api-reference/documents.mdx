@@ -1,0 +1,233 @@
+---
+title: Documents and source RAG
+description: Index exact text or extracted file content, create deterministic retrieval chunks, and search evidence without turning passages into memories.
+---
+
+FishMem keeps long-form sources on a separate document path. For direct text
+ingest, the submitted UTF-8 content is canonical. For asynchronous file
+extraction, immutable raw bytes and lossless structure are retained as source
+assets while extracted Markdown becomes the canonical RAG document. Chunks,
+keyword rows, and vectors are deterministic, rebuildable projections.
+
+On FishMem Cloud and Cloudflare self-hosting, object-backed originals live in
+R2 while D1 holds source descriptors and deterministic chunks. Node keeps file
+assets in its configured durable directory. Desktop keeps textual originals
+locally and intentionally does not run the server-side file extractor.
+
+## Supported input
+
+`POST /v1/documents` accepts either:
+
+- `application/json` with exact text in the `content` field; or
+- `multipart/form-data` with one exact textual `file`.
+
+Both forms are capped at **1,000,000 UTF-8 bytes** and enter the same
+idempotent, synchronous document command. Supported media types include:
+
+- any `text/*` media type;
+- `application/json` and other `application/*+json` types;
+- `application/xml` and other `application/*+xml` types;
+- `application/yaml` and `application/x-yaml`.
+- `application/toml`.
+
+PDF, Office, EPUB, image, and larger file inputs use the
+[asynchronous file extraction API](/api-reference/document-uploads). Audio and
+video are not currently accepted. FishMem does not claim that a binary upload
+succeeded when it only stored a filename or lossy placeholder.
+
+Every request needs at least one `user_id`, `agent_id`, or `run_id`. FishMem
+Cloud requires `Idempotency-Key` for ingest and delete.
+
+## Ingest a source
+
+`POST /v1/documents`
+
+```bash
+curl https://fishmem.com/v1/documents \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: architecture-v1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_key": "docs/architecture.md",
+    "title": "Architecture",
+    "mime_type": "text/markdown",
+    "content": "# Architecture\n\nCanonical source text...",
+    "user_id": "alex",
+    "metadata": {"repository": "fishmem"}
+  }'
+```
+
+```json
+{
+  "document": {
+    "id": "doc_…",
+    "source_key": "docs/architecture.md",
+    "content_hash": "…",
+    "version_hash": "…",
+    "title": "Architecture",
+    "mime_type": "text/markdown",
+    "source_uri": null,
+    "user_id": "alex",
+    "agent_id": null,
+    "run_id": null,
+    "metadata": {"repository": "fishmem"},
+    "size_bytes": 49,
+    "created_at": "2026-07-30T00:00:00.000Z"
+  },
+  "chunks": 1,
+  "created": true
+}
+```
+
+`source_key` is the caller-owned stable identity. Re-ingesting the exact same
+normalized version returns the same id with `created:false`. Changed content,
+title, URI, scope, media type, or metadata creates an immutable new version and
+moves the source head to it.
+
+- `content_hash` is SHA-256 of the exact original content.
+- `version_hash` also covers normalized scope and source metadata.
+
+Only the current version appears in list and search. Historical versions remain
+addressable by id until the source is deleted.
+
+### Synchronously upload a small textual file
+
+Do not set the multipart `Content-Type` header manually; curl, `fetch`,
+`httpx`, and the FishMem SDKs add the required boundary.
+
+```bash
+curl https://fishmem.com/v1/documents \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: architecture-file-v1" \
+  -F "file=@./architecture.md;type=text/markdown" \
+  -F "source_key=docs/architecture.md" \
+  -F "title=Architecture" \
+  -F "user_id=alex" \
+  -F 'metadata={"repository":"fishmem"}'
+```
+
+`file` is required and must occur exactly once. `source_key` and `title`
+default to the uploaded filename. `metadata`, when present, is a JSON-encoded
+object. `user_id`, `agent_id`, and `run_id` are ordinary text form fields.
+
+Multipart validation happens before credits are reserved or storage is
+mutated. Important failure codes are:
+
+- `DOCUMENT_FILE_REQUIRED`;
+- `DOCUMENT_TOO_LARGE` (`413`);
+- `INVALID_UTF8`;
+- `UNSUPPORTED_DOCUMENT_MEDIA_TYPE` (`415`);
+- `INVALID_DOCUMENT_METADATA`.
+
+The first-party HTTP SDKs use the asynchronous upload lifecycle for every file,
+including text files, so one method has consistent behavior across PDF, Office,
+image, and text inputs. Use direct multipart only when you explicitly need the
+synchronous 1 MB textual path.
+
+## List current sources
+
+`GET /v1/documents`
+
+```bash
+curl "https://fishmem.com/v1/documents?user_id=alex&limit=50" \
+  -H "Authorization: Bearer fm_..."
+```
+
+Optional filters are `source_key`, `user_id`, `agent_id`, and `run_id`. The
+response is `{ results, next_cursor }`; cursors are opaque and stable.
+
+## Get metadata or indexed content
+
+```text
+GET /v1/documents/{id}
+GET /v1/documents/{id}/content
+```
+
+The descriptor endpoint excludes content so lists and metadata reads stay
+small. For direct text ingest, the content endpoint returns the exact submitted
+text. For an extracted file, it returns the indexed Markdown:
+
+```json
+{
+  "id": "doc_…",
+  "content": "# Architecture\n\nCanonical source text...",
+  "content_hash": "…"
+}
+```
+
+Verify `content_hash` when indexed-text integrity matters. The source asset
+keeps the raw-file checksum separately.
+
+## Search source evidence
+
+`POST /v1/documents/search`
+
+```bash
+curl https://fishmem.com/v1/documents/search \
+  -H "Authorization: Bearer fm_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "How are projections rebuilt?",
+    "user_id": "alex",
+    "limit": 5,
+    "neighbors": 1,
+    "source_key": "docs/architecture.md"
+  }'
+```
+
+`limit` is 1–20. `neighbors` is 0–2 and controls how many adjacent chunks are
+returned around each matched chunk. FishMem fuses vector and full-text ranks,
+then fences hits against the current source head.
+
+```json
+{
+  "results": [
+    {
+      "document": {"id": "doc_…", "source_key": "docs/architecture.md"},
+      "chunk": {
+        "id": "chunk_…",
+        "document_id": "doc_…",
+        "source_key": "docs/architecture.md",
+        "index": 2,
+        "content": "Vector projections can be rebuilt...",
+        "start_byte": 2840,
+        "end_byte": 4172,
+        "content_hash": "…"
+      },
+      "neighbors": [],
+      "score": 1
+    }
+  ]
+}
+```
+
+`start_byte` and `end_byte` are UTF-8 byte offsets into the indexed document
+content, not JavaScript character indexes. For direct text this is the original;
+for files it is extracted Markdown. Preserve the document id, source key,
+offsets, and text when passing retrieval evidence to an LLM.
+
+## Delete a source permanently
+
+`DELETE /v1/documents/{id}`
+
+Deleting any version permanently removes the stable source, every immutable
+version, every chunk, retrieval projections, linked raw file assets, and
+extraction artifacts:
+
+```json
+{
+  "id": "doc_…",
+  "deleted": true,
+  "versions": 2,
+  "chunks": 18
+}
+```
+
+This is deliberately different from memory tombstoning and cannot be undone
+except by restoring a namespace snapshot.
+
+## Cloud credits
+
+Document ingest costs **1 credit per projected chunk**. Search costs **1
+credit**. List, metadata, original-content reads, and delete are free. Credits
+are product usage units; they are not a dollar conversion.

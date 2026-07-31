@@ -1,0 +1,126 @@
+---
+title: Architecture
+description: Authoritative storage, asynchronous projections, and scoped hybrid recall.
+---
+
+FishMem separates durable truth from rebuildable acceleration.
+
+## Write path
+
+```text
+content or messages + infer
+        │
+        ▼
+validate scope and idempotency
+        │
+        ├── infer=true ─► one extraction call ─► refined records
+        └── infer=false ───────────────────────► verbatim input record(s)
+        │
+        ▼
+commit canonical records + journal
+        │
+        ├──► lexical projection
+        ├──► semantic vector projection
+        └──► optional derived state
+```
+
+Canonical records commit before optional derived work. Vector and derived
+projections may run inline or deferred, but they cannot rewrite canonical
+memory. An inferred add never also archives a raw canonical copy.
+
+The operation journal tracks projection status so operators can distinguish a
+fully indexed write from a stored write that still needs repair or retry.
+
+## Source RAG paths
+
+```text
+already-textual UTF-8 ───────────────────────────────┐
+                                                    │
+file metadata ─► immutable raw bytes ─► Docling ─► Markdown + structure
+                                                    │
+                                                    ▼
+                                  DocumentCorpus ingest
+                              immutable version + current head
+                                                    │
+                       ┌────────────────────────────┼─────────────┐
+                       ▼                            ▼             ▼
+             deterministic chunks            keyword index   vector index
+```
+
+Direct text ingest is synchronous. File ingest is a durable asynchronous
+lifecycle: create a source asset, upload exact bytes, complete it, extract, and
+commit the extracted Markdown through the same `DocumentCorpus` module. The raw
+file and lossless extraction structure are retained as immutable artifacts.
+Neither route writes passages into the conversational memory-record path.
+
+A metadata-only change creates a new immutable version because the content hash
+and complete version hash are intentionally distinct. Chunks and vectors are
+rebuildable. The raw file is the file-ingest authority; extracted Markdown is
+the canonical text exposed by document reads and RAG.
+
+On Cloudflare, R2 stores raw files, Markdown, JSON structure, and direct-text
+originals; D1 owns source descriptors, task state, current heads, and
+deterministic chunks. A Queue wakes the durable task and a pinned Docling
+Container converts the file. D1 remains the retry/status authority, so a lost
+queue notification is repaired by cron.
+
+On Node/Docker, a durable asset directory replaces R2, libSQL stores the same
+task rows, a poller wakes work, and the same pinned Docling image converts the
+file. `DocumentIngestion` is the deep module across both runtimes: object store
+and extractor adapters are internal seams, not alternate writers. Desktop has
+no binary extraction path and keeps exact UTF-8 originals in its local
+relational database.
+
+Cloudflare Vectorize keeps structural keys and a projection-content hash rather
+than duplicating canonical text into its metadata allowance. FishMem rehydrates
+every candidate from D1 and rechecks the complete scope/source filter before
+returning it; a vector metadata match is not treated as an authorization
+decision.
+
+## Read path
+
+Search enforces the structural namespace and requested user, agent, and run
+scope before ranking. Depending on configuration, it can blend:
+
+1. lexical relevance for exact names, IDs, paths, and CJK text;
+2. semantic similarity from the configured embedder;
+3. temporal and importance signals;
+4. graph relationships and derived belief chains.
+
+FishMem reports recoverable retrieval degradation through `onWarning` rather
+than silently substituting unrelated behavior.
+
+## Data layers
+
+| Layer | Authority | Rebuildable |
+| --- | --- | --- |
+| Canonical memory records and history | Yes | No |
+| Raw file assets, exact text originals, versions, and current heads | Yes | No |
+| Lossless extraction structure and indexed Markdown | Yes | No |
+| Operation journal | Yes | No |
+| Durable extraction task state | Yes | No |
+| Keyword index | No | Yes |
+| Vector index | No | Yes |
+| Derived state sidecar | No | Yes |
+| Source chunks and retrieval vectors | No | Yes |
+
+## Desktop
+
+Desktop packages this architecture locally. SQLite/libSQL stores records,
+keyword data, and vector projections in one database, while a multilingual
+embedding model runs on-device. The connected Codex or Claude Code Skill
+decides what is durable before calling the local CLI. Desktop forces
+`infer=false` and never runs a chat LLM.
+
+## Service and cloud
+
+`apps/web` adds the REST API, dashboard (including Sources), authentication,
+tenant isolation, operations, and observability. FishMem Cloud deploys that
+same surface as a managed service and adds operated infrastructure, usage
+authorization, atomic credit settlement, subscriptions, and support.
+
+<Cards>
+  <Card title="How memory works" href="/open-source/concepts/how-memory-works" description="Follow a memory from source to recall." />
+  <Card title="Configuration" href="/open-source/configuration" description="Choose providers and projection schedules." />
+  <Card title="Scoping" href="/open-source/concepts/scoping" description="Keep tenants, users, agents, and runs isolated." />
+</Cards>

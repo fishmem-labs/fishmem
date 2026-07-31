@@ -1,0 +1,46 @@
+---
+title: OpenAI Agents SDK
+description: Use FishMem at agent run boundaries through the universal SDK.
+---
+
+FishMem does not publish an OpenAI Agents SDK adapter. Add recall and storage at
+the boundaries of your run:
+
+```bash
+npm install @openai/agents @fishmem/sdk
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+
+const { results } = await fishmem.memories.search({
+  query: userMessage,
+  user_id: userId,
+  agent_id: agentName,
+  top_k: 5,
+});
+
+const memoryContext = results
+  .map((item) => `- ${item.memory}`)
+  .join("\n");
+```
+
+Include `memoryContext` in the run's instructions or input. After the run,
+store only conclusions that should survive:
+
+```ts
+await fishmem.memories.add({
+  content: "The deployment target is Cloudflare Workers.",
+  infer: false,
+  user_id: userId,
+  agent_id: agentName,
+  metadata: { source: "openai-agent-run" },
+});
+```
+
+Keep the FishMem API key in the server environment. Do not expose it to a
+browser or client-side agent UI.

@@ -1,0 +1,46 @@
+---
+title: Platform vs. open source
+description: Choosing between self-hosting the fishmem engine and FishMem Cloud.
+---
+
+FishMem is open-core. The memory engine is open source and the hosted cloud runs
+that **same engine code** — there's no proprietary fork that behaves differently.
+What you're choosing between is who operates the infrastructure, not which engine
+you get.
+
+## The two options
+
+- **Self-host [`fishmem`](https://github.com/fishmem-labs/fishmem)** — clone the
+  Apache-2.0 engine, wire up your own stores and model providers, and run it on
+  your own infrastructure. See [Self-hosting](/open-source/self-hosting).
+- **[FishMem Cloud](https://fishmem.com)** — the same engine, managed, behind a
+  memory API with a dashboard, API keys, metering, and billing.
+
+## Side by side
+
+| | Self-host `fishmem` | FishMem Cloud |
+|---|---|---|
+| Engine / code path | Open-source engine | Same engine, same code path |
+| Infrastructure | You operate it (graph store, vector index, model providers) | Fully managed |
+| Setup | Configure and run it yourself | Create a key and call the API |
+| Dashboard | Included in `apps/web`: overview, sources, memories, requests, operations, and configuration | Same dashboard plus hosted billing surfaces |
+| API keys & access | Built-in project-scoped `fm_...` keys; you operate identity and deployment | Managed identity and project keys |
+| Usage and observability | Request logs, provider usage, warnings, and health; no hosted credit charge | Atomic credit authorization, ledger, subscriptions, and usage views |
+| Billing | None (your own infra costs) | Stripe subscriptions |
+| Scaling & upgrades | Your responsibility | Handled for you |
+| License | Apache-2.0 | Commercial service over the same engine |
+| Support | Community | Plan-based support |
+
+## When to choose which
+
+**Self-host** when you need data residency or full control, want to run inside
+your own VPC, are comfortable operating a graph store and a vector index, or are
+just evaluating the engine locally.
+
+**Use the cloud** when you'd rather ship product than run infrastructure — the
+service operates storage, auth, keys, upgrades, atomic credit accounting, and
+billing for you.
+
+Because both run the same code, the memory behavior is identical. You can start
+on one and move to the other; the API surface is the same. The
+[Quickstart](/cloud/quickstart) gets you running on the cloud in minutes.

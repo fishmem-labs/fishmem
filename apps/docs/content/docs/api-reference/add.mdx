@@ -1,0 +1,97 @@
+---
+title: Add memories
+description: Extract and store memories from messages or raw content.
+---
+
+## `POST /v1/memories`
+
+Adds memories to a scope. By default FishMem **queues inference** of durable
+facts from the input (`infer: true`) with exactly one extraction call and
+stores only the refined canonical records. The request returns immediately
+with an `event_id`; use the [Event API](/api-reference/events) to observe the
+durable worker. Set `infer: false` to make zero LLM calls. A
+`content` input becomes one verbatim record; a `messages` input becomes one
+verbatim record per non-empty message.
+
+FishMem never writes both the raw input and extracted facts for the same add.
+If extraction fails or returns an invalid result, the request fails without
+silently falling back to raw storage.
+
+## Parameters
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `messages` | array | one of `messages`/`content` | Chat messages, each `{ role, content }` |
+| `content` | string | one of `messages`/`content` | Raw text to store |
+| `user_id` | string | one scope required | User scope |
+| `agent_id` | string | one scope required | Agent scope |
+| `run_id` | string | one scope required | Run scope |
+| `metadata` | object | no | Arbitrary key-value metadata |
+| `infer` | boolean | no | Extract facts (default `true`); `false` stores input records verbatim |
+
+The complete JSON body is limited to 250,000 UTF-8 bytes and at most 500
+messages. Long text and files belong in the [Document API](/api-reference/documents),
+which preserves an original and builds RAG projections.
+
+## Request
+
+```bash
+curl https://fishmem.com/v1/memories \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: alex-dark-mode-v1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "I prefer dark mode."}],
+    "user_id": "alex"
+  }'
+```
+
+## Inferred response: `202`
+
+```json
+{
+  "message": "Memory inference accepted for durable background processing",
+  "status": "PENDING",
+  "event_id": "task_…"
+}
+```
+
+The idempotency key is required for inferred adds. It identifies both the
+outer durable task and the canonical write inside that task. Queue delivery is
+only a wakeup: the database owns the task, lease, attempts, retry schedule, and
+terminal result. A scheduled worker repairs lost queue notifications.
+
+```bash
+curl https://fishmem.com/v1/events/task_… \
+  -H "Authorization: Bearer fm_..."
+```
+
+## Verbatim response: `200`
+
+With `infer: false`, FishMem writes synchronously and returns:
+
+```json
+{
+  "results": [
+    { "id": "mem_…", "memory": "Prefers dark mode", "event": "ADD" }
+  ]
+}
+```
+
+Each result's `event` is one of `ADD`, `UPDATE`, `DELETE`, or `INVALIDATE`.
+Duplicate extracted facts inside one inferred request are removed before
+writing.
+
+## Credits
+
+On FishMem Cloud, inferred add (`infer: true`) reserves **2 credits** before
+the task is accepted. Success settles the reservation; terminal failure
+refunds it. An idempotent replay is not charged again. Verbatim add
+(`infer: false`) costs **1 credit**. Self-hosted FishMem does not meter credits.
+
+## Errors
+
+Returns the standard [error shape](/api-reference). A missing or invalid key
+returns `401` with `code: "INVALID_API_KEY"`. Missing inference idempotency
+returns `400 IDEMPOTENCY_KEY_REQUIRED`; reusing a key for different input
+returns `409 IDEMPOTENCY_CONFLICT`.

@@ -1,0 +1,116 @@
+---
+title: SDK quickstart
+description: Install the universal TypeScript SDK, store one memory, and recall it.
+---
+
+<Steps>
+
+<Step>
+
+### Install
+
+Use the package manager for your runtime:
+
+```bash
+npm install @fishmem/sdk
+# or: pnpm add @fishmem/sdk
+# or: bun add @fishmem/sdk
+```
+
+Deno imports the same npm package:
+
+```ts
+import { FishMem } from "npm:@fishmem/sdk";
+```
+
+</Step>
+
+<Step>
+
+### Create a client
+
+Keep API keys on the server. Cloud keys begin with `fm_`.
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+```
+
+For a self-hosted deployment:
+
+```ts
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+  baseUrl: "https://memory.example.com",
+});
+```
+
+</Step>
+
+<Step>
+
+### Store a memory
+
+Every write must have at least one scope: `user_id`, `agent_id`, or `run_id`.
+Use an idempotency key when a write may be retried.
+
+```ts
+const added = await fishmem.memories.addAndWait(
+  {
+    content: "Alex prefers concise answers with runnable examples.",
+    user_id: "alex",
+    metadata: { source: "onboarding" },
+  },
+  { idempotencyKey: "alex-answer-style-v1" },
+);
+
+console.log(added.results[0]);
+```
+
+With the default `infer: true`, FishMem queues a durable task, calls the
+configured LLM once in the worker, and stores only refined canonical records.
+`addAndWait` polls the Event API for this example. Use `addAsync` when your
+application wants the `event_id` immediately, or `events.wait(event_id)` when
+you persist the receipt yourself.
+
+Use `memories.add({ ..., infer: false })` when `content` is already distilled
+or must be stored verbatim with zero LLM calls; that path returns synchronously.
+
+</Step>
+
+<Step>
+
+### Recall it
+
+Search with the same scope used on write:
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: "How should I answer Alex?",
+  user_id: "alex",
+  top_k: 5,
+});
+
+const context = results.map((item) => `- ${item.memory}`).join("\n");
+```
+
+</Step>
+
+</Steps>
+
+<Callout type="warn">
+Never put a FishMem API key in browser code, a public environment variable, or
+a client-side bundle. Call FishMem from your server, Worker, or edge function.
+</Callout>
+
+## Next steps
+
+<Cards>
+  <Card title="Configure the client" href="/sdk/client" description="Base URLs, custom fetch, headers, and cancellation." />
+  <Card title="Memory methods" href="/sdk/memories" description="Add, list, search, update, delete, and history." />
+  <Card title="Document methods" href="/sdk/documents" description="Keep long-form originals separate from durable records." />
+  <Card title="Choose a runtime" href="/sdk/runtimes" description="Copy a complete serverless example." />
+</Cards>

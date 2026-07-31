@@ -1,0 +1,37 @@
+---
+title: Delete a memory
+description: Delete a single memory by ID.
+---
+
+## `DELETE /v1/memories/{id}`
+
+Deletes a single memory identified by `{id}`.
+
+## Parameters
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | string | yes | Memory ID (path parameter), e.g. `mem_…` |
+
+## Request
+
+```bash
+curl -X DELETE https://fishmem.com/v1/memories/mem_123 \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: delete-mem-123"
+```
+
+## Response
+
+```json
+{ "id": "mem_…", "deleted": true }
+```
+
+## Credits
+
+Free.
+
+## Errors
+
+Returns the standard [error shape](/api-reference). A missing or invalid key
+returns `401` with `code: "INVALID_API_KEY"`.

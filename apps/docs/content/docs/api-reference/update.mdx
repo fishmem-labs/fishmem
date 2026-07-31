@@ -1,0 +1,48 @@
+---
+title: Update a memory
+description: Edit a memory's content or metadata.
+---
+
+## `PUT /v1/memories/{id}`
+
+Updates the content and/or metadata of an existing memory identified by `{id}`.
+
+## Parameters
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | string | yes | Memory ID (path parameter), e.g. `mem_…` |
+| `content` | string | no | New memory text |
+| `metadata` | object | no | Replacement metadata |
+| `importance` | number | no | Value from `0` to `1` |
+| `memory_type` | string | no | Canonical memory type |
+| `version` | string | no | Expected current `updated_at` for optimistic concurrency |
+
+## Request
+
+```bash
+curl -X PUT https://fishmem.com/v1/memories/mem_123 \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: alex-theme-v2" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Prefers light mode",
+    "version": "2026-01-01T00:00:00.000Z"
+  }'
+```
+
+## Response
+
+```json
+{ "id": "mem_…", "memory": "Prefers light mode", "event": "UPDATE" }
+```
+
+## Credits
+
+Free.
+
+## Errors
+
+Returns the standard [error shape](/api-reference). A missing or invalid key
+returns `401` with `code: "INVALID_API_KEY"`. A stale `version` returns `409`
+with `code: "VERSION_CONFLICT"`.

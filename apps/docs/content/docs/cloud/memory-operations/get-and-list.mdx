@@ -1,0 +1,89 @@
+---
+title: Get and list
+description: Read a single memory by id, or list every memory in a scope. Both are free.
+---
+
+Sometimes you don't need ranked search — you just want to read back what's stored. FishMem gives you two plain reads: fetch one memory by its id, or list all memories in a scope. Both are `GET` requests and both are **free**.
+
+## Get one by id
+
+Fetch a single memory by its `id`. The response is the memory object directly — no `results` wrapper.
+
+```bash
+curl https://fishmem.com/v1/memories/mem_124 \
+  -H "Authorization: Bearer fm_..."
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({ apiKey });
+const memory = await fishmem.memories.get("mem_124");
+```
+
+Response:
+
+```json
+{
+  "id": "mem_124",
+  "memory": "Is vegetarian",
+  "memory_type": "fact",
+  "importance": 0.8,
+  "user_id": "alice",
+  "agent_id": null,
+  "run_id": null,
+  "metadata": {},
+  "created_at": "2026-06-13T10:00:00Z",
+  "updated_at": "2026-06-13T10:00:00Z",
+  "event_date": "2026-06-13T10:00:00Z",
+  "valid_from": "2026-06-13T10:00:00Z",
+  "valid_to": null
+}
+```
+
+## List by scope
+
+List memories bound to a scope by passing `user_id`, `agent_id`, or `run_id`
+as a query parameter. Unlike search, listing does not rank by relevance. It is
+cursor-paginated; follow `next_cursor` until it is `null`.
+
+```bash
+curl "https://fishmem.com/v1/memories?user_id=alice" \
+  -H "Authorization: Bearer fm_..."
+```
+
+```ts
+const page = await fishmem.memories.list({ user_id: "alice", limit: 50 });
+const { results, next_cursor } = page;
+```
+
+Response:
+
+```json
+{
+  "results": [
+    { "id": "mem_123", "memory": "Lives in Berlin", "user_id": "alice", "...": "..." },
+    { "id": "mem_124", "memory": "Is vegetarian", "user_id": "alice", "...": "..." }
+  ],
+  "next_cursor": null
+}
+```
+
+## Parameters
+
+| Operation | Parameter | Notes |
+|-----------|-----------|-------|
+| Get one | `{id}` (path) | The memory id. |
+| List | `user_id` | User scope; at least one scope is required. |
+| List | `agent_id` | Agent scope; at least one scope is required. |
+| List | `run_id` | Run scope; at least one scope is required. |
+| List | `cursor` | Opaque cursor from the previous page. |
+| List | `limit` | Page size from 1 to 100; default 50. |
+
+Each item is the full memory object: `id`, `memory`, `memory_type`, `importance`, `user_id`, `agent_id`, `run_id`, `metadata`, `created_at`, `updated_at`, `event_date`, `valid_from`, `valid_to`.
+
+## Credits
+
+Reads are **free**. Both get-one and list cost nothing.
+
+See the full contracts at [/api-reference/get](/api-reference/get) and [/api-reference/list](/api-reference/list).

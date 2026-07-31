@@ -1,0 +1,36 @@
+---
+title: Cookbooks
+description: End-to-end recipes that combine add, search, and scoping into working agents with memory.
+---
+
+A cookbook is a complete recipe, not a single API call. Each one wires the
+[add](/cloud/memory-operations/add) and [search](/cloud/memory-operations/search)
+operations together with [scoping](/open-source/concepts/scoping) to build a
+real agent that remembers across sessions. Copy the example, swap in your own
+LLM call and IDs, and ship.
+
+## Recipes
+
+<Cards>
+  <Card title="Source-backed RAG" href="/cookbooks/document-rag" description="Keep originals canonical and pass citation-ready evidence to the model." />
+  <Card title="Support agent" href="/cookbooks/support-agent" description="Stop re-asking customers what they already told you." />
+  <Card title="Coding agent" href="/cookbooks/coding-agent" description="Give a coding agent durable project memory." />
+  <Card title="Personal assistant" href="/cookbooks/personal-assistant" description="Track preferences that change over time without contradicting yourself." />
+  <Card title="AI companion" href="/cookbooks/companion" description="Keep long-running chats coherent without re-feeding history." />
+</Cards>
+
+## The pattern every recipe follows
+
+1. **Write a durable conclusion** — after a meaningful turn or resolved task,
+   submit a concise, self-contained memory with `infer:false`, or send the
+   original turn with `infer:true` and let FishMem extract refined records.
+2. **Search relevant memories before you answer** — retrieve the few memories
+   that bear on the current query and inject them into your prompt, instead of
+   stuffing the entire history.
+3. **Scope per user, agent, or run for isolation** — bind every memory to a
+   `user_id`, `agent_id`, and/or `run_id` so one customer, project, or session
+   never sees another's facts.
+
+Long-form source material follows the separate
+[source-backed RAG](/cookbooks/document-rag) path. Retrieve its chunks as
+evidence; store only durable conclusions as memory.

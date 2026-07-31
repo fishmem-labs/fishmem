@@ -1,0 +1,100 @@
+---
+title: Dashboard
+description: A tour of the FishMem Cloud dashboard.
+---
+
+The [dashboard](https://fishmem.com/login) is where you manage a FishMem
+project: inspect what the API is doing, browse stored memory, try things
+interactively, and handle keys and billing. Here's what each section is for.
+
+## Overview
+
+The landing view for a project. It summarizes activity at a glance — request
+volume, the entities you're storing memory for, and overall memory activity — so
+you can see the project's pulse without digging in.
+
+## Requests
+
+Inspect metered API activity request by request. Use this to confirm calls are
+landing, see which operations ran, and trace what your integration actually sent
+when something looks off. Each metered call shows up here.
+
+## Entities
+
+Browse the users, agents, and runs that have stored memory. These are the
+`user_id`, `agent_id`, and `run_id` scopes from your API calls. Drill into an
+entity to see the memory held against it — useful for confirming a given user's
+memories are landing in the right scope.
+
+Entities are computed from active canonical memories rather than maintained in
+a separate table. A record with user, agent, and run scope appears in all three
+aggregates. Removing an entity removes its matching memories from active recall
+and records deletion tombstones; it does not delete a named person or concept
+from the graph as an independent object.
+
+## Memories
+
+Browse, search, and curate the exact stored memories. Search uses the same
+recall path as the API. Review provenance, correct inaccurate entries, and
+delete information that should no longer be retained.
+
+## Sources
+
+Upload PDF, Office, EPUB, email, image, or text files and watch durable
+extraction move from queued to processing to ready. You can also paste
+already-textual content for synchronous ingest. Search citation-ready chunks,
+inspect the indexed Markdown and SHA-256 provenance, and permanently delete a
+complete source family.
+
+Reusing a stable source key creates an immutable new version and moves the
+current head. File upload accepts up to 25 MB and 300 extracted pages; direct
+text accepts up to 1 MB. The raw file and extraction artifacts are removed with
+the source family or project.
+
+## Playground
+
+An interactive harness for the core loop: **add** an authoritative memory, then
+**recall** it with a query. It is the fastest way to validate scope and ranking
+before writing integration code.
+
+## API keys
+
+Create, rotate, and revoke project-scoped `fm_...` keys. New keys are shown once
+and stored hashed at rest. See [Authentication](/cloud/authentication) for how to use
+and rotate them safely.
+
+## Usage and billing
+
+Track credit consumption against your plan and manage your subscription. Billing
+runs through the Stripe customer portal, reachable from here. See
+[Usage and credits](/cloud/usage-and-credits) and
+[Billing](/cloud/billing) for details.
+
+## Operations
+
+Inspect durable memory inference, document extraction, export, import,
+namespace purge, restore, profile, and projection-rebuild work. A memory
+inference row shows its Event ID, live status, attempts, terminal error, and
+refined-record count without exposing the original conversation. Running and
+failed tasks remain visible across process restarts and failed tasks can be
+queued for a bounded retry.
+
+## Webhooks
+
+Configure signed webhooks per project for memory mutations and source
+ingest/deletion so you can sync them into your own systems. See
+[Webhooks](/cloud/webhooks).
+
+## Settings
+
+Project-level configuration and account settings live here. The **Backup** tab
+downloads a versioned canonical snapshot or CSV subset and restores a JSON
+snapshot into an empty project. JSON snapshots include canonical memories,
+journal/history, exact document source versions, current heads, and
+deterministic chunks; derived vectors are rebuilt. Restore preserves IDs and is
+tracked in **Operations**.
+
+Deleting a project permanently purges its canonical records, vectors, derived
+state, journal, queued work, keys, webhooks, and operational metadata. Cloud
+blocks deletion while a Hosted usage reservation is in flight, and a paid
+project must have its subscription canceled first.

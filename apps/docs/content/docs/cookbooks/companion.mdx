@@ -1,0 +1,40 @@
+---
+title: Memory for an AI companion
+description: Recall a small amount of relevant personal context without replaying the full chat.
+---
+
+Do not add every chat turn. Recall before responding, then store only a durable
+fact the user clearly disclosed or asked the companion to remember.
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+
+async function recallForReply(userId: string, message: string) {
+  const { results } = await fishmem.memories.search({
+    query: message,
+    user_id: userId,
+    top_k: 5,
+  });
+
+  return results.map((item) => `- ${item.memory}`).join("\n");
+}
+```
+
+After the model or application has identified a durable, self-contained fact:
+
+```ts
+await fishmem.memories.add({
+  content: "The user's dog is named Biscuit and had surgery in July 2026.",
+  infer: false,
+  user_id: userId,
+  metadata: { source: "companion-chat" },
+});
+```
+
+Provide controls to inspect, correct, export, and delete these memories.
+Sensitive personal facts should have a stricter write policy than ordinary
+product preferences.

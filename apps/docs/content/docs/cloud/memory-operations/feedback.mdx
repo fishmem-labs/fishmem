@@ -1,0 +1,38 @@
+---
+title: Feedback
+description: Capture an audited quality signal without mutating a memory behind the operator's back.
+---
+
+Use memory feedback after an application has actually used or reviewed a
+retrieved record. A signal belongs to the durable memory, and `request_id` can
+tie it back to the retrieval that exposed the record.
+
+```ts
+await fishmem.memories.setFeedback(
+  memory.id,
+  {
+    rating: "negative",
+    reason: "The answer used a superseded shipping address",
+    request_id: retrievalRequestId,
+  },
+  { idempotencyKey: `${retrievalRequestId}-${memory.id}-v1` },
+);
+```
+
+Ratings are native FishMem lowercase values:
+
+- `positive` — the record was useful and correct;
+- `negative` — it was not useful or needs correction;
+- `very_negative` — it caused a materially wrong or unsafe result.
+
+Feedback is append-only audit data with one derived current state. Replacing or
+clearing the current signal leaves earlier `FEEDBACK` events visible through
+`memories.history(id)` and namespace export. It never changes content,
+importance, or embeddings implicitly.
+
+For a factual correction, submit feedback for observability and then use
+`memories.update` or `memories.delete` for the deliberate canonical mutation.
+This avoids an opaque self-training loop in production.
+
+See the complete REST and SDK contract at
+[/api-reference/feedback](/api-reference/feedback).

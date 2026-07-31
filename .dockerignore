@@ -1,0 +1,13 @@
+**/node_modules
+**/.next
+**/out
+**/dist
+**/.turbo
+**/.wrangler
+**/.open-next
+benchmarks/results
+.git
+.env
+.env.*
+!.env.example
+*.log

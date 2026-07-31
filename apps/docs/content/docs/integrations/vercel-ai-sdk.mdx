@@ -1,0 +1,50 @@
+---
+title: Vercel AI SDK
+description: Wrap a Vercel AI SDK model call with FishMem recall and storage.
+---
+
+Install the framework and the universal FishMem client:
+
+```bash
+npm install ai @fishmem/sdk
+```
+
+Create one server-side client:
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+export const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+```
+
+Before calling the model, search with the current user scope and format a small
+context block:
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: latestUserMessage,
+  user_id: userId,
+  top_k: 5,
+});
+
+const memoryContext = results
+  .map((item) => `- ${item.memory}`)
+  .join("\n");
+```
+
+Add that block to your system context. After the turn, store only a durable
+preference, constraint, decision, or fact:
+
+```ts
+await fishmem.memories.add({
+  content: "Alex wants TypeScript examples with no framework fallback.",
+  infer: false,
+  user_id: userId,
+  metadata: { source: "assistant-turn" },
+});
+```
+
+Do not send the entire transcript automatically. Your application or agent
+should decide what is durable, then submit a self-contained memory.

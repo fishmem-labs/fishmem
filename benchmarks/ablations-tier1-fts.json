@@ -1,0 +1,15 @@
+[
+  { "name": "raw", "overrides": {} },
+  {
+    "name": "raw+fts0.5",
+    "overrides": {
+      "search": { "rrfWeights": { "vector": 1.0, "fts": 0.5, "graph": 0.5, "temporal": 0.8 } }
+    }
+  },
+  {
+    "name": "raw+fts1.0",
+    "overrides": {
+      "search": { "rrfWeights": { "vector": 1.0, "fts": 1.0, "graph": 0.5, "temporal": 0.8 } }
+    }
+  }
+]

@@ -1,0 +1,62 @@
+---
+title: List memories
+description: List all memories within a scope.
+---
+
+## `GET /v1/memories`
+
+Lists memories filtered by scope. Provide at least one of `user_id`, `agent_id`,
+or `run_id`.
+
+## Parameters
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `user_id` | string | no | Filter by user scope |
+| `agent_id` | string | no | Filter by agent scope |
+| `run_id` | string | no | Filter by run scope |
+| `cursor` | string | no | Opaque cursor returned by the previous page |
+| `limit` | integer | no | Page size, `1`–`100` (default `50`) |
+
+## Request
+
+```bash
+curl "https://fishmem.com/v1/memories?user_id=alex" \
+  -H "Authorization: Bearer fm_..."
+```
+
+## Response
+
+```json
+{
+  "results": [
+    {
+      "id": "mem_…",
+      "memory": "Prefers dark mode",
+      "memory_type": "fact",
+      "importance": 0.7,
+      "user_id": "alex",
+      "agent_id": null,
+      "run_id": null,
+      "metadata": null,
+      "created_at": "2026-01-01T00:00:00.000Z",
+      "updated_at": "2026-01-01T00:00:00.000Z",
+      "event_date": null,
+      "valid_from": null,
+      "valid_to": null
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+Never construct or edit a cursor. Follow `next_cursor` until it is `null`.
+
+## Credits
+
+Free.
+
+## Errors
+
+Returns the standard [error shape](/api-reference). A missing or invalid key
+returns `401` with `code: "INVALID_API_KEY"`.

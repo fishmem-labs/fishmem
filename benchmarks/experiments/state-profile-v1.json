@@ -1,0 +1,31 @@
+{
+  "experimentId": "state-profile-v1",
+  "status": "awaiting-holdout-evidence",
+  "defaultDisposition": "opt-in",
+  "hypothesis": "Persistent state slots and scoped profile projection improve changed-fact, temporal, preference, and multi-session quality without unacceptable context, cost, latency, or degradation regressions.",
+  "treatment": {
+    "derivationEnabled": true,
+    "stateSidecar": "persistent",
+    "profileProjection": "queued"
+  },
+  "datasets": [
+    "locomo-holdout",
+    "longmemeval-s-holdout"
+  ],
+  "primaryMetrics": [
+    "temporal_accuracy",
+    "knowledge_update_accuracy",
+    "stale_answer_rate",
+    "preference_accuracy"
+  ],
+  "guardrails": [
+    "overall_accuracy",
+    "context_tokens",
+    "provider_usd",
+    "ingest_p95",
+    "search_p95",
+    "warning_count",
+    "failed_adds"
+  ],
+  "stopRule": "paired bootstrap confidence interval plus McNemar for binary slices; retain opt-in unless cross-dataset and budget gates pass"
+}

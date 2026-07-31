@@ -1,0 +1,46 @@
+---
+title: Agent memory
+description: Private local memory for Codex and Claude Code through FishMem Desktop.
+---
+
+**One private memory. Every agent.**
+
+FishMem Desktop gives coding agents durable local memory without adding an MCP
+server. It installs two small pieces:
+
+1. a FishMem Skill that teaches the agent when to recall and remember;
+2. a local `fishmem` command that reads and writes through the running Desktop
+   app.
+
+The Skill provides judgment; the CLI provides deterministic execution. This
+avoids an always-on MCP tool catalog and keeps the integration inspectable.
+
+## Current support
+
+| Agent | One-click Desktop connection | Integration |
+| --- | --- | --- |
+| Codex | Yes | Global Skill + local CLI |
+| Claude Code | Yes | Global Skill + local CLI |
+
+## How a memory enters FishMem
+
+The agent recalls relevant memory before work. It writes only after the user
+explicitly asks to remember something, or after a durable preference,
+constraint, or decision is clear. The Skill converts that information into a
+self-contained statement, then calls:
+
+```bash
+fishmem add --client codex \
+  --content "This repository uses pnpm and TypeScript strict mode." \
+  --json
+```
+
+FishMem stores that submitted statement verbatim. Desktop does not run a chat
+LLM to rewrite it.
+
+## Choose an agent
+
+<Cards>
+  <Card title="Codex" href="/agent-plugins/codex" description="Connect with one click and verify the installed Skill." />
+  <Card title="Claude Code" href="/agent-plugins/claude-code" description="Connect with one click and verify the installed Skill." />
+</Cards>

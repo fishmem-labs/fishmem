@@ -1,0 +1,71 @@
+---
+title: Scope entity methods
+description: Browse and remove structural user, agent, and run memory owners through HTTP or Desktop.
+---
+
+The `entities` resource exposes structural `user_id`, `agent_id`, and `run_id`
+owners derived from active canonical memories. It is distinct from FishMem's
+named-entity graph. A memory with multiple scope fields is counted once under
+each corresponding scope entity.
+
+## TypeScript HTTP client
+
+```ts
+const page = await fishmem.entities.list({ type: "user", limit: 50 });
+
+for await (const entity of fishmem.entities.listAll({ type: "agent" })) {
+  console.log(entity.id, entity.total_memories);
+}
+
+const alex = await fishmem.entities.get("user", "alex");
+
+await fishmem.entities.delete("user", alex.id, {
+  idempotencyKey: "delete-user-alex-v1",
+});
+```
+
+Entity IDs are URL encoded by the SDK. `delete` requires an idempotency key and
+returns `{ id, type, deleted_memories }`.
+
+## Python HTTP clients
+
+The sync and async clients expose the same resource:
+
+```python
+for entity in fishmem.entities.list_all(entity_type="user", limit=100):
+    print(entity["id"], entity["total_memories"])
+
+alex = fishmem.entities.get("user", "alex")
+deleted = fishmem.entities.delete(
+    "user",
+    alex["id"],
+    idempotency_key="delete-user-alex-v1",
+)
+```
+
+Use `await`, `async for`, and `AsyncFishMem.entities` in asynchronous code.
+
+## Desktop
+
+Both local SDK adapters use the same method names and response shapes:
+
+```ts
+import { FishMemDesktop } from "@fishmem/sdk/desktop";
+
+const desktop = new FishMemDesktop();
+const users = await desktop.entities.list({ type: "user" });
+const user = await desktop.entities.get("user", users.results[0].id);
+
+await desktop.entities.delete("user", user.id, {
+  idempotencyKey: `delete-user-${user.id}-v1`,
+});
+```
+
+The Desktop resource calls `entityList`, `entityGet`, and `entityDelete`
+through the authenticated local `fishmem` socket. Aggregation and deletion use
+the same canonical core as the Desktop memory API; no remote provider or
+parallel entity database is involved.
+
+Entity deletion removes matching memories from active recall and retains their
+deletion audit trail. See [Scope entities](/api-reference/entities) for ordering,
+pagination, limits, errors, and the distinction from graph entities.

@@ -1,0 +1,50 @@
+---
+title: Get a memory
+description: Fetch a single memory by ID.
+---
+
+## `GET /v1/memories/{id}`
+
+Returns a single [memory object](/api-reference) by its ID.
+
+## Parameters
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | string | yes | Memory ID (path parameter), e.g. `mem_…` |
+
+## Request
+
+```bash
+curl https://fishmem.com/v1/memories/mem_123 \
+  -H "Authorization: Bearer fm_..."
+```
+
+## Response
+
+```json
+{
+  "id": "mem_…",
+  "memory": "Prefers dark mode",
+  "memory_type": "fact",
+  "importance": 0.7,
+  "user_id": "alex",
+  "agent_id": null,
+  "run_id": null,
+  "metadata": null,
+  "created_at": "2026-01-01T00:00:00.000Z",
+  "updated_at": "2026-01-01T00:00:00.000Z",
+  "event_date": null,
+  "valid_from": null,
+  "valid_to": null
+}
+```
+
+## Credits
+
+Free.
+
+## Errors
+
+Returns the standard [error shape](/api-reference). A missing or invalid key
+returns `401` with `code: "INVALID_API_KEY"`.

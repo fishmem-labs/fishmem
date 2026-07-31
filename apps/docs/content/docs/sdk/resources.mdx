@@ -1,0 +1,129 @@
+---
+title: State, profile, and operations
+description: Use health, derived state, profile, operations, export, and import resources.
+---
+
+## Health
+
+```ts
+const health = await fishmem.health.get({
+  signal: AbortSignal.timeout(5_000),
+});
+
+if (health.status === "degraded") {
+  console.error(health.engine.code, health.tasks, health.operations);
+}
+```
+
+`health.get()` requires `operations:read`. It reports exact durable backlog
+counts without issuing a paid provider request.
+
+## State
+
+```ts
+const current = await fishmem.state.get({
+  user_id: "ada",
+  subject: "Ada",
+  attribute: "residence",
+});
+
+const timeline = await fishmem.state.history({
+  user_id: "ada",
+  subject: "Ada",
+  attribute: "residence",
+});
+```
+
+`current` is `StateSlot | null`; `timeline` is oldest first. Every slot exposes
+`source_ids` pointing to canonical records.
+
+## Profile
+
+```ts
+const profile = await fishmem.profile.get({ user_id: "ada" });
+
+const sections = await fishmem.profile.get({
+  user_id: "ada",
+  query: "communication style",
+  limit: 3,
+});
+```
+
+Without `query`, the result is `string | null`. With `query`, it is a ranked
+`ProfileSection[]`.
+
+## Operations
+
+```ts
+const page = await fishmem.operations.list({ limit: 20 });
+const operation = await fishmem.operations.get(page.results[0].id);
+if (operation.status === "retry" || operation.status === "dead") {
+  await fishmem.operations.retry(operation.id);
+}
+```
+
+Wait for an asynchronous operation:
+
+```ts
+const completed = await fishmem.operations.wait(operation.id, {
+  intervalMs: 500,
+  timeoutMs: 30_000,
+  signal: AbortSignal.timeout(35_000),
+});
+```
+
+`wait` resolves for `success` or `committed` and throws
+`FishMemOperationError` for `dead` or `failed`.
+
+`retry` accepts only operations currently in `retry` or `dead`, returns the
+reset operation with HTTP `202`, and requires `memory:write`.
+
+## Memory inference events
+
+```ts
+const receipt = await fishmem.memories.addAsync(
+  { content: "Ada moved to Taipei.", user_id: "ada" },
+  { idempotencyKey: "ada-residence-v1" },
+);
+
+const event = await fishmem.events.wait(receipt.event_id, {
+  intervalMs: 500,
+  timeoutMs: 30_000,
+});
+```
+
+`events.list`, `events.get`, and `events.wait` use the public inference-event
+contract. `wait` resolves only for `SUCCEEDED`, throws `FishMemEventError` for
+`FAILED`, and can throw `FishMemEventTimeoutError`. `RETRYING` remains
+non-terminal.
+
+Asynchronous file extraction uses `kind: "document_extract"`. Its successful
+result includes the source-asset id, extraction-artifact id, canonical document
+id, page count, chunk count, and the 120-second query-visibility target. The
+corresponding source asset moves through
+`awaiting_upload`, `uploaded`, `queued`, `processing`, and `ready`; inspect it
+with `documents.getUpload(id)`.
+
+Batch mutation operations use `batch_update` or `batch_delete`. A terminal
+operation can contain per-item failures in `result`; application code should
+check `result.failed`, not only the top-level task status.
+
+## Export and import
+
+```ts
+const exportOperation = await fishmem.exports.create({
+  idempotencyKey: "export-2026-07-30",
+});
+
+const exported = await fishmem.operations.wait(exportOperation.id);
+const snapshot = exported.result as Record<string, unknown>;
+
+const importOperation = await fishmem.imports.create(
+  { snapshot },
+  { idempotencyKey: "import-2026-07-30" },
+);
+```
+
+Export/import idempotency options are required by the TypeScript type system.
+
+For source RAG, use the dedicated [Document methods](/sdk/documents) resource.

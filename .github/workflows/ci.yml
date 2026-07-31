@@ -1,0 +1,226 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # CI validates the publishable library (packages/fishmem) across all
+      # supported Node versions. The apps/ (Next.js docs + web) deploy through
+      # their own pipelines, so they are not built in this library matrix.
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm --filter fishmem typecheck
+      - name: Test
+        run: pnpm --filter fishmem test:coverage
+      - name: Benchmark harness tests
+        run: pnpm bench:test
+      - name: Benchmark harness typecheck
+        run: pnpm bench:typecheck
+      - name: Build
+        run: pnpm --filter fishmem build
+      - name: LOCOMO benchmark smoke test (offline)
+        run: pnpm bench:locomo -- --smoke --out /tmp/locomo-smoke.json
+      - name: LongMemEval benchmark smoke test (offline)
+        run: pnpm bench:longmemeval -- --smoke --out /tmp/longmemeval-smoke.json
+      - name: BEAM benchmark smoke test (offline)
+        run: pnpm bench:beam -- --smoke --out /tmp/beam-smoke.json
+
+  web:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build workspace library
+        run: pnpm --filter fishmem build
+      - name: Web contract tests
+        run: pnpm --filter @fishmem/web test
+      - name: Web lint
+        run: pnpm --filter @fishmem/web lint
+      - name: Web typecheck
+        run: pnpm --filter @fishmem/web typecheck
+      - name: Web production build
+        run: pnpm --filter @fishmem/web build
+
+  product-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: packages/python-sdk/pyproject.toml
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.5.6
+      - run: pnpm install --frozen-lockfile
+      - run: python -m pip install -e ./packages/python-sdk
+      - name: Build canonical core
+        run: pnpm --filter fishmem build
+      - name: Contracts and application
+        run: |
+          pnpm --filter @fishmem/contracts test
+          pnpm --filter @fishmem/contracts typecheck
+          pnpm --filter @fishmem/application test
+          pnpm --filter @fishmem/application typecheck
+      - name: TypeScript SDK
+        run: |
+          pnpm --filter @fishmem/sdk test
+          pnpm --filter @fishmem/sdk typecheck
+          pnpm --filter @fishmem/sdk build
+      - name: Python SDK
+        run: |
+          python -m unittest discover -s packages/python-sdk/tests -v
+          python -m compileall -q packages/python-sdk/src packages/python-sdk/tests
+      - name: Install packed SDK artifacts
+        run: |
+          ts_pack_dir="$(mktemp -d)"
+          ts_install_dir="$(mktemp -d)"
+          pnpm --dir packages/sdk pack --pack-destination "$ts_pack_dir"
+          npm install --prefix "$ts_install_dir" \
+            "$ts_pack_dir/fishmem-sdk-0.1.0.tgz"
+          cd "$ts_install_dir"
+          node --input-type=module -e \
+            "import { FishMem } from '@fishmem/sdk'; import { FishMemDesktop } from '@fishmem/sdk/desktop'; const api = new FishMem({ apiKey: 'test' }); const desktop = new FishMemDesktop({ command: '/bin/false' }); if (!api.documents || !desktop.documents) process.exit(1)"
+          node -e \
+            "const { FishMem } = require('@fishmem/sdk'); const { FishMemDesktop } = require('@fishmem/sdk/desktop'); const api = new FishMem({ apiKey: 'test' }); const desktop = new FishMemDesktop({ command: '/bin/false' }); if (!api.documents || !desktop.documents) process.exit(1)"
+          bun -e \
+            "import { FishMem } from '@fishmem/sdk'; const api = new FishMem({ apiKey: 'test' }); if (!api.documents) process.exit(1)"
+          deno eval --node-modules-dir=manual \
+            "import { FishMem } from '@fishmem/sdk'; const api = new FishMem({ apiKey: 'test' }); if (!api.documents) Deno.exit(1)"
+          cd "$GITHUB_WORKSPACE"
+          py_pack_dir="$(mktemp -d)"
+          py_install_dir="$(mktemp -d)"
+          python -m pip wheel --no-deps ./packages/python-sdk \
+            --wheel-dir "$py_pack_dir"
+          python -m venv "$py_install_dir"
+          "$py_install_dir/bin/pip" install \
+            "$py_pack_dir"/fishmem_sdk-0.1.0-py3-none-any.whl
+          "$py_install_dir/bin/python" -c \
+            "from fishmem import FishMem, FishMemDesktop; api = FishMem(api_key='test'); desktop = FishMemDesktop(command='/bin/false'); assert api.documents and desktop.documents; api.close()"
+      - name: Desktop local-only contract
+        run: |
+          pnpm --filter @fishmem/desktop test
+          pnpm --filter @fishmem/desktop typecheck
+          pnpm --filter @fishmem/desktop build
+      - name: Documentation portal
+        run: pnpm --filter docs build
+
+  adapter-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: fishmem
+          POSTGRES_PASSWORD: fishmem
+          POSTGRES_USER: fishmem
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fishmem -d fishmem"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      qdrant:
+        image: qdrant/qdrant:v1.18.0
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd "bash -c '</dev/tcp/127.0.0.1/6333'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FISHMEM_POSTGRES_URL: postgres://fishmem:fishmem@127.0.0.1:5432/fishmem
+      FISHMEM_QDRANT_URL: http://127.0.0.1:6333
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: PostgreSQL, D1, and Qdrant adapter contracts
+        run: pnpm --filter fishmem test:integration
+
+  web-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build workspace library
+        run: pnpm --filter fishmem build
+      - run: pnpm --filter @fishmem/web exec playwright install --with-deps chromium
+      - name: Desktop and mobile operator journey
+        run: pnpm --filter @fishmem/web test:e2e
+
+  cloudflare-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fresh D1 migration chain
+        run: |
+          migration_store="$(mktemp -d)"
+          pnpm --dir apps/web exec wrangler d1 migrations apply fishmem \
+            --local --persist-to "$migration_store"
+      - name: Build FishMem SDK dependency
+        run: pnpm --filter fishmem build
+      - name: TanStack Start Worker bundle and Wrangler dry-run
+        run: pnpm --filter @fishmem/web build:prod

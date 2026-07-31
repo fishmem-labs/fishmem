@@ -1,0 +1,50 @@
+---
+title: Batch update and delete
+description: Run large memory mutations as retry-safe durable operations.
+---
+
+FishMem queues batch mutations instead of keeping a Worker request open while
+hundreds of canonical and vector writes run.
+
+```ts
+const operation = await fishmem.memories.batchUpdate(
+  {
+    memories: [
+      {
+        memory_id: "mem_1",
+        content: "Customer uses the Pro plan.",
+      },
+      {
+        memory_id: "mem_2",
+        metadata: { source: "crm" },
+      },
+    ],
+  },
+  { idempotencyKey: "crm-refresh-2026-07-30" },
+);
+
+const completed = await fishmem.operations.wait(operation.id);
+console.log(completed.result);
+```
+
+Delete selected records with the same durable contract:
+
+```ts
+const operation = await fishmem.memories.batchDelete(
+  {
+    memories: [
+      { memory_id: "mem_1" },
+      { memory_id: "mem_2" },
+    ],
+  },
+  { idempotencyKey: "delete-import-42" },
+);
+```
+
+One request accepts 1–1,000 unique IDs and at most 750,000 UTF-8 bytes. A
+successful operation can still contain permanent per-item failures; inspect
+`result.succeeded`, `result.failed`, and every entry in `result.items`.
+Infrastructure failures retry durably.
+
+See the complete wire and failure contract at
+[Batch memory mutations](/api-reference/batch).

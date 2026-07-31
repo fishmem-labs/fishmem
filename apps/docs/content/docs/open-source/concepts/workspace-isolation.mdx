@@ -1,0 +1,32 @@
+---
+title: Workspace isolation
+description: Every memory is tagged with your project id, every read is filtered by it, and the key never leaves the data layer — so your data can't bleed into another workspace.
+---
+
+## The boundary that matters
+
+Scoping with `user_id`, `agent_id`, and `run_id` organizes memory *inside* your project. Workspace isolation is the boundary *around* it. The two solve different problems, and it's worth being precise about which is which: scoping is for relevance, isolation is for safety.
+
+A workspace corresponds to a project — the thing your API key authenticates against. Isolation guarantees that one project's memories are never visible to another, no matter what ids you pass.
+
+## How it's enforced
+
+Three things make this hold:
+
+- **Every memory is tagged with its project id on write.** The tag isn't optional metadata you remember to set — it's attached from the authenticated key when the memory is stored.
+- **Every read injects that project filter.** Search, get, history — every read path applies the project filter before it returns anything. There's no code path that reads memories without it.
+- **The key is stripped from responses.** The project id never appears in the API payloads you get back. It's an internal invariant, not a field you handle.
+
+The important part: this is enforced in the **data layer**, not by application convention. Isolation doesn't depend on every caller remembering to pass the right filter, or on every developer following a rule. The filter is applied below the surface the API exposes, so there's no way to forget it and no query that can opt out.
+
+## Why "by convention" isn't enough
+
+If isolation lived in application code — "always include `WHERE project = ...`" — it would be one missed clause away from leaking another tenant's data. Convention-based isolation fails silently and exactly when it's most expensive. Pushing the filter into the data layer means the failure mode is closed off structurally: the only memories any query can ever see are the ones tagged for the calling workspace.
+
+## Relationship to scoping
+
+Inside a workspace, you still partition memory by `user_id`, `agent_id`, and `run_id` for relevance. Those scopes are *additive* on top of isolation, never a substitute for it — two different projects can both use `user_id: "u_1"` and never see each other's data, because the project filter sits beneath the scope filter.
+
+## Next
+
+- [Scoping](/open-source/concepts/scoping) — partitioning memory within a workspace.

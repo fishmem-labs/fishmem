@@ -1,0 +1,123 @@
+---
+title: Source-backed RAG
+description: Keep original documents canonical, retrieve citation-ready chunks, and store only durable conclusions as memories.
+---
+
+Use two deliberate paths:
+
+1. source material goes to `documents`;
+2. user preferences, decisions, and durable conclusions go to `memories`.
+
+This prevents an arbitrary paragraph from becoming a personal fact while still
+giving a chat or agent application grounded context.
+
+## Ingest the source once
+
+```ts
+const source = await fishmem.documents.ingest(
+  {
+    source_key: "handbook/deployments.md",
+    title: "Deployment handbook",
+    mime_type: "text/markdown",
+    content: handbookText,
+    agent_id: "release-agent",
+  },
+  { idempotencyKey: `handbook-${sourceRevision}` },
+);
+```
+
+Reuse the stable `source_key` for later revisions. FishMem keeps immutable
+versions and searches only the current head.
+
+For a PDF, Office, EPUB, email, image, or text file, queue extraction instead:
+
+```ts
+import { readFile } from "node:fs/promises";
+
+const queued = await fishmem.documents.upload(
+  {
+    file: new Blob([await readFile("./deployment-handbook.pdf")], {
+      type: "application/pdf",
+    }),
+    filename: "deployment-handbook.pdf",
+    source_key: "handbook/deployments.pdf",
+    agent_id: "release-agent",
+  },
+  { idempotencyKey: `handbook-pdf-${sourceRevision}` },
+);
+
+await fishmem.operations.wait(queued.operation.id, {
+  intervalMs: 1_000,
+  timeoutMs: 10 * 60_000,
+});
+
+const asset = await fishmem.documents.getUpload(queued.source_asset.id);
+if (!asset.document_id) throw new Error("Extraction completed without a document");
+const extractedSource = await fishmem.documents.get(asset.document_id);
+```
+
+FishMem retains the raw file and lossless extraction structure, then indexes
+Markdown through the same source-RAG writer. Upload completion returns before
+conversion, so do not search until the durable operation succeeds.
+
+## Retrieve evidence before the model call
+
+```ts
+const { results } = await fishmem.documents.search({
+  query: userQuestion,
+  agent_id: "release-agent",
+  limit: 4,
+  neighbors: 1,
+});
+
+const evidence = results
+  .map((hit, index) => {
+    const context = [...hit.neighbors, hit.chunk]
+      .sort((a, b) => a.index - b.index)
+      .map((chunk) => chunk.content)
+      .join("\n");
+    return [
+      `[${index + 1}] ${hit.document.source_key}`,
+      `bytes ${hit.chunk.start_byte}-${hit.chunk.end_byte}`,
+      context,
+    ].join("\n");
+  })
+  .join("\n\n");
+```
+
+Pass `evidence` to your LLM with an instruction to cite the numbered source and
+to say when the evidence is insufficient. Keep the exact hit text in evaluation
+artifacts; a list of retrieved IDs is not enough to judge grounding.
+
+## Store the durable outcome separately
+
+After the user approves a lasting decision, store the conclusion:
+
+```ts
+await fishmem.memories.add(
+  {
+    content: "Production releases require the integrity check before deploy.",
+    agent_id: "release-agent",
+    infer: false,
+    metadata: {
+      source_document_id: source.document.id,
+      source_key: source.document.source_key,
+    },
+  },
+  { idempotencyKey: "release-integrity-policy-v1" },
+);
+```
+
+Use `infer:false` because this application already distilled the conclusion.
+If you instead submit a conversation with `infer:true`, FishMem makes one
+extraction call and stores only refined records.
+
+## Update and deletion behavior
+
+- Re-ingest a changed source under the same key to create a new current version.
+- Explicitly update or delete a memory when a conclusion changes.
+- Deleting a document removes every source version and retrieval chunk; it does
+  not silently delete memories that cite that source.
+
+That last boundary is intentional: document lifecycle and durable agent memory
+are related by provenance, not coupled by a hidden cascade.

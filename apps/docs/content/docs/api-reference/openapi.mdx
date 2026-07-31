@@ -1,0 +1,29 @@
+---
+title: OpenAPI contract
+description: Download the canonical OpenAPI 3.1 description used by routes, SDK tests, and documentation.
+---
+
+## `GET /v1/openapi.json`
+
+```bash
+curl https://fishmem.com/v1/openapi.json > fishmem-openapi.json
+```
+
+The document is OpenAPI `3.1.0`. It defines all public request schemas, success
+responses, structured errors, authentication, scope parameters, cursor pages,
+document source/RAG operations, state/profile views, and operation resources.
+
+The TypeScript and Python SDK conformance suites exercise the same operation
+paths. If prose and the machine contract differ, treat `openapi.json` as the
+wire-format authority and report the docs defect.
+
+Use the document with standard tools:
+
+```bash
+npx @redocly/cli lint fishmem-openapi.json
+npx openapi-typescript fishmem-openapi.json -o fishmem-api.d.ts
+```
+
+Generated clients still need application policy for idempotency, retry
+deadlines, secrets, and asynchronous operation handling; prefer a first-party
+SDK when one exists for your runtime.

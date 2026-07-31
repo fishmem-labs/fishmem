@@ -1,0 +1,43 @@
+---
+title: FishMem Cloud
+description: The managed FishMem memory API and control plane.
+---
+
+FishMem Cloud is the managed version of the [`fishmem`](https://github.com/fishmem-labs/fishmem)
+engine. It runs the **same engine code** you can read on GitHub, behind a
+REST API, so you get memory without operating a database, vector
+index, key management, metering, or billing yourself.
+
+What the cloud adds on top of the open-source engine:
+
+- A **memory REST API** (`add` / `search` / `get` / `update` / `delete` / `history`).
+- **API keys** scoped per project, hashed at rest.
+- **Workspace isolation** — every memory is tenant-scoped automatically.
+- **Usage metering & credits** with a transparent, auditable ledger.
+- **Webhooks** for memory and request events.
+- A **dashboard** to browse memories, inspect requests, and manage billing.
+
+## Start here
+
+<Cards>
+  <Card title="Quickstart" href="/cloud/quickstart" description="Write and recall your first memory in minutes." />
+  <Card title="Authentication" href="/cloud/authentication" description="Create an API key and call the API securely." />
+  <Card title="Memory operations" href="/cloud/memory-operations/add" description="The full add / search / update / delete loop." />
+  <Card title="Migrate from mem0" href="/cloud/migrate-from-mem0" description="Map mem0 operations to FishMem deliberately." />
+</Cards>
+
+## Platform
+
+<Cards>
+  <Card title="Dashboard" href="/cloud/dashboard" description="Browse memories, entities, requests, and settings." />
+  <Card title="Usage & credits" href="/cloud/usage-and-credits" description="How operations are metered and what they cost." />
+  <Card title="Webhooks" href="/cloud/webhooks" description="Subscribe to memory and request events." />
+  <Card title="Billing" href="/cloud/billing" description="Plans, subscriptions, and the customer portal." />
+</Cards>
+
+## Same engine, no lock-in
+
+The cloud is not a proprietary fork. If you outgrow the hosted plan — or want to
+keep your data on your own infrastructure — you can run the
+[open-source engine](/open-source) yourself and keep the same API surface. See
+[Platform vs. open source](/cloud/platform-vs-open-source) for the trade-offs.

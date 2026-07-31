@@ -1,0 +1,14 @@
+.next
+.open-next
+dist
+node_modules
+.wrangler
+.codex
+.claude/settings.local.json
+.env
+.env*.local
+.dev.vars
+*.tsbuildinfo
+cloudflare-env.d.ts
+.DS_Store
+.data

@@ -1,0 +1,30 @@
+{
+  "root": true,
+  "title": "API Reference",
+  "description": "Every endpoint and wire contract of the FishMem REST API.",
+  "pages": [
+    "index",
+    "health",
+    "entities",
+    "documents",
+    "document-uploads",
+    "add",
+    "events",
+    "list",
+    "search",
+    "filters",
+    "batch",
+    "get",
+    "update",
+    "delete",
+    "delete-all",
+    "history",
+    "feedback",
+    "state",
+    "profile",
+    "operations",
+    "export-import",
+    "errors",
+    "openapi"
+  ]
+}

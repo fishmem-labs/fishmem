@@ -1,0 +1,19 @@
+{
+  // FishMem docs — static export served by a Cloudflare assets-only Worker.
+  // No OpenNext: `output: 'export'` produces plain static files in ./out.
+  "name": "fishmem-docs",
+  "compatibility_date": "2025-12-01",
+  "assets": {
+    "directory": "./out",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  // Simplest working mount: a subdomain (matches mem0's docs.mem0.ai pattern).
+  // The apex `fishmem.com` stays on the main app worker, untouched.
+  "routes": [
+    { "pattern": "docs.fishmem.com", "custom_domain": true }
+  ]
+  // To serve at fishmem.com/docs* instead of a subdomain, see DEPLOY.md —
+  // it needs `basePath: '/docs'` + making docs the app root, then a route
+  // pattern `fishmem.com/docs*` here.
+}

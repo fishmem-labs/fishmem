@@ -1,0 +1,19 @@
+{
+  "root": true,
+  "title": "SDKs",
+  "description": "First-party TypeScript, Python, and Desktop CLI clients.",
+  "pages": [
+    "index",
+    "quickstart",
+    "python",
+    "desktop",
+    "client",
+    "memories",
+    "entities",
+    "documents",
+    "resources",
+    "pagination",
+    "runtimes",
+    "errors-and-idempotency"
+  ]
+}

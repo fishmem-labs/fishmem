@@ -1,0 +1,40 @@
+---
+title: Claude Code
+description: Connect Claude Code to FishMem Desktop with a global Skill and local CLI.
+---
+
+## Connect
+
+1. Open FishMem Desktop.
+2. Open **Codex & Claude**.
+3. Select **Connect to Claude Code**.
+4. Restart Claude Code so it discovers the newly installed Skill.
+
+Desktop installs the Skill at:
+
+```text
+~/.claude/skills/fishmem
+```
+
+The same local `fishmem` command used by Codex communicates with the running
+Desktop app.
+
+## Verify
+
+Ask Claude Code:
+
+```text
+Remember that releases require the integration test suite.
+```
+
+Then start a new session and ask what it remembers about the release process.
+You can also inspect the exact stored text in FishMem Desktop.
+
+## Runtime requirement
+
+FishMem Desktop must be running. The CLI uses an authenticated private local
+socket and deliberately has no fallback store. A closed app therefore produces
+an explicit connection error rather than splitting your memory across two
+databases.
+
+FishMem does not install an MCP server for Claude Code.

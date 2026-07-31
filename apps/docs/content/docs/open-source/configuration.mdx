@@ -1,0 +1,156 @@
+---
+title: Configuration
+description: Configure the FishMem TypeScript engine explicitly.
+---
+
+Create an engine with `Memory.create(config)`. Providers are explicit; FishMem
+does not silently substitute a mock embedder or LLM.
+
+## Local deterministic configuration
+
+```ts
+import { Memory } from "fishmem";
+
+const memory = await Memory.create({
+  graphStore: { provider: "sqlite", config: { url: "file:fishmem.db" } },
+  vectorStore: {
+    provider: "sqlite",
+    config: {
+      url: "file:fishmem.db",
+      indexIdentity: "mock-384-v1",
+    },
+  },
+  embedder: { provider: "mock", config: { dimensions: 384 } },
+  llm: { provider: "mock" },
+  derivation: { enabled: false },
+});
+```
+
+The mock embedder is deterministic lexical hashing. It is useful for local
+development and tests, not a substitute for a semantic embedding model.
+
+## Providers
+
+| Section | Supported configuration |
+| --- | --- |
+| `graphStore` | `memory`, `sqlite`, `postgres`, `d1`, or a custom `GraphStore` |
+| `vectorStore` | `memory`, `sqlite`, `pgvector`, `qdrant`, `vectorize`, or a custom `VectorStore` |
+| `embedder` | `mock`, `openai`, or a custom `Embedder` |
+| `llm` | `mock`, `openai`, `anthropic`, or a custom `LLM` |
+
+The graph store is the canonical memory and document-descriptor store. The
+vector store holds rebuildable keyword and semantic projections. Exact
+document originals remain inline by default; the Cloudflare application wires
+its R2 binding through `documentOriginalStore`.
+
+## Document original storage
+
+`Memory.create()` accepts an optional `documentOriginalStore` adapter. It is an
+internal storage seam behind the existing `documents` interface:
+
+```ts
+interface DocumentOriginalStore {
+  put(source: DocumentSource): Promise<void>;
+  get(source: Omit<DocumentSource, "content">): Promise<string>;
+  delete(namespaceId: string, documentIds: string[]): Promise<void>;
+  deleteNamespace(namespaceId: string): Promise<void>;
+  clear(): Promise<void>;
+}
+```
+
+Leave it unset for Desktop and library-only Node deployments; direct UTF-8
+originals then live inline with their descriptors. The Node control plane uses
+`FISHMEM_ASSET_DIR` for raw file assets and extraction artifacts.
+`apps/web` configures R2 automatically on Cloudflare. Implementations must be
+idempotent and private: callers never receive an internal object key or bypass
+document namespace checks.
+
+## OpenAI example
+
+```ts
+const memory = await Memory.create({
+  graphStore: { provider: "sqlite", config: { url: "file:fishmem.db" } },
+  vectorStore: {
+    provider: "sqlite",
+    config: {
+      url: "file:fishmem.db",
+      indexIdentity: "text-embedding-3-small",
+    },
+  },
+  embedder: {
+    provider: "openai",
+    config: { model: "text-embedding-3-small" },
+  },
+  llm: {
+    provider: "openai",
+    config: { model: "gpt-4o-mini" },
+  },
+});
+```
+
+When `OPENAI_API_KEY` is present, OpenAI providers can be resolved by default,
+but production code should prefer explicit configuration so runtime behavior is
+auditable.
+
+## Canonical inference and derived views
+
+```ts
+const memory = await Memory.create({
+  // providers...
+  derivation: {
+    enabled: true,
+    schedule: "deferred",
+    hook: (task) => executionContext.waitUntil(task),
+  },
+});
+```
+
+`infer` is an add-level canonical storage choice, not the global derivation
+switch:
+
+- `infer: true` (default) requires the configured LLM, makes one extraction
+  call, and stores only refined records;
+- `infer: false` makes zero LLM calls and stores `content`, or each non-empty
+  message, as a verbatim record.
+
+The `derivation` configuration controls rebuildable state/profile projection
+work over those canonical records. It does not create a second writer.
+
+## Deferred vector projection
+
+```ts
+const memory = await Memory.create({
+  // providers...
+  vectorProjection: {
+    schedule: "deferred",
+    hook: (task) => executionContext.waitUntil(task),
+  },
+});
+```
+
+Canonical and lexical storage commit first. Semantic projection can then run in the
+background. Use `flushVectorProjections()` in scripts and tests that require a
+fully indexed state before continuing.
+
+## Embedding identity
+
+Changing model or dimensions requires rebuilding the vector projection. Set a
+stable `indexIdentity` on stores that support it so a mismatch is detected
+instead of mixing incomparable vectors.
+
+## Warnings
+
+Provide `onWarning` to observe recoverable projection or optional-retrieval
+failures:
+
+```ts
+const memory = await Memory.create({
+  // providers...
+  onWarning(warning) {
+    logger.warn(warning);
+  },
+});
+```
+
+FishMem reports degraded optional work; it does not silently hide it behind a
+fallback.

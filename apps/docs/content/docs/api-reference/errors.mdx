@@ -1,0 +1,69 @@
+---
+title: Errors and idempotency
+description: Stable error envelopes, permissions, request identity, and retry behavior.
+---
+
+Every non-2xx API response uses:
+
+```json
+{
+  "code": "INVALID_REQUEST",
+  "message": "One of user_id, agent_id, run_id is required",
+  "request_id": "req_...",
+  "details": {}
+}
+```
+
+`details` is optional. `request_id` is also sent as the `x-request-id` response
+header.
+
+## Common statuses
+
+| Status | Example code | Meaning |
+| ---: | --- | --- |
+| `400` | `INVALID_REQUEST`, `INVALID_CURSOR`, `IDEMPOTENCY_KEY_REQUIRED` | Request cannot be executed |
+| `401` | `INVALID_API_KEY`, `API_KEY_EXPIRED` | Authentication failed |
+| `402` | `INSUFFICIENT_CREDITS` | Hosted project has no remaining credits |
+| `403` | `INSUFFICIENT_PERMISSION` | Key lacks `memory:read`, `memory:write`, or `operations:read`; memory permissions also govern source documents |
+| `404` | `MEMORY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `DOCUMENT_UPLOAD_NOT_FOUND`, `OPERATION_NOT_FOUND` | Resource is absent in the authenticated project |
+| `409` | `IDEMPOTENCY_CONFLICT`, `VERSION_CONFLICT`, `DOCUMENT_UPLOAD_INCOMPLETE`, `DOCUMENT_UPLOAD_IMMUTABLE`, `DOCUMENT_UPLOAD_SIZE_MISMATCH`, `DOCUMENT_UPLOAD_CHECKSUM_MISMATCH`, `USAGE_RESERVATION_IN_PROGRESS`, `USAGE_CHARGE_CONFLICT` | Retry identity, immutable upload, Hosted charge, or optimistic version conflicts |
+| `413` | `DOCUMENT_UPLOAD_TOO_LARGE`, `EXTRACTED_DOCUMENT_TOO_LARGE`, `DOCUMENT_PAGE_LIMIT_EXCEEDED` | Raw file, extracted text, or page count exceeds a production fence |
+| `415` | `UNSUPPORTED_DOCUMENT_MEDIA_TYPE` | File upload declared an unsupported media type |
+| `429` | `RATE_LIMITED` | The Cloudflare deployment's per-key request window is exhausted |
+| `500` | `MEMORY_ENGINE_ERROR` | Engine or provider operation failed |
+
+Provider messages are not a stable client contract. Branch on `status` and
+`code`, log `request_id`, and show `message` to an operator when appropriate.
+
+## Idempotency
+
+FishMem Cloud requires `Idempotency-Key` for memory add/update/delete-by-id,
+direct document ingest/delete, and source-asset creation. Export and import
+require it on every deployment. Self-hosted deployments should send it for the
+same mutation paths.
+
+- same key + same command: the original operation/result is reused;
+- same key + different command: `409 IDEMPOTENCY_CONFLICT`;
+- key length: `1`–`200` non-whitespace characters.
+
+The server does not need or want client-generated memory IDs. Use a stable
+business command identity such as `customer-123-preference-v2`.
+
+Bulk delete is state-idempotent, but its `deleted` count describes that
+particular execution; do not use the count as a retry identity.
+
+For file extraction, repeat create with the same key and command to recover the
+same source asset, then safely repeat the exact-byte PUT and completion.
+Different metadata or bytes are rejected. See
+[Asynchronous file extraction](/api-reference/document-uploads#file-upload-errors).
+
+## Rate limits
+
+The bundled Cloudflare control plane limits each opaque API-key identity to
+**600 requests per 60 seconds**. Successful `/v1/*` responses include
+`RateLimit-Limit: 600` and `RateLimit-Policy: 600;w=60`. A rejected request
+returns `429 RATE_LIMITED` plus `Retry-After: 60`.
+
+Self-hosters can change the `MEMORY_RATE_LIMITER` binding policy in
+`apps/web/wrangler.jsonc`. The limiter hashes the bearer key before using it as
+the counter identity.

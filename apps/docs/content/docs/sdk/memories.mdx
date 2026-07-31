@@ -1,0 +1,255 @@
+---
+title: Memory methods
+description: Typed SDK methods for the complete memory lifecycle.
+---
+
+## Add
+
+```ts
+const receipt = await fishmem.memories.addAsync(
+  {
+    content: "The production database is PostgreSQL 16.",
+    agent_id: "support-agent",
+    metadata: { environment: "production" },
+  },
+  { idempotencyKey: "prod-database-v1" },
+);
+
+const event = await fishmem.events.wait(receipt.event_id);
+console.log(event.results);
+```
+
+Use either `content` or `messages`:
+
+```ts
+await fishmem.memories.addAsync(
+  {
+    messages: [
+      { role: "user", content: "I prefer dark mode." },
+      { role: "assistant", content: "I will remember that." },
+    ],
+    user_id: "alex",
+  },
+  { idempotencyKey: "alex-dark-mode-v1" },
+);
+```
+
+`infer` defaults to `true`: one durable worker task and one extraction call
+produce additive refined records, and the raw input is not stored beside
+them. The request returns a receipt rather than waiting for an LLM. With `infer: false`,
+`content` becomes one verbatim record and each non-empty item in `messages`
+becomes one verbatim record. It makes zero LLM calls. Extraction failure is an
+error, not a silent raw fallback.
+
+When a request-response flow needs the final records directly:
+
+```ts
+const { results } = await fishmem.memories.addAndWait(
+  { content: "Alex prefers dark mode.", user_id: "alex" },
+  {
+    idempotencyKey: "alex-dark-mode-v2",
+    timeoutMs: 30_000,
+  },
+);
+```
+
+Inference accepts at most 250,000 UTF-8 bytes and 500 messages. Use
+`documents` for long sources.
+
+## Search
+
+```ts
+const result = await fishmem.memories.search({
+  query: "Which database runs in production?",
+  agent_id: "support-agent",
+  top_k: 8,
+  memory_type: "decision",
+  filters: { environment: "production" },
+  search_strategy: "precision",
+});
+```
+
+Use the typed logical expression for nested metadata, ranges, negation, or OR:
+
+```ts
+const result = await fishmem.memories.search({
+  query: "Which support tickets are still relevant?",
+  user_id: "alex",
+  filters: {
+    and: [
+      { field: "metadata.channel", operator: "eq", value: "support" },
+      { field: "importance", operator: "gte", value: 0.7 },
+      {
+        not: {
+          field: "content",
+          operator: "icontains",
+          value: "resolved",
+        },
+      },
+    ],
+  },
+});
+```
+
+`results` are ordered by relevance and may include `score`. Set `trace: true`
+when debugging retrieval; traces are diagnostic data and should not normally be
+placed in a model prompt.
+
+The TypeScript SDK types every stable retrieval control:
+
+- `memory_type` and `filters` apply canonical-record filters. `filters` accepts
+  a legacy metadata equality map or the typed `MemoryFilterExpression` grammar.
+- `mode` accepts `hybrid`, `recent`, `important`, or `typed`.
+- `search_strategy` accepts `balanced`, `precision`, `recall`, or `auto`.
+- `sort_by` accepts `recent`, `importance`, `most_accessed`, or
+  `last_accessed`.
+- `min_score` is a `0`–`1` floor over the final fused score.
+
+The same input shape works through `FishMem` against Hosted/self-hosted HTTP and
+through `FishMemDesktop` against the local `fishmem` CLI. Desktop keeps
+embedding and retrieval local.
+
+See [Memory filters](/api-reference/filters) for supported fields, operators,
+limits, and the semantic-candidate recall boundary.
+
+## List
+
+```ts
+const page = await fishmem.memories.list({
+  user_id: "alex",
+  limit: 50,
+});
+```
+
+Use `page.next_cursor` to request the next stable page. Do not construct or
+modify cursors yourself.
+
+## Get
+
+```ts
+const memory = await fishmem.memories.get("memory-id");
+```
+
+## Update
+
+```ts
+const updateResult = await fishmem.memories.update(
+  memory.id,
+  {
+    content: "The production database is PostgreSQL 17.",
+    version: memory.updated_at,
+  },
+  { idempotencyKey: "upgrade-prod-db-v1" },
+);
+```
+
+Update returns `{ id, memory, event }`, not a full memory object. Call
+`memories.get(id)` when you need the current timestamps and metadata.
+
+Passing `version` enables optimistic concurrency. A stale version returns HTTP
+409 instead of overwriting a newer change.
+
+## Batch update and delete
+
+```ts
+const queued = await fishmem.memories.batchUpdate(
+  {
+    memories: [
+      { memory_id: "mem_1", content: "Updated record" },
+      { memory_id: "mem_2", metadata: { source: "crm" } },
+    ],
+  },
+  { idempotencyKey: "crm-refresh-v1" },
+);
+
+const completed = await fishmem.operations.wait(queued.id);
+console.log(completed.result);
+```
+
+`batchDelete` accepts `{ memories: [{ memory_id }] }` and the same required
+idempotency option. HTTP clients receive a pending durable operation. The
+Desktop adapter uses one local CLI call and returns the same operation shape
+already completed. Both expose per-item success or failure instead of claiming
+cross-store atomicity.
+
+## Delete
+
+```ts
+await fishmem.memories.delete(memory.id, {
+  idempotencyKey: `delete-${memory.id}`,
+});
+```
+
+Delete creates a tombstone and removes the memory from recall. It does not
+pretend the mutation succeeded when the server rejects it.
+
+Delete every memory in a scope:
+
+```ts
+await fishmem.memories.deleteAll(
+  { run_id: "temporary-run" },
+  { idempotencyKey: "delete-temporary-run-v1" },
+);
+```
+
+FishMem freezes the first call's exact target IDs. A retry with the same key
+returns the original count and cannot delete matching records created later.
+FishMem Cloud requires the key. The synchronous target limit is 25,000; an
+oversized request fails before deleting any record.
+
+## History
+
+```ts
+const { results: history } = await fishmem.memories.history(memory.id);
+```
+
+History records the immutable `ADD`, `UPDATE`, `INVALIDATE`, and `DELETE`
+sequence for a memory, plus audited `FEEDBACK` events.
+
+## Feedback
+
+```ts
+await fishmem.memories.setFeedback(
+  memory.id,
+  {
+    rating: "negative",
+    reason: "This record is out of date",
+    request_id: "req_123",
+  },
+  { idempotencyKey: "req-123-feedback-v1" },
+);
+
+const { feedback } = await fishmem.memories.getFeedback(memory.id);
+await fishmem.memories.clearFeedback(memory.id, {
+  idempotencyKey: "req-123-feedback-clear-v1",
+});
+```
+
+`FishMem` and `FishMemDesktop` expose the same three methods. Feedback is an
+audited signal; it does not silently rewrite content or rankings. See
+[/api-reference/feedback](/api-reference/feedback).
+
+## Operations
+
+Mutating requests create durable operations inside FishMem:
+
+```ts
+const { results } = await fishmem.operations.list({ limit: 20 });
+const operation = await fishmem.operations.get(results[0].id);
+```
+
+Use operations to inspect projection status and failures in asynchronous
+deployments.
+
+Memory inference has a narrower, privacy-safe event view:
+
+```ts
+const page = await fishmem.events.list({
+  status: "RETRYING",
+  limit: 20,
+});
+const event = await fishmem.events.get(page.results[0].id);
+```
+
+Events omit the original conversation/task payload. They expose scope,
+refined results, attempts, timing, and terminal error.

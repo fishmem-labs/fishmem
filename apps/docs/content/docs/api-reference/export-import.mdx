@@ -1,0 +1,47 @@
+---
+title: Export and import
+description: Queue portable namespace snapshot operations with durable idempotency.
+---
+
+Exports and imports are asynchronous. Both require an `Idempotency-Key` header
+and return an [operation](/api-reference/operations) with HTTP `202`. Work is
+dispatched immediately; the durable task row and one-minute worker recover
+interrupted or expired attempts.
+
+## `POST /v1/exports`
+
+```bash
+curl -X POST https://fishmem.com/v1/exports \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: export-2026-07-30"
+```
+
+The completed operation's `result` contains a versioned
+`fishmem.namespace-snapshot`. It includes canonical records, history,
+associations, entities, episodes, and journal state. Vector and state
+projections are marked for rebuild rather than copied as a second source of
+truth.
+
+## `POST /v1/imports`
+
+```bash
+curl -X POST https://fishmem.com/v1/imports \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: import-2026-07-30" \
+  -H "Content-Type: application/json" \
+  -d '{"snapshot": { "format": "fishmem.namespace-snapshot", "version": 1 }}'
+```
+
+Import validates the format, namespace ownership, dates, and internal
+references before queueing. The target project must be empty. A snapshot can
+be restored into a different project namespace: FishMem safely rebinds the
+namespace while preserving record IDs, history, associations, episodes, and
+journal provenance, then rebuilds vector and state projections.
+
+This is a restore operation, not a merge or clone operation. If the original
+namespace still exists in the same physical database, its globally unique row
+IDs still occupy that database; delete/purge the original project first or
+restore into a separate deployment.
+
+A retry with the same key and snapshot refers to the same operation. Reusing
+the key for different snapshot content returns `409 IDEMPOTENCY_CONFLICT`.

@@ -1,0 +1,264 @@
+---
+title: Asynchronous file extraction
+description: Upload immutable PDF, Office, image, and text files, extract them asynchronously, and index the result in the source RAG corpus.
+---
+
+Binary and long-form files use an explicit three-step lifecycle:
+
+```text
+create source asset -> PUT exact bytes -> complete -> extract -> Document/RAG
+```
+
+The raw file never enters the conversational memory writer. FishMem retains the
+immutable original and lossless extraction structure, then sends only the
+extracted Markdown through the canonical `DocumentCorpus` path. Use
+`/v1/memories` separately for refined or verbatim durable records.
+
+## 1. Create an upload
+
+`POST /v1/document-uploads`
+
+`Idempotency-Key` is required. At least one of `user_id`, `agent_id`, or
+`run_id` is also required.
+
+```bash
+curl https://fishmem.com/v1/document-uploads \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: handbook-pdf-v4" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "handbook.pdf",
+    "size_bytes": 482190,
+    "content_type": "application/pdf",
+    "checksum_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "source_key": "handbook/product.pdf",
+    "title": "Product handbook",
+    "user_id": "alex",
+    "metadata": {"revision": 4}
+  }'
+```
+
+`checksum_sha256` is optional in raw HTTP requests and strongly recommended.
+The TypeScript and Python SDKs always calculate it. `source_key` defaults to
+`filename`.
+
+```json
+{
+  "source_asset": {
+    "id": "asset_...",
+    "operation_id": "task_...",
+    "source_key": "handbook/product.pdf",
+    "filename": "handbook.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": 482190,
+    "checksum_sha256": null,
+    "status": "awaiting_upload",
+    "artifact_id": null,
+    "document_id": null,
+    "error": null,
+    "created_at": "2026-07-30T00:00:00.000Z",
+    "updated_at": "2026-07-30T00:00:00.000Z"
+  },
+  "upload": {
+    "method": "PUT",
+    "url": "https://fishmem.com/v1/document-uploads/asset_.../content",
+    "headers": {"content-type": "application/pdf"},
+    "max_bytes": 25000000
+  },
+  "operation": {
+    "id": "task_...",
+    "kind": "document_extract",
+    "status": "awaiting_upload",
+    "attempts": 0,
+    "max_attempts": 5,
+    "error": null
+  }
+}
+```
+
+Replaying the same key and command returns the same asset and operation.
+Reusing the key with different metadata returns `409 IDEMPOTENCY_CONFLICT`.
+
+## 2. Upload the exact bytes
+
+Use the method, URL, and headers returned by the create response:
+
+```bash
+curl -X PUT \
+  "https://fishmem.com/v1/document-uploads/asset_.../content" \
+  -H "Authorization: Bearer fm_..." \
+  -H "Content-Type: application/pdf" \
+  --data-binary @./handbook.pdf
+```
+
+A successful upload returns `204`. FishMem verifies the exact byte length and
+SHA-256 before changing the asset to `uploaded`. The object is immutable:
+replaying identical bytes is safe; replacing it with different bytes returns a
+conflict.
+
+## 3. Queue extraction
+
+`POST /v1/document-uploads/{id}/complete`
+
+```bash
+curl -X POST \
+  "https://fishmem.com/v1/document-uploads/asset_.../complete" \
+  -H "Authorization: Bearer fm_..."
+```
+
+The `202` response contains the source asset in `queued` state and the
+`document_extract` operation in `pending` state. Repeating completion is safe.
+
+Poll either resource:
+
+```text
+GET /v1/document-uploads/{id}
+GET /v1/operations/{operation_id}
+```
+
+Source asset states:
+
+| State | Meaning |
+| --- | --- |
+| `awaiting_upload` | Metadata exists; no verified bytes yet. |
+| `uploaded` | Exact bytes are durable; extraction is not queued. |
+| `queued` | The durable extraction task is pending. |
+| `processing` | Docling is converting the file. |
+| `ready` | The artifact and final RAG document are linked. |
+| `failed` | The latest attempt failed; inspect `error` and the operation. |
+| `cancelled` | The operation is fenced while cancellation cleanup finishes. |
+
+## Retry or cancel
+
+A `retry` or `dead` extraction operation can be redriven without creating a
+second source asset:
+
+```bash
+curl -X POST \
+  "https://fishmem.com/v1/operations/task_.../retry" \
+  -H "Authorization: Bearer fm_..."
+```
+
+The response is `202` with the operation reset to `pending`. The source asset
+returns to `queued`; FishMem reuses an immutable extraction artifact when one
+already exists. API keys need `memory:write` for this mutation.
+
+Cancel and permanently remove an upload that is not actively processing or
+already indexed:
+
+```bash
+curl -X DELETE \
+  "https://fishmem.com/v1/document-uploads/asset_..." \
+  -H "Authorization: Bearer fm_..."
+```
+
+Success returns `204`. FishMem first fences the durable task, then deletes the
+raw object and any extraction artifacts. A processing source returns
+`409 SOURCE_ASSET_BUSY`; a ready source returns `409 SOURCE_ASSET_READY` and
+must be deleted through `DELETE /v1/documents/{document_id}`.
+
+When ready, `document_id` is the id accepted by
+`documents.get`, `documents.content`, `documents.search`, and
+`documents.delete`. `documents.content` returns the indexed Markdown; the raw
+binary remains an immutable source asset.
+
+`document_extract` succeeds after the canonical document writer and vector
+mutation are accepted. Cloud vector queryability is asynchronous, so the
+operation result includes:
+
+```json
+{
+  "retrieval": {
+    "status": "propagating",
+    "visibility_target_ms": 120000
+  }
+}
+```
+
+Treat 120 seconds as FishMem's operational visibility target, not as a claim
+that the underlying vector service commits synchronously. Search clients may
+use bounded backoff during that window; exact source metadata and content are
+available immediately after the operation succeeds.
+
+## Supported files and limits
+
+The upload contract currently accepts:
+
+- PDF, DOC/DOCX, PPT/PPTX, XLS/XLSX;
+- ODT, ODS, ODP, RTF, and EPUB;
+- PNG, JPEG, TIFF, BMP, and WebP images;
+- email (`message/rfc822`);
+- JSON, XML, YAML, and `text/*`.
+
+The production fences are:
+
+| Limit | Value |
+| --- | ---: |
+| Raw file | 25,000,000 bytes |
+| Pages | 300 |
+| Extracted Markdown | 1,000,000 UTF-8 bytes |
+| One extraction attempt | 10 minutes |
+| Attempts | 5 with durable backoff |
+
+Audio and video are not accepted by this endpoint. Do not label an arbitrary
+binary as `text/plain`; use the real media type.
+
+Uploads left in `awaiting_upload` or `uploaded` for more than 24 hours are
+removed by scheduled maintenance. Terminal failed source assets retain their
+raw input and reusable artifacts for 30 days so an operator can inspect or
+redrive them; they are then removed. Ready source assets are retained until
+their stable document family or project is permanently deleted.
+
+## Runtime behavior
+
+On Cloudflare, D1 owns task state and retries, R2 stores raw files and extraction
+artifacts, a Queue is the low-latency wakeup, and a pinned Docling container
+performs conversion. The minute cron is a repair path if queue delivery fails.
+If infrastructure delivery exhausts the main Queue retry budget, the DLQ
+consumer writes `task_queue_delivery_exhausted` into the same D1 operation and
+source state before acknowledging the message. It never creates a parallel task
+store.
+
+On Node/Docker, libSQL owns the same task rows, a durable volume stores the same
+objects, the same pinned Docling image performs conversion, and the task poller
+calls the authenticated cron route. There is one ingestion module and two
+runtime adapters; status and retry semantics do not change.
+
+FishMem calls Docling's asynchronous submit/status/result API, so a slow OCR or
+table pass does not depend on one synchronous HTTP response staying open.
+
+## File-upload errors
+
+| Code | Status | Meaning |
+| --- | ---: | --- |
+| `IDEMPOTENCY_KEY_REQUIRED` | 400 | The create request omitted its retry identity. |
+| `IDEMPOTENCY_CONFLICT` | 409 | The key was reused with a different command. |
+| `UNSUPPORTED_DOCUMENT_MEDIA_TYPE` | 415 | The declared file type is not supported. |
+| `DOCUMENT_UPLOAD_TOO_LARGE` | 413 | Metadata or bytes exceed 25 MB. |
+| `DOCUMENT_UPLOAD_SIZE_MISMATCH` | 409 | PUT length differs from `size_bytes`. |
+| `DOCUMENT_UPLOAD_CHECKSUM_MISMATCH` | 409 | PUT bytes differ from `checksum_sha256`. |
+| `DOCUMENT_UPLOAD_IMMUTABLE` | 409 | A queued or processed source was replaced. |
+| `DOCUMENT_UPLOAD_INCOMPLETE` | 409 | Completion was requested before a valid PUT. |
+| `EXTRACTED_DOCUMENT_TOO_LARGE` | 413 | Extracted Markdown exceeds 1 MB. |
+| `DOCUMENT_PAGE_LIMIT_EXCEEDED` | 413 | Extraction produced more than 300 pages. |
+| `SOURCE_ASSET_BUSY` | 409 | An actively processing task cannot be cancelled safely. |
+| `SOURCE_ASSET_READY` | 409 | Delete the indexed document family instead of the upload. |
+| `OPERATION_NOT_RETRYABLE` | 404 | The operation is missing or not in `retry`/`dead`. |
+
+Provider-specific messages in `operation.error` are diagnostic, not a stable
+branching contract. Branch on the operation state and the structured API error
+code.
+
+## Cloud credits
+
+Completing a Hosted upload reserves **50 credits per started 5,000,000-byte
+block** before extraction can enter the queue. Once Docling produces the
+immutable artifact, indexing costs **1 credit per deterministic projected
+chunk**.
+
+If every extraction attempt fails before an artifact exists, the size-based
+reservation is refunded. Once the artifact exists, the extraction charge is
+settled even if the project needs more credits before indexing can finish.
+Retrying the same operation reuses the stable reservations and never charges a
+completed phase twice. Cancelling a queued upload releases an unsettled
+extraction reservation before its task and objects are removed.

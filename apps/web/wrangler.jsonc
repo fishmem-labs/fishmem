@@ -1,0 +1,128 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fishmem-web",
+  "main": "workers/entry.ts",
+  "triggers": {
+    // Durable task pickup every minute plus nightly memory maintenance.
+    "crons": ["*/1 * * * *", "0 4 * * *"]
+  },
+  "containers": [
+    {
+      "class_name": "FishMemExtractorContainer",
+      "image": "./services/extractor/Dockerfile",
+      "max_instances": 3,
+      "instance_type": "standard-2"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DOCUMENT_EXTRACTOR",
+        "class_name": "FishMemExtractorContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-document-extractor",
+      "new_sqlite_classes": ["FishMemExtractorContainer"]
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "DOCUMENT_TASKS",
+        "queue": "fishmem-document-tasks"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "fishmem-document-tasks",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "fishmem-document-tasks-dlq",
+        "max_concurrency": 3,
+        "retry_delay": 60
+      },
+      {
+        "queue": "fishmem-document-tasks-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 100,
+        "max_concurrency": 1,
+        "retry_delay": 300
+      }
+    ]
+  },
+  "compatibility_date": "2026-07-14",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "workers_dev": true,
+  // Self-host: add your own custom domain here, e.g.
+  //   "routes": [{ "pattern": "memory.example.com", "custom_domain": true }]
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client"
+  },
+  "d1_databases": [
+    {
+      "binding": "D1",
+      // `wrangler d1 create fishmem` then replace this non-routable placeholder.
+      "database_name": "fishmem",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "remote": true
+    }
+  ],
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      // `wrangler vectorize create fishmem-memories --dimensions=1536 --metric=cosine`
+      "index_name": "fishmem-memories"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "fishmem"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
+  "images": {
+    "binding": "IMAGES"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "fishmem-web"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "MEMORY_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 600,
+        "period": 60
+      }
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    // Set these to your own deployment's URL/sender before deploying.
+    "VITE_SITE_URL": "http://localhost:3000",
+    "VITE_PUBLIC_API_BASE_URL": "http://localhost:3000",
+    "BETTER_AUTH_URL": "http://localhost:3000",
+    "AUTH_EMAIL_FROM": "memory@example.com",
+    "AUTH_EMAIL_FROM_NAME": "FishMem",
+    // Optional OAuth: set GOOGLE_CLIENT_ID / GITHUB_CLIENT_ID to enable.
+  }
+}

@@ -1,0 +1,56 @@
+---
+title: Pagination
+description: Read large memory collections with stable cursors or async iteration.
+---
+
+## Page manually
+
+```ts
+let cursor: string | undefined;
+
+do {
+  const page = await fishmem.memories.list({
+    user_id: "alex",
+    limit: 100,
+    cursor,
+  });
+
+  for (const memory of page.results) {
+    await processMemory(memory);
+  }
+
+  cursor = page.next_cursor ?? undefined;
+} while (cursor);
+```
+
+## Stream with `listAll`
+
+`listAll` is an async generator. It fetches one page at a time instead of
+buffering the entire collection:
+
+```ts
+for await (const memory of fishmem.memories.listAll({
+  user_id: "alex",
+  limit: 100,
+})) {
+  await processMemory(memory);
+}
+```
+
+The iterator preserves the scope and follows only cursors returned by FishMem.
+Cancellation propagates through the request signal:
+
+```ts
+const controller = new AbortController();
+
+for await (const memory of fishmem.memories.listAll(
+  { user_id: "alex" },
+  { signal: controller.signal },
+)) {
+  if (shouldStop(memory)) controller.abort();
+}
+```
+
+`documents.listAll()` and `entities.listAll()` use the same one-page-at-a-time
+contract. Python exposes `list_all()` on all three resources; use `async for`
+with `AsyncFishMem`.

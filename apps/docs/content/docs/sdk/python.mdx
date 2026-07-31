@@ -1,0 +1,206 @@
+---
+title: Python SDK
+description: Use synchronous or asynchronous Python clients with FishMem Cloud and self-hosted FishMem.
+---
+
+## Install
+
+```bash
+pip install fishmem-sdk
+```
+
+The distribution is `fishmem-sdk`; the import package is `fishmem`.
+Python 3.10 or newer is required.
+
+## Synchronous client
+
+```python
+from fishmem import FishMem
+
+with FishMem(
+    api_key="fm_...",
+    base_url="https://fishmem.com",
+) as fishmem:
+    added = fishmem.memories.add_and_wait(
+        {
+            "content": "Alex prefers concise answers.",
+            "user_id": "alex",
+        },
+        idempotency_key="alex-answer-style-v1",
+    )
+
+    result = fishmem.memories.search(
+        {
+            "query": "How should I answer Alex?",
+            "user_id": "alex",
+            "top_k": 5,
+            "filters": {
+                "not": {
+                    "field": "content",
+                    "operator": "icontains",
+                    "value": "outdated",
+                }
+            },
+        }
+    )
+```
+
+Python passes the same validated logical filter grammar as HTTP and the
+TypeScript SDK. Keep `user_id`, `agent_id`, and `run_id` at the top level; they
+cannot be placed inside an OR expression. See [Memory filters](/api-reference/filters).
+
+`add_async(...)` returns the durable `event_id` immediately. Despite its name,
+the method is also available on the synchronous client; it describes server
+processing, not Python coroutine behavior:
+
+```python
+receipt = fishmem.memories.add_async(
+    {"content": "Alex prefers concise answers.", "user_id": "alex"},
+    idempotency_key="alex-answer-style-v2",
+)
+event = fishmem.events.wait(receipt["event_id"])
+```
+
+Use `memories.add({...,"infer": False})` for synchronous verbatim records.
+
+For self-hosting, set `base_url` to the deployment origin without `/v1`.
+
+## Asynchronous client
+
+```python
+from fishmem import AsyncFishMem
+
+async with AsyncFishMem(api_key="fm_...") as fishmem:
+    result = await fishmem.memories.search(
+        {"query": "answer style", "user_id": "alex"}
+    )
+```
+
+`AsyncFishMem` exposes the same resources and method names as `FishMem`:
+
+- `health.get`;
+- `documents`: ingest, upload, create_upload, get_upload, complete_upload,
+  delete_upload, search, list, list_all, get, content, and delete;
+- `entities`: list, list_all, get, and delete structural user, agent, and run
+  scopes;
+- `memories`: add, search, list, list_all, get, update, delete, delete_all,
+  add_async, add_and_wait, batch_update, batch_delete, history, get_feedback,
+  set_feedback, and clear_feedback;
+- `events`: list, get, and wait;
+- `state`: get and history;
+- `profile`: get;
+- `operations`: list, get, retry, and wait;
+- `exports.create` and `imports.create`.
+
+## Pagination
+
+```python
+for memory in fishmem.memories.list_all(
+    {"user_id": "alex"}, limit=100
+):
+    process(memory)
+```
+
+For `AsyncFishMem`, use `async for`.
+
+Scope entities use the same pagination pattern:
+
+```python
+for entity in fishmem.entities.list_all(entity_type="user", limit=100):
+    print(entity["id"], entity["total_memories"])
+```
+
+`entities.delete(type, id, idempotency_key="...")` removes every active
+memory in that structural scope from recall and preserves deletion history.
+
+Batch mutations are durable and require a retry identity:
+
+```python
+queued = fishmem.memories.batch_update(
+    [
+        {"memory_id": "mem_1", "content": "Updated record"},
+        {"memory_id": "mem_2", "metadata": {"source": "crm"}},
+    ],
+    idempotency_key="crm-refresh-v1",
+)
+completed = fishmem.operations.wait(queued["id"])
+```
+
+`batch_delete([{"memory_id": "..."}], idempotency_key="...")` uses the same
+operation result contract. The async client exposes awaitable versions, and
+`FishMemDesktop` routes both methods through one local CLI invocation.
+
+Feedback uses the same sync, async, and Desktop method names:
+
+```python
+fishmem.memories.set_feedback(
+    "mem_1",
+    {
+        "rating": "negative",
+        "reason": "This record is out of date",
+        "request_id": "req_123",
+    },
+    idempotency_key="req-123-feedback-v1",
+)
+current = fishmem.memories.get_feedback("mem_1")
+```
+
+Use `clear_feedback(..., idempotency_key="...")` to clear the current signal
+without removing its audit history.
+
+Document pagination uses the same pattern:
+
+```python
+for document in fishmem.documents.list_all(
+    {"user_id": "alex"}, limit=100
+):
+    process(document)
+```
+
+Binary and textual files use the asynchronous source-asset lifecycle in both
+sync and async HTTP clients:
+
+```python
+from pathlib import Path
+
+queued = fishmem.documents.upload(
+    Path("./handbook.pdf"),
+    {"source_key": "docs/handbook.pdf", "user_id": "alex"},
+    idempotency_key="handbook-pdf-v1",
+)
+
+ready = fishmem.operations.wait(
+    queued["operation"]["id"],
+    interval=1.0,
+    timeout=600.0,
+)
+```
+
+The client calculates SHA-256, creates an immutable source asset, uploads the
+exact bytes, and queues extraction. It returns the queued operation rather than
+waiting for Docling. Supported PDF, Office, EPUB, email, image, and text files
+may be up to 25,000,000 bytes and 300 extracted pages. Audio and video are not
+accepted.
+
+`FishMemDesktop.documents.upload()` remains local and text-only: it validates
+at most 1,000,000 bytes of UTF-8 and never calls Docling or a remote embedding
+provider.
+
+For manual lifecycle control, both clients expose `create_upload`,
+`get_upload`, `complete_upload`, and `delete_upload`. Failed or dead extraction
+can be redriven with `operations.retry(operation_id)`. See
+[Asynchronous file extraction](/api-reference/document-uploads).
+
+## Errors
+
+```python
+from fishmem import FishMemError
+
+try:
+    fishmem.memories.get("missing")
+except FishMemError as error:
+    print(error.status, error.code, error.request_id)
+```
+
+The client uses `httpx`, accepts a custom transport for testing, and applies no
+hidden automatic retries.

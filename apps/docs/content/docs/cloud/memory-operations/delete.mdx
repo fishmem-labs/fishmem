@@ -1,0 +1,85 @@
+---
+title: Delete
+description: Remove a single memory by id, or wipe every memory in a scope.
+---
+
+Delete has two different retention effects. Deleting one memory by `id` creates
+a tombstone, removes it from recall, and retains its audit history. Deleting a
+whole scope is a permanent bulk purge; handle it with care.
+
+## Delete one by id
+
+Pass the memory `id` in the path. The response confirms the deletion.
+
+```bash
+curl -X DELETE https://fishmem.com/v1/memories/mem_124 \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: delete-mem-124"
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({ apiKey });
+await fishmem.memories.delete("mem_124", {
+  idempotencyKey: "delete-mem-124",
+});
+```
+
+Response:
+
+```json
+{ "id": "mem_124", "deleted": true }
+```
+
+## Delete all in a scope
+
+Pass `user_id` (or `agent_id` / `run_id`) as a query parameter to delete every memory in that scope. The response returns how many were removed.
+
+```bash
+curl -X DELETE "https://fishmem.com/v1/memories?user_id=alice" \
+  -H "Authorization: Bearer fm_..." \
+  -H "Idempotency-Key: delete-all-alice-v1"
+```
+
+```ts
+await fishmem.memories.deleteAll(
+  { user_id: "alice" },
+  { idempotencyKey: "delete-all-alice-v1" },
+);
+```
+
+Response:
+
+```json
+{ "deleted": 12 }
+```
+
+### Caution
+
+Delete-all is irreversible and matches **every** memory in the scope you name.
+Cloud requires an idempotency key. The first execution freezes the exact target
+IDs; a retry returns the original count and does not delete records created
+later. Reusing that key for another scope is rejected. Before calling it,
+double-check the scope — a wrong `user_id` still purges a different user's
+records. When in doubt, [list](/cloud/memory-operations/get-and-list) every page
+first.
+
+A synchronous delete-all is capped at 25,000 matching memories. An oversized
+scope returns `413 DELETE_ALL_TOO_LARGE` before any deletion; narrow the scope
+and use a new idempotency key.
+
+## Parameters
+
+| Operation | Parameter | Notes |
+|-----------|-----------|-------|
+| Delete one | `{id}` (path) | The memory id. |
+| Delete all | `user_id` | Scope to wipe. |
+| Delete all | `agent_id` | Scope to wipe. |
+| Delete all | `run_id` | Scope to wipe. |
+
+## Credits
+
+Deletes are free.
+
+See the full contracts at [/api-reference/delete](/api-reference/delete) and [/api-reference/delete-all](/api-reference/delete-all).

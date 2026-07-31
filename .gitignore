@@ -1,0 +1,39 @@
+node_modules/
+dist/
+.artifacts/
+.venv/
+.pytest_cache/
+__pycache__/
+test-results/
+dist-demo/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+.env
+.env.*
+!.env.example
+coverage/
+.DS_Store
+*.tsbuildinfo
+.nomem/
+
+# Local research and visual QA notes are not release source.
+/TODO.md
+/design-qa.md
+apps/desktop/memories-implementation.png
+apps/desktop/summary-design-comparison.png
+apps/desktop/summary-implementation.png
+
+# Desktop build artifacts
+/apps/desktop/out/
+/apps/desktop/release/
+
+# benchmark artifacts
+benchmarks/locomo/data/
+benchmarks/longmemeval/data/
+benchmarks/beam/data/
+benchmarks/results/
+
+# Benchmark persistent result cache
+benchmarks/.cache/

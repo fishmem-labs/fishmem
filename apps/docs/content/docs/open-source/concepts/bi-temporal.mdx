@@ -1,0 +1,43 @@
+---
+title: Bi-temporal facts
+description: FishMem tracks both when a fact was true and when it was recorded, and supersedes facts instead of deleting them — so history stays queryable.
+---
+
+## Two timelines, not one
+
+Most stores have one notion of time: when a row was written. FishMem tracks two:
+
+- **Valid time** — when the fact was actually true in the real world, expressed as `valid_from` and `valid_to`.
+- **Recorded time** — when FishMem learned the fact, surfaced on the memory object as `event_date`.
+
+These are different things, and conflating them loses information. A user might tell you in June that they moved cities back in March. The fact became *true* in March (valid time) but was *recorded* in June (recorded time). Tracking both lets you answer "where did they live in April?" and "when did we find out?" separately.
+
+## Supersede, don't delete
+
+When a new fact contradicts an existing one, the engine doesn't overwrite or delete the old memory — it **invalidates** it. The old fact gets a `valid_to` timestamp closing its validity window, and the new fact opens a fresh window. Both rows survive. Current reads return only the active fact; history reads can see the whole chain.
+
+This is what makes corrections safe. You never lose the record that something *used* to be true.
+
+## Worked example: a user moves
+
+Say you record over time:
+
+```text
+Mar 3  ADD         user lives in Lisbon     valid_from=Mar 3  valid_to=∞
+Jun 9  INVALIDATE  user lives in Lisbon     valid_to=Jun 9
+       ADD         user lives in Berlin     valid_from=Jun 9  valid_to=∞
+```
+
+After June 9, a normal search returns "user lives in Berlin." The Lisbon fact isn't gone — it's closed. If you ask FishMem what it knew before June 9, Lisbon is still the answer for that window.
+
+## Inspecting the timeline
+
+To see the supersede chain for a memory — every version, with its validity window and when it was recorded — use the history endpoint:
+
+```bash
+GET /v1/memories/{id}/history
+```
+
+The response walks the lifecycle of that fact: each ADD, UPDATE, and INVALIDATE event with its `valid_from`, `valid_to`, and `event_date`. See [history](/cloud/memory-operations/history) for the full shape.
+
+This is the difference between "the assistant changed its mind" and "the assistant has no idea it ever thought otherwise." Bi-temporal storage keeps the audit trail without cluttering everyday recall.

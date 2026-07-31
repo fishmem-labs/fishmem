@@ -1,0 +1,14 @@
+title = "FishMem secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Non-secret idempotency fixtures and an environment lookup"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = [
+  '''idempotencyKey:\s*"conversation-[12]"''',
+  '''idempotency_key="conversation-1"''',
+  '''const apiKey = cfg\.mem0ApiKey \?\? process\.env\.MEM0_API_KEY;''',
+]

@@ -1,0 +1,62 @@
+---
+title: Client configuration
+description: Configure authentication, deployment URLs, fetch behavior, headers, and request cancellation.
+---
+
+## Constructor
+
+```ts
+const fishmem = new FishMem({
+  apiKey: "fm_...",
+  baseUrl: "https://fishmem.com",
+  fetch: globalThis.fetch,
+  headers: {
+    "X-Application": "support-agent",
+  },
+});
+```
+
+| Option | Required | Description |
+|---|---:|---|
+| `apiKey` | yes | Project API key sent as `Authorization: Bearer …`. |
+| `baseUrl` | no | Cloud or self-hosted origin. Defaults to `https://fishmem.com`. |
+| `fetch` | no | Standards-compatible fetch implementation. Uses `globalThis.fetch`. |
+| `headers` | no | Headers included with every request. |
+
+The constructor fails immediately when `apiKey` is empty or the runtime has no
+`fetch`. It does not silently switch endpoints or install a Node-only fetch
+polyfill.
+
+## Per-request options
+
+Every method accepts an optional final argument:
+
+```ts
+await fishmem.memories.search(
+  { query: "deployment decision", user_id: "alex" },
+  {
+    signal: AbortSignal.timeout(5_000),
+    headers: { "X-Trace-Id": traceId },
+  },
+);
+```
+
+| Option | Purpose |
+|---|---|
+| `signal` | Cancel or time-limit a request. |
+| `headers` | Add or override headers for this request. |
+| `idempotencyKey` | Make a mutation safe to retry. |
+
+## Self-hosted deployments
+
+`baseUrl` is the origin, not the `/v1` path:
+
+```ts
+const fishmem = new FishMem({
+  apiKey: env.FISHMEM_API_KEY,
+  baseUrl: "https://memory.internal.example",
+});
+```
+
+The SDK calls `/v1/memories`, `/v1/operations`, and the other versioned API
+routes beneath that origin.

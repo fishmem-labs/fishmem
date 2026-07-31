@@ -1,0 +1,141 @@
+---
+title: Search
+description: Semantically retrieve the most relevant memories for a query, scoped to a user, agent, or run.
+---
+
+Search is how you pull memories back out at the moment you need them. You send a natural-language `query` and FishMem returns the most relevant memories, each with a relevance `score`. This is the read you'll wire into your prompt-building step — see [recall](/open-source/concepts/recall) for the pattern.
+
+## Query and scope
+
+Always pass a `query` and at least one scope (`user_id`, `agent_id`, or
+`run_id`). Search can combine configured semantic, keyword, temporal, and graph
+signals. Treat the returned order and `score` as the public ranking contract,
+not any one internal lane.
+
+```bash
+curl -X POST https://fishmem.com/v1/memories/search \
+  -H "Authorization: Bearer fm_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "what are the user dietary preferences?",
+    "user_id": "alice",
+    "top_k": 5
+  }'
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({ apiKey });
+const { results } = await fishmem.memories.search({
+  query: "what are the user dietary preferences?",
+  user_id: "alice",
+  top_k: 5,
+  memory_type: "preference",
+  filters: { environment: "production" },
+  search_strategy: "precision",
+});
+```
+
+## top_k
+
+`top_k` controls how many results come back. It defaults to `10` and accepts
+values from `1` to `50`. If you build a fixed-size context window, set `top_k`
+to fit it. The HTTP API also accepts `limit`.
+
+## Parameters
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `query` | string | Required. The text to match against. |
+| `user_id` | string | User scope; at least one scope is required. |
+| `agent_id` | string | Agent scope; at least one scope is required. |
+| `run_id` | string | Run scope; at least one scope is required. |
+| `top_k` | number | Default `10`, range `1`–`50`. Alias: `limit`. |
+| `memory_type` | string | Exact memory-type filter. |
+| `filters` | object | Legacy metadata equality map or bounded logical filter expression. |
+| `mode` | string | `hybrid` (default), `recent`, `important`, or `typed`. |
+| `search_strategy` | string | `balanced` (default), `precision`, `recall`, or `auto`. |
+| `sort_by` | string | `recent`, `importance`, `most_accessed`, or `last_accessed`. |
+| `min_score` | number | Final fused-score floor from `0` to `1`. |
+| `trace` | boolean | Include diagnostic retrieval trace; default `false`. |
+
+## Filter semantics
+
+`memory_type` and `filters` are canonical-record filters. The legacy map accepts
+top-level metadata scalar equality. The logical shape supports nested metadata,
+ranges, membership, negation, AND, and OR. Structural `user_id`, `agent_id`,
+and `run_id` fields remain outside the expression and are always ANDed with it.
+See [Memory filters](/api-reference/filters) for the complete grammar and
+limits.
+
+Every candidate is reloaded from the canonical project store before filters
+are applied. This keeps exclusion and scope isolation correct even while a
+Hosted Vectorize projection is eventually consistent. Semantic filtering uses
+a bounded over-fetched candidate pool, so a very selective predicate over a
+large corpus can reduce recall; use `recent`, `important`, or `typed` when
+canonical filtered enumeration matters more than semantic ranking.
+
+`search_strategy` tunes the hybrid lane:
+
+- `balanced` uses the configured general-purpose blend.
+- `precision` narrows point-fact retrieval.
+- `recall` enables the broader graph/PPR lane for lists and multi-hop queries.
+- `auto` uses a local query-intent heuristic to choose a lane.
+
+None of these strategies adds an LLM call. The engine's experimental `deep`
+mode is not part of the public API because it can add LLM work that the current
+Hosted search price does not cover.
+
+`score` is the final fused FishMem ranking score, not raw vector cosine.
+Calibrate `min_score` using representative application traffic before applying
+a strict floor.
+
+## Response
+
+Each result is a full memory object plus a `score`:
+
+```json
+{
+  "results": [
+    {
+      "id": "mem_124",
+      "memory": "Is vegetarian",
+      "memory_type": "fact",
+      "importance": 0.8,
+      "user_id": "alice",
+      "agent_id": null,
+      "run_id": null,
+      "metadata": {},
+      "created_at": "2026-06-13T10:00:00Z",
+      "updated_at": "2026-06-13T10:00:00Z",
+      "event_date": "2026-06-13T10:00:00Z",
+      "valid_from": "2026-06-13T10:00:00Z",
+      "valid_to": null,
+      "score": 0.91
+    }
+  ]
+}
+```
+
+Higher `score` means a stronger final ranking score. Results are returned
+best-first. With `trace: true`, the response also includes diagnostic lane and
+selection data; do not place the trace itself in the model prompt.
+
+## Read-after-write behavior
+
+A successful Hosted write makes the canonical record available to get, list,
+and history reads immediately. The semantic Vectorize projection is
+asynchronous, so a new record may take several seconds to appear in search.
+For immediate recall, retry the search with bounded backoff. Do not repeat the
+write with a new idempotency key while waiting.
+
+Vector hits are always reloaded from the canonical project store and checked
+against the requested scope. A stale vector cannot return a deleted record or
+cross a project boundary.
+
+## Credits
+
+Search costs **1 credit** per call, regardless of `top_k`.
+
+See the full contract at [/api-reference/search](/api-reference/search) and the ranking model at [/open-source/concepts/recall](/open-source/concepts/recall).

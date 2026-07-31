@@ -1,0 +1,12 @@
+{
+  "root": true,
+  "title": "Integrations",
+  "description": "Add FishMem memory to your favorite agent framework.",
+  "pages": [
+    "index",
+    "vercel-ai-sdk",
+    "mastra",
+    "openai-agents-sdk",
+    "cloudflare-agents-sdk"
+  ]
+}

@@ -1,0 +1,73 @@
+---
+title: How memory works
+description: Refined records, verbatim records, document RAG, rebuildable projections, and scoped recall.
+---
+
+## 1. Choose the canonical write
+
+For chat and agent events, `infer: true` is the default. FishMem makes exactly
+one extraction call, removes duplicate facts in the batch, and stores only the
+refined records. An extraction error fails the write.
+
+For a durable statement already distilled by an application or agent, use
+`infer: false`. FishMem makes zero LLM calls and stores `content`, or each
+non-empty message, as a verbatim record.
+
+FishMem does not dual-write both forms. Corrections use explicit update,
+invalidate, or delete operations.
+
+## 2. Keep documents on a document path
+
+Long text and files should retain their source plus chunk/index metadata for
+RAG. Already-textual content uses synchronous `documents.ingest`, which stores
+the exact UTF-8 original, an immutable version, and a current-source pointer.
+Deterministic chunks record UTF-8 byte offsets; keyword and vector rows are
+rebuildable. `documents.search` returns the matched chunk plus optional adjacent
+evidence.
+
+PDF, Office, EPUB, email, image, and text files use asynchronous
+`document-uploads`: FishMem stores immutable raw bytes, queues Docling
+extraction, retains Markdown plus lossless JSON structure, then calls the same
+document writer. The raw file does not pass through `memories.add`.
+
+Do not feed an entire file into the personal-fact add path and treat every
+passage as a memory. Store genuinely durable conclusions separately when an
+agent needs them across sessions. Direct text ingest accepts up to 1,000,000
+UTF-8 bytes. File upload accepts up to 25,000,000 raw bytes and 300 extracted
+pages; audio and video remain outside this contract.
+
+## 3. Build projections
+
+FishMem can build two kinds of projection from canonical records:
+
+- a keyword and embedding index for memory recall and source retrieval;
+- optional derived state for current-value, history, and supersession views.
+
+Projections are provenance-linked and rebuildable. A projection failure cannot
+delete or rewrite canonical memory.
+
+Desktop uses a local embedding model and SQLite-backed index, so no hosted
+embedding key is required. Other deployments may choose OpenAI-compatible
+embeddings or a custom local embedder.
+
+## 4. Recall within a scope
+
+Every memory belongs to a structural namespace and can also be filtered by
+`userId`, `agentId`, and `runId`. Search uses the same scope to prevent memory
+from one user or agent leaking into another.
+
+Depending on configuration, ranking can combine:
+
+- lexical relevance;
+- semantic similarity;
+- recency and event time;
+- graph relationships;
+- access and importance signals.
+
+## Agent-side summarization
+
+FishMem Desktop expects the connected agent Skill to decide what is durable and
+submit a concise, self-contained memory. That summary is agent policy, not a
+hidden rewrite inside the storage engine. Users can inspect and correct the
+exact result in Desktop. Desktop does not support remote embeddings or a chat
+LLM and rejects add/search until its local multilingual E5 index is ready.

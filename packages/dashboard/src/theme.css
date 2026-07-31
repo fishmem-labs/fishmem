@@ -1,0 +1,599 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@source "../../../apps/web/**/*.{ts,tsx}";
+@source "./**/*.{ts,tsx}";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Design tokens ported from the multica design system (OKLch). Neutral zinc
+   palette (hue 285) + a blue brand (hue 255). Token names mirror multica so
+   shadcn-style semantic classes (bg-card, text-muted-foreground, bg-accent,
+   bg-primary, text-brand, ring-border…) resolve identically across both apps. */
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.21 0.006 285.885);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --danger: var(--destructive);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.705 0.015 286.067);
+  --brand: oklch(0.55 0.16 255);
+  --brand-foreground: oklch(0.985 0 0);
+  --success: oklch(0.55 0.16 145);
+  --warning: oklch(0.75 0.16 85);
+  --info: oklch(0.55 0.18 250);
+  --chart-1: oklch(0.55 0.16 255);
+  --chart-2: oklch(0.66 0.13 255);
+  --chart-3: oklch(0.76 0.1 255);
+  --chart-4: oklch(0.85 0.06 255);
+  --chart-5: oklch(0.92 0.03 255);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-primary: oklch(0.21 0.006 285.885);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.95 0.002 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.705 0.015 286.067);
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: oklch(0.18 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.92 0.004 286.32);
+  --primary-foreground: oklch(0.21 0.006 285.885);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --danger: var(--destructive);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.552 0.016 285.938);
+  --brand: oklch(0.65 0.16 255);
+  --brand-foreground: oklch(0.985 0 0);
+  --success: oklch(0.65 0.15 145);
+  --warning: oklch(0.7 0.16 85);
+  --info: oklch(0.65 0.18 250);
+  --chart-1: oklch(0.72 0.16 255);
+  --chart-2: oklch(0.62 0.13 255);
+  --chart-3: oklch(0.52 0.1 255);
+  --chart-4: oklch(0.42 0.06 255);
+  --chart-5: oklch(0.32 0.03 255);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.552 0.016 285.938);
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --font-serif: var(--font-serif), "Instrument Serif", Georgia, serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-danger: var(--danger);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+}
+
+.auth-email-input {
+  background-color: #ffffff;
+  caret-color: #181815;
+  color: #181815;
+  color-scheme: light;
+  -webkit-text-fill-color: #181815;
+}
+
+.auth-email-input::placeholder {
+  color: #8c8880;
+  -webkit-text-fill-color: #8c8880;
+}
+
+.auth-email-input::selection {
+  background: #e8e4dd;
+  color: #181815;
+  -webkit-text-fill-color: #181815;
+}
+
+.auth-email-input:-webkit-autofill,
+.auth-email-input:-webkit-autofill:hover,
+.auth-email-input:-webkit-autofill:focus {
+  caret-color: #181815;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+  -webkit-text-fill-color: #181815;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+.seedance-grid {
+  background:
+    radial-gradient(circle at 50% 20%, rgb(124 58 237 / 0.10), transparent 30%),
+    linear-gradient(to right, rgb(148 163 184 / 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(148 163 184 / 0.12) 1px, transparent 1px);
+  background-size: auto, 64px 64px, 64px 64px;
+}
+
+.seedance-gradient-text {
+  background: linear-gradient(90deg, #6d5dfc, #4285f4);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.seedance-blue-button {
+  background: linear-gradient(135deg, #6d5dfc 0%, #3b82f6 100%);
+  box-shadow: 0 18px 34px rgb(79 70 229 / 0.28);
+}
+
+.seedance-panel {
+  border: 1px solid var(--border);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+.seedance-code {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e5e7eb;
+}
+
+.seedance-code-line {
+  color: #94a3b8;
+}
+
+.dashboard-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #d4d4d8 transparent;
+}
+
+.marketing-shell {
+  --marketing-cream: #f5f3ef;
+  --marketing-cream-dark: #efeceb;
+  --marketing-cream-strong: #faf9f7;
+  --marketing-greige: #6f6b64;
+  --marketing-greige-light: #8c8880;
+  --marketing-charcoal: #181815;
+  --marketing-blue: #2349f4;
+  --marketing-blue-deep: #0023bf;
+  background: #ffffff;
+  color: var(--marketing-charcoal);
+  font-family: var(--font-sans);
+  letter-spacing: -0.01em;
+}
+
+.marketing-serif {
+  font-family: var(--font-serif), "Instrument Serif", "Arizona", Georgia, serif;
+  font-weight: 400;
+}
+
+.marketing-mono {
+  font-family: var(--font-mono), ui-monospace, "Geist Mono", "JetBrains Mono", monospace;
+}
+
+/* Light syntax theme for developer code blocks (scoped to .code-hl). Token
+   colours are mid-lightness so they read on both light and dark surfaces. */
+/* Refined light code theme (VS Code Light+ / GitHub-ish), tuned in OKLch so the
+   same palette reads on both the light cards and dark mode. */
+.code-hl {
+  color: var(--foreground);
+}
+.code-hl .hljs-keyword,
+.code-hl .hljs-selector-tag,
+.code-hl .hljs-literal,
+.code-hl .hljs-section {
+  color: oklch(0.52 0.19 295); /* violet — import / const / await / def */
+}
+.code-hl .hljs-string,
+.code-hl .hljs-meta .hljs-string,
+.code-hl .hljs-regexp,
+.code-hl .hljs-addition {
+  color: oklch(0.5 0.13 152); /* green */
+}
+.code-hl .hljs-number,
+.code-hl .hljs-symbol,
+.code-hl .hljs-bullet {
+  color: oklch(0.58 0.13 48); /* warm amber */
+}
+.code-hl .hljs-title,
+.code-hl .hljs-title.function_ {
+  color: oklch(0.5 0.16 258); /* blue — function names */
+}
+.code-hl .hljs-built_in,
+.code-hl .hljs-type,
+.code-hl .hljs-class .hljs-title {
+  color: oklch(0.55 0.11 200); /* teal — built-ins / types */
+}
+.code-hl .hljs-attr,
+.code-hl .hljs-attribute,
+.code-hl .hljs-property,
+.code-hl .hljs-variable.constant_ {
+  color: oklch(0.5 0.14 240); /* JSON keys / attributes */
+}
+.code-hl .hljs-comment,
+.code-hl .hljs-quote {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.code-hl .hljs-meta,
+.code-hl .hljs-name,
+.code-hl .hljs-variable {
+  color: var(--foreground);
+}
+
+.hljs {
+  color: #e6edf3;
+  background: transparent;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: #ff7b72;
+}
+
+.hljs-string,
+.hljs-doctag,
+.hljs-regexp,
+.hljs-template-variable {
+  color: #a5d6ff;
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-title.class_,
+.hljs-section {
+  color: #d2a8ff;
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-variable,
+.hljs-name {
+  color: #7ee787;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet {
+  color: #79c0ff;
+}
+
+.hljs-built_in,
+.hljs-type,
+.hljs-class .hljs-title {
+  color: #ffa657;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #8b949e;
+}
+
+.hljs-meta {
+  color: #f0883e;
+}
+
+.hljs-addition {
+  color: #aff5b4;
+}
+
+.hljs-deletion {
+  color: #ffdcd7;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}
+
+.marketing-noise {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><filter id='n'><feTurbulence type='turbulence' baseFrequency='0.85' numOctaves='1' seed='7' stitchTiles='stitch'/><feColorMatrix type='saturate' values='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-size: 12%;
+  filter: saturate(1.2) contrast(1.1);
+}
+
+.marketing-soft-shadow {
+  box-shadow:
+    0 80px 30px 0 rgba(137, 102, 26, 0.01),
+    0 40px 22px 0 rgba(137, 102, 26, 0.05),
+    0 22px 16px 0 rgba(137, 102, 26, 0.09),
+    0 7px 10px 0 rgba(137, 102, 26, 0.1);
+}
+
+.blog-richtext {
+  max-width: none;
+  color: #2d3440;
+  font-size: 15px;
+  line-height: 1.72;
+}
+
+.blog-richtext > *:first-child {
+  margin-top: 0;
+}
+
+.blog-richtext p {
+  margin: 0 0 1rem;
+}
+
+.blog-richtext a {
+  color: #1846f5;
+  text-decoration: none;
+}
+
+.blog-richtext a:hover {
+  text-decoration: underline;
+}
+
+.blog-richtext strong {
+  color: #181815;
+  font-weight: 500;
+}
+
+.blog-richtext h1,
+.blog-richtext h2 {
+  margin: 2rem 0 0.75rem;
+  color: #181815;
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.14;
+}
+
+.blog-richtext h3 {
+  margin: 2rem 0 0.75rem;
+  color: #181815;
+  font-size: 1.65rem;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.18;
+}
+
+.blog-richtext h4 {
+  margin: 2.25rem 0 1rem;
+  color: #181815;
+  font-size: 1.08rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.blog-richtext ul,
+.blog-richtext ol {
+  margin: 1.5rem 0;
+  padding-left: 1.35rem;
+}
+
+.blog-richtext li {
+  margin: 0.25rem 0;
+}
+
+.blog-richtext li p {
+  margin: 0;
+}
+
+.blog-richtext blockquote {
+  margin: 2rem 0;
+  border-left: 3px solid #2147f5;
+  padding-left: 1rem;
+  color: #4c5564;
+}
+
+.blog-richtext img,
+.blog-richtext video {
+  margin: 2rem 0;
+  width: 100%;
+  border-radius: 4px;
+}
+
+.blog-richtext iframe {
+  margin: 2rem 0;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border-radius: 4px;
+}
+
+.blog-richtext hr {
+  margin: 3rem 0;
+  border: 0;
+  border-top: 1px solid #e6e8ec;
+}
+
+.blog-richtext code {
+  border-radius: 4px;
+  background: #f5f7fb;
+  padding: 0.1rem 0.3rem;
+  color: #181815;
+}
+
+.blog-richtext pre {
+  margin: 2rem 0;
+  overflow-x: auto;
+  border-radius: 4px;
+  background: #0f172a;
+  padding: 1rem;
+  color: #e6edf3;
+}
+
+.blog-richtext pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+/* Form controls inherit the page font by default. Scoped to @layer base so
+   Tailwind text-* / font-* utilities (in @layer utilities) still override it —
+   an unlayered rule here would beat every utility class on buttons/inputs. */
+@layer base {
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}
+
+::selection {
+  background: rgb(13 148 136 / 0.22);
+}
+
+.surface-grid {
+  background-image:
+    linear-gradient(to right, rgb(17 17 17 / 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(17 17 17 / 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+.dark .surface-grid {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.055) 1px, transparent 1px);
+}
+
+.hero-kenburns {
+  animation: hero-kenburns 18s ease-in-out infinite alternate;
+}
+
+.hero-enter {
+  animation: hero-enter 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.reveal-up {
+  animation: reveal-up 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.code-glow {
+  box-shadow: 0 28px 90px rgb(0 0 0 / 0.18);
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+@keyframes hero-kenburns {
+  from {
+    transform: scale(1.01);
+  }
+  to {
+    transform: scale(1.06) translate3d(-1.5%, -1%, 0);
+  }
+}
+
+@keyframes hero-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Recharts v3 ships a focusable accessibility layer (it sets tabIndex on the
+   chart surface), so clicking a chart draws the browser's blue focus ring
+   around the whole SVG. The tooltip is our hover/selection affordance, so
+   suppress the ring on the chart itself. Keyboard navigation still works. */
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-wrapper :focus,
+.recharts-wrapper :focus-visible,
+.recharts-surface:focus {
+  outline: none;
+}

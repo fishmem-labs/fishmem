@@ -1,0 +1,76 @@
+---
+title: Quickstart
+description: Store and recall your first memory with FishMem Cloud.
+---
+
+## 1. Create an API key
+
+Create a project key in the FishMem dashboard. Keep it server-side and expose it
+to your runtime as `FISHMEM_API_KEY`.
+
+## 2. Install the SDK
+
+```bash
+npm install @fishmem/sdk
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+```
+
+## 3. Store a refined memory
+
+```ts
+const added = await fishmem.memories.addAndWait(
+  {
+    content: "Alex prefers dark mode and writes TypeScript.",
+    user_id: "alex",
+    metadata: { source: "onboarding" },
+  },
+  { idempotencyKey: "alex-preferences-v1" },
+);
+```
+
+The default `infer: true` queues one durable extraction task and stores only
+refined canonical records. `addAndWait` follows its Event API status until
+completion. Use `addAsync` when your application wants the `event_id`
+immediately. Use `infer: false` for already-distilled content that must be
+stored verbatim synchronously with zero LLM calls.
+
+## 4. Recall it
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: "How should the interface and examples be presented to Alex?",
+  user_id: "alex",
+  top_k: 5,
+});
+```
+
+Use the same scope on write and recall. A scope can contain `user_id`,
+`agent_id`, `run_id`, or a combination of them.
+
+## Direct HTTP
+
+Every SDK method maps to the REST API:
+
+```bash
+curl https://fishmem.com/v1/memories/search \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"How should I answer Alex?","user_id":"alex","top_k":5}'
+```
+
+## Next steps
+
+<Cards>
+  <Card title="SDK quickstart" href="/sdk/quickstart" description="Configure the client and use every supported runtime." />
+  <Card title="Memory methods" href="/sdk/memories" description="Add, list, search, update, delete, and inspect history." />
+  <Card title="Inference events" href="/api-reference/events" description="Poll queued extraction, retries, timing, and refined results." />
+  <Card title="Authentication" href="/cloud/authentication" description="Store and rotate API keys safely." />
+  <Card title="API reference" href="/api-reference" description="Exact HTTP request and response shapes." />
+</Cards>

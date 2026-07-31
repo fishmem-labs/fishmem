@@ -1,0 +1,46 @@
+---
+title: Track changing preferences
+description: Preserve exact preference changes and retain an audit trail.
+---
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+});
+```
+
+Let one extraction call turn each change into canonical records with temporal
+and state-slot fields:
+
+```ts
+await fishmem.memories.add({
+  content: "Sam lives in Lisbon.",
+  infer: true,
+  user_id: "sam",
+  metadata: { source: "profile-conversation" },
+});
+
+const moved = await fishmem.memories.add({
+  content: "Sam moved from Lisbon to Berlin in May 2026.",
+  infer: true,
+  user_id: "sam",
+  metadata: { source: "profile-conversation" },
+});
+```
+
+When structured derivation is enabled, FishMem projects the extracted records
+into a current-value view with `source_ids`. It does not keep a second raw
+canonical copy. Retain the original conversation in your application if it is
+required for audit or compliance.
+
+Use `memories.update(id, ...)` only to correct a specific stored record, not to
+hide a real-world change. Inspect the record's audit trail with:
+
+```ts
+const history = await fishmem.memories.history(moved.results[0].id);
+```
+
+This distinction keeps “we learned the old record was wrong” separate from
+“the world changed later.”
