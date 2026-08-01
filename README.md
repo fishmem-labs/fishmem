@@ -467,7 +467,7 @@ Skill. Desktop does not install or require an MCP server.
 FishMem. It has no runtime dependencies and uses standard Web APIs, so the same
 HTTP entry point runs in Node.js, Bun, Deno, Cloudflare Workers, and Vercel
 Functions. `@fishmem/sdk/desktop` is an explicit Node-only adapter for the
-local `fishmem` CLI. `fishmem-sdk` provides synchronous and asynchronous Python
+local `fishmem` CLI. `fishmem` provides synchronous and asynchronous Python
 HTTP clients plus the same Desktop CLI adapter.
 
 ```bash

@@ -1,10 +1,10 @@
-# `fishmem-sdk`
+# `fishmem`
 
 Official Python SDK for FishMem Cloud, self-hosted FishMem, and FishMem
 Desktop.
 
 ```bash
-pip install fishmem-sdk
+pip install fishmem
 ```
 
 ```python

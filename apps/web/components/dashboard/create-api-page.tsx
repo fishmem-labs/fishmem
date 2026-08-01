@@ -67,7 +67,7 @@ const SDK: Record<string, Step[]> = {
       title: "Install the SDK",
       desc: "Use the official synchronous or asynchronous Python client.",
       language: "bash",
-      code: "pip install fishmem-sdk",
+      code: "pip install fishmem",
     },
     {
       title: "Add memory",

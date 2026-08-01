@@ -217,7 +217,7 @@ not reimplement memory decisions.
 - `@fishmem/sdk`: fetch-native HTTP entry for Node, Bun, Deno, Workers, and
   serverless runtimes.
 - `@fishmem/sdk/desktop`: explicit Node-only `fishmem` CLI adapter.
-- `fishmem-sdk`: synchronous/asynchronous Python HTTP clients plus Desktop CLI
+- `fishmem`: synchronous/asynchronous Python HTTP clients plus Desktop CLI
   adapter.
 
 The CLI machine contract is `fishmem call <method> --input <json>`. SDKs invoke

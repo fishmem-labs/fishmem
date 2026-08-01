@@ -133,7 +133,7 @@ jobs:
             --wheel-dir "$py_pack_dir"
           python -m venv "$py_install_dir"
           "$py_install_dir/bin/pip" install \
-            "$py_pack_dir"/fishmem_sdk-0.1.0-py3-none-any.whl
+            "$py_pack_dir"/fishmem-0.1.0-py3-none-any.whl
           "$py_install_dir/bin/python" -c \
             "from fishmem import FishMem, FishMemDesktop; api = FishMem(api_key='test'); desktop = FishMemDesktop(command='/bin/false'); assert api.documents and desktop.documents; api.close()"
       - name: Desktop local-only contract

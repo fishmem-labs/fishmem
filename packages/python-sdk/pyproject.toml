@@ -3,7 +3,7 @@ requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "fishmem-sdk"
+name = "fishmem"
 version = "0.1.0"
 description = "Official Python SDK for FishMem Cloud and self-hosted FishMem"
 readme = "README.md"

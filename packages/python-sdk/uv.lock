@@ -38,7 +38,7 @@ wheels = [
 ]
 
 [[package]]
-name = "fishmem-sdk"
+name = "fishmem"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
