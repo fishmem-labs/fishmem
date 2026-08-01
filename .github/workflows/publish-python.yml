@@ -2,6 +2,9 @@ name: Publish Python SDK
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "python-v*"
 
 concurrency:
   group: publish-python-pypi
@@ -13,7 +16,9 @@ permissions:
 jobs:
   build:
     name: Build signed source inputs
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'push' ||
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +26,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Verify release ref
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+
+          with open("packages/python-sdk/pyproject.toml", "rb") as file:
+              version = tomllib.load(file)["project"]["version"]
+
+          if os.environ["GITHUB_EVENT_NAME"] == "push":
+              expected = f"python-v{version}"
+              actual = os.environ["GITHUB_REF_NAME"]
+              if actual != expected:
+                  raise SystemExit(f"release tag must be {expected}, got {actual}")
+          PY
 
       - name: Build and validate distributions
         run: |
