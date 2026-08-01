@@ -12,6 +12,19 @@ Dates are in UTC. For the engine's full commit history, see
   than a long-running changelog.
 </Callout>
 
+## 2026-08 — Python SDK 0.1.0
+
+- **PyPI release:** the official Python distribution is now available as
+  [`fishmem`](https://pypi.org/project/fishmem/0.1.0/) for Python 3.10 and newer;
+  install it with `pip install fishmem` and import it with `from fishmem import
+  FishMem`.
+- **Typed sync and async clients:** the release includes `FishMem`,
+  `AsyncFishMem`, and `FishMemDesktop`, plus the `py.typed` marker for type
+  checkers.
+- **Trusted publishing:** releases are built and published from GitHub Actions
+  through PyPI's short-lived OIDC flow; no long-lived PyPI upload token is
+  required.
+
 ## 2026-07 — Async inference and source RAG
 
 - **Breaking API:** inferred `POST /v1/memories` writes now require
