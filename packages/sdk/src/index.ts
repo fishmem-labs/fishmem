@@ -43,6 +43,7 @@ export type {
   MemoryEvent,
   MemoryEventPage,
   MemoryEventStatus,
+  MemoryWriteSummary,
   MemoryMessage,
   MemoryOperation,
   MemoryPage,

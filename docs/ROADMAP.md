@@ -53,6 +53,9 @@ The initial public release includes:
 
 ### Retrieval evidence
 
+- Run the frozen selective-inference prompt A/B on one shared live model;
+  promote the candidate only if memory-control/secret leaks stay at zero,
+  required recall does not materially regress, and unwanted writes decline.
 - Run current FishMem and current mem0 under one frozen LOCOMO protocol.
 - Add paired LongMemEval and BEAM evidence where both systems can complete the
   same harness.

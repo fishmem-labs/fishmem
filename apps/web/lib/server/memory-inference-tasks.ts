@@ -1,5 +1,6 @@
 import {
   AddMemoryCommandSchema,
+  AddMemoryResponseSchema,
   type AddMemoryCommand,
 } from "@fishmem/contracts";
 import { MemoryApplication } from "@fishmem/application";
@@ -192,10 +193,12 @@ export async function processMemoryInferenceTask(
   await accounting?.authorize(task);
   const payload = parseMemoryInferenceTaskPayload(task.payload);
   const application = new MemoryApplication(memory);
-  const result = await application.add(
-    task.workspaceId,
-    payload.command,
-    payload.idempotency_key,
+  const result = AddMemoryResponseSchema.parse(
+    await application.add(
+      task.workspaceId,
+      payload.command,
+      payload.idempotency_key,
+    ),
   );
   if (payload.derivation_enabled) {
     await dependencies.enqueueDerivation(db, {

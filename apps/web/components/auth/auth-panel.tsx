@@ -50,6 +50,8 @@ export function AuthPanel({
   magicLinkEnabled,
 }: {
   magicLinkEnabled: boolean;
+  googleAuthEnabled?: boolean;
+  githubAuthEnabled?: boolean;
 }) {
   const search = useSearch({ strict: false }) as Record<string, unknown>;
   const callbackUrl = resolveCallbackUrl(

@@ -183,6 +183,16 @@ class FishMemClientTest(unittest.TestCase):
                                 }
                             ]
                         ),
+                        "write_summary": (
+                            None
+                            if polls == 1
+                            else {
+                                "outcome": "STORED",
+                                "planned": 1,
+                                "persisted": 1,
+                                "failed": 0,
+                            }
+                        ),
                         "attempts": 1,
                         "max_attempts": 5,
                         "error": None,

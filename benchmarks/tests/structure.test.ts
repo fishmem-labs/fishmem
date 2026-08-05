@@ -14,6 +14,9 @@ describe("benchmark structure contract", () => {
       "benchmarks/beam/run.ts",
       "benchmarks/recall/membench.ts",
       "benchmarks/recall/convomem.ts",
+      "benchmarks/inference-quality/run.ts",
+      "benchmarks/inference-quality/gate.ts",
+      "benchmarks/inference-quality/cases.ts",
       "benchmarks/eval/schema.ts",
       "benchmarks/eval/normalize.ts",
       "benchmarks/eval/compare.ts",
@@ -45,6 +48,8 @@ describe("benchmark structure contract", () => {
       "bench:beam": "tsx benchmarks/beam/run.ts",
       "bench:membench": "tsx benchmarks/recall/membench.ts",
       "bench:convomem": "tsx benchmarks/recall/convomem.ts",
+      "bench:inference": "tsx benchmarks/inference-quality/run.ts",
+      "bench:inference:gate": "tsx benchmarks/inference-quality/gate.ts",
       "bench:report": "tsx benchmarks/eval/report.ts",
       "bench:gate": "tsx benchmarks/eval/release-gate.ts",
       "bench:resume": "tsx benchmarks/resume-run.ts",
@@ -62,7 +67,7 @@ describe("benchmark structure contract", () => {
     expect(runner).toContain("questionRetries: QUESTION_RETRIES");
   });
 
-  it("keeps all three offline end-to-end smokes in CI", () => {
+  it("keeps every offline benchmark smoke in CI", () => {
     const workflow = readFileSync(
       join(ROOT, ".github/workflows/ci.yml"),
       "utf8",
@@ -71,9 +76,18 @@ describe("benchmark structure contract", () => {
       "pnpm bench:locomo -- --smoke",
       "pnpm bench:longmemeval -- --smoke",
       "pnpm bench:beam -- --smoke",
+      "pnpm bench:inference -- --smoke",
     ]) {
       expect(workflow).toContain(command);
     }
+  });
+
+  it("keeps the inference A/B provider budget bounded without retries", () => {
+    const runner = readFileSync(
+      join(ROOT, "benchmarks/inference-quality/run.ts"),
+      "utf8",
+    );
+    expect(runner).toContain("maxRetries: 0");
   });
 
   it("keeps browser and Cloudflare release gates in CI", () => {

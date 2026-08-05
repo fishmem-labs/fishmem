@@ -42,6 +42,8 @@ jobs:
         run: pnpm bench:longmemeval -- --smoke --out /tmp/longmemeval-smoke.json
       - name: BEAM benchmark smoke test (offline)
         run: pnpm bench:beam -- --smoke --out /tmp/beam-smoke.json
+      - name: Selective inference quality smoke test (offline)
+        run: pnpm bench:inference -- --smoke --out /tmp/inference-quality-smoke.json
 
   web:
     runs-on: ubuntu-latest

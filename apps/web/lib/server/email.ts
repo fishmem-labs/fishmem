@@ -1,4 +1,5 @@
 import { BRAND_CONTACT_EMAIL, BRAND_NAME } from "@/lib/config";
+import { isLocalAuthEnvironment } from "@/lib/auth-environment";
 import type { RuntimeEnv } from "@/lib/cloudflare";
 import { IS_CLOUDFLARE } from "@/lib/platform";
 
@@ -77,7 +78,10 @@ async function deliver(
     return { sent: true };
   }
 
-  if (env.EMAIL?.send) {
+  // Wrangler exposes the production EMAIL binding shape during local dev, but
+  // its emulator cannot deliver our structured message payload. Treat it as
+  // unconfigured locally so the established console-link fallback is used.
+  if (env.EMAIL?.send && !isLocalAuthEnvironment(env)) {
     await env.EMAIL.send({
       from,
       to: msg.to,

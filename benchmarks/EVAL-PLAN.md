@@ -42,6 +42,11 @@ Existing benchmark coverage:
   `--systems fishmem,mem0` execution and per-system resumable checkpoints.
 - `benchmarks/recall`: MemBench and ConvoMem retrieval runners. They are
   currently fishmem-only and require an explicit dataset path.
+- `benchmarks/inference-quality`: a frozen 19-case same-model prompt A/B over
+  the real `Memory.add()` path, with durable-recall, no-memory, role,
+  memory-control, secret, injection, and deduplication checks. Its offline
+  smoke validates only harness mechanics; only the complete live gate can
+  promote the selective prompt.
 - `benchmarks/eval`: shared schema, native result normalization, strict paired
   comparison, publishability gates, cross-dataset release audit, and Markdown
   scorecard generation.
@@ -49,8 +54,9 @@ Existing benchmark coverage:
   shape contracts for all three end-to-end runners, adapter contracts, and
   checkpoint corruption/torn-write recovery tests.
 
-Main gap: no first-party realistic scenario suite for fishmem's target use
-cases.
+Main gap: no end-to-end first-party realistic scenario suite for fishmem's
+target use cases. The selective-inference suite covers the write decision but
+does not measure later retrieval or agent answers.
 - MemBench and ConvoMem are not yet paired, normalized, checkpointed, or
   publishable through the shared scorecard.
 - PersonaMem and MemoryArena are not yet implemented.
@@ -207,7 +213,27 @@ Must report:
 - search p50/p95
 - ingest total and memory count
 
-### 4. FishBench Realistic Scenarios
+### 4. Selective Memory Inference
+
+Purpose: measure whether `infer=true` keeps future-useful records while refusing
+ephemeral chatter, one-shot request parameters, unconfirmed assistant claims,
+explicit opt-outs, secrets, and injected instructions.
+
+Protocol:
+
+- run the production exhaustive prompt and selective candidate with the same
+  model, temperature, cases, parser, `Memory.add()` path, and mock embedder;
+- alternate prompt order by case to reduce provider-time ordering bias;
+- require zero critical memory-control/secret leaks;
+- require at least 90% required-fact recall and no-memory accuracy;
+- reject recall regression greater than two points;
+- require fewer unwanted facts or higher no-memory accuracy than production;
+- never accept the deterministic smoke as quality evidence.
+
+This gate decides whether a prompt becomes the default. It does not prove
+retrieval quality or a general advantage over mem0.
+
+### 5. FishBench Realistic Scenarios
 
 Public benchmarks are useful but not enough. fishmem needs a first-party,
 versioned scenario suite matching real agent workloads.

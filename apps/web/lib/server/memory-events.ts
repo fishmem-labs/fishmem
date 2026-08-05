@@ -1,5 +1,5 @@
 import {
-  AddResultSchema,
+  AddMemoryResponseSchema,
   MemoryEventListQuerySchema,
   type MemoryEventListQuery,
 } from "@fishmem/contracts";
@@ -61,17 +61,22 @@ function eventStatus(status: string) {
 
 export function shapeMemoryEvent(task: OperationTask) {
   const scope = readMemoryInferenceEventScope(task.payload);
-  const candidateResults =
-    task.result &&
-    typeof task.result === "object" &&
-    !Array.isArray(task.result) &&
-    Array.isArray((task.result as { results?: unknown }).results)
-      ? (task.result as { results: unknown[] }).results
-      : [];
-  const results = candidateResults.flatMap((item) => {
-    const parsed = AddResultSchema.safeParse(item);
-    return parsed.success ? [parsed.data] : [];
-  });
+  const completedResult = AddMemoryResponseSchema.safeParse(task.result);
+  if (task.status === "success" && !completedResult.success) {
+    throw new Error(
+      `Completed memory inference event ${task.documentId} has an invalid result`,
+    );
+  }
+  const results = completedResult.success ? completedResult.data.results : [];
+  const writeSummary =
+    task.status === "success"
+      ? {
+          outcome: results.length > 0 ? ("STORED" as const) : ("NO_MEMORY" as const),
+          planned: results.length,
+          persisted: results.length,
+          failed: 0,
+        }
+      : null;
   const startedAt = task.startedAt ?? null;
   const completedAt = task.completedAt ?? null;
   return {
@@ -80,6 +85,7 @@ export function shapeMemoryEvent(task: OperationTask) {
     status: eventStatus(task.status),
     scope,
     results,
+    write_summary: writeSummary,
     attempts: task.attempts,
     max_attempts: task.maxAttempts,
     error: task.error,

@@ -1,6 +1,7 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { magicLink } from "better-auth/plugins";
 import { schema } from "@/db";
+import { isLocalAuthEnvironment } from "@/lib/auth-environment";
 import type { RuntimeEnv } from "@/lib/cloudflare";
 import { type AppDatabase, IS_CLOUDFLARE } from "@/lib/platform";
 import { sendMagicLinkEmail } from "@/lib/server/email";
@@ -112,6 +113,15 @@ export function emailConfigured(env: RuntimeEnv): boolean {
   );
 }
 
+export function loginMethodAvailability(env: RuntimeEnv) {
+  const providers = buildSocialProviders(env);
+  return {
+    googleAuthEnabled: "google" in providers,
+    githubAuthEnabled: "github" in providers,
+    magicLinkEnabled: emailConfigured(env) || isLocalAuthEnvironment(env),
+  };
+}
+
 /**
  * The common better-auth options every assembly shares: secret, base URL,
  * trusted origins, the drizzle database, and — only when email can be delivered
@@ -138,7 +148,7 @@ export function baseAuthOptions(env: RuntimeEnv, db: AppDatabase) {
     // OR in local dev — where there is no email infra, so the link is printed
     // to the server console (see sendMagicLinkEmail).
     plugins:
-      emailConfigured(env) || process.env.NODE_ENV !== "production"
+      emailConfigured(env) || isLocalAuthEnvironment(env)
         ? [
             magicLink({
               expiresIn: 10 * 60,

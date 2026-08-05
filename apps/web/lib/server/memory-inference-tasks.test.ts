@@ -68,6 +68,7 @@ describe("asynchronous memory inference", () => {
       status: "PENDING",
       scope: { user_id: "ada" },
       results: [],
+      write_summary: null,
     });
 
     const now = new Date(task.nextAttemptAt!.getTime() + 1_000);
@@ -94,6 +95,12 @@ describe("asynchronous memory inference", () => {
         { memory: "Ada prefers tea", event: "ADD" },
         { memory: "Ada lives in Taipei", event: "ADD" },
       ],
+      write_summary: {
+        outcome: "STORED",
+        planned: 2,
+        persisted: 2,
+        failed: 0,
+      },
       started_at: now.toISOString(),
     });
     expect(new Date(event!.completed_at!).getTime()).toBeGreaterThanOrEqual(
@@ -124,6 +131,163 @@ describe("asynchronous memory inference", () => {
       derivationEnabled: false,
     });
     expect(replay.documentId).toBe(task.documentId);
+    client.close();
+  });
+
+  it("surfaces a failed projection and repairs it without reinference or duplicate writes", async () => {
+    class FailingOnceVectorStore extends SqliteVectorStore {
+      private failed = false;
+
+      override async upsert(
+        records: Parameters<SqliteVectorStore["upsert"]>[0],
+      ): Promise<void> {
+        if (!this.failed) {
+          this.failed = true;
+          throw new Error("vector unavailable");
+        }
+        await super.upsert(records);
+      }
+    }
+
+    const { client, db } = await database();
+    let extractionCalls = 0;
+    const memory = await Memory.create({
+      embedder: new MockEmbedder(64),
+      graphStore: await createSqliteGraphStore({ url: ":memory:" }),
+      llm: new MockLLM(() => {
+        extractionCalls += 1;
+        return JSON.stringify({ facts: [{ text: "Ada prefers tea" }] });
+      }),
+      vectorStore: new FailingOnceVectorStore({ url: ":memory:" }),
+    });
+    const task = await enqueueMemoryInferenceTask(db as never, {
+      workspaceId: "workspace",
+      command: { content: "Ada prefers tea", user_id: "ada" },
+      idempotencyKey: "recover-projection-1",
+      derivationEnabled: false,
+    });
+
+    const firstAttemptAt = new Date(task.nextAttemptAt!.getTime() + 1_000);
+    await expect(
+      processMemoryTaskById(
+        db as never,
+        memory,
+        task.documentId,
+        firstAttemptAt,
+      ),
+    ).resolves.toMatchObject({ claimed: 1, retried: 1, succeeded: 0 });
+    await expect(
+      getMemoryEvent(db as never, "workspace", task.documentId),
+    ).resolves.toMatchObject({
+      status: "RETRYING",
+      results: [],
+      write_summary: null,
+      error: "vector unavailable",
+    });
+
+    const retryable = await db
+      .select()
+      .from(schema.operationTasks)
+      .where(eq(schema.operationTasks.documentId, task.documentId))
+      .get();
+    const retryAt = new Date(retryable!.nextAttemptAt!.getTime() + 1_000);
+    await expect(
+      processMemoryTaskById(
+        db as never,
+        memory,
+        task.documentId,
+        retryAt,
+      ),
+    ).resolves.toMatchObject({ claimed: 1, succeeded: 1, retried: 0 });
+
+    const event = await getMemoryEvent(
+      db as never,
+      "workspace",
+      task.documentId,
+    );
+    expect(event).toMatchObject({
+      status: "SUCCEEDED",
+      results: [{ memory: "Ada prefers tea", event: "ADD" }],
+      write_summary: {
+        outcome: "STORED",
+        planned: 1,
+        persisted: 1,
+        failed: 0,
+      },
+      attempts: 2,
+      error: null,
+    });
+    expect(extractionCalls).toBe(1);
+    expect(
+      (await memory.forNamespace("workspace").getAll({ userId: "ada" }))
+        .results,
+    ).toHaveLength(1);
+    client.close();
+  });
+
+  it("distinguishes a successful no-op inference from a write failure", async () => {
+    const { client, db } = await database();
+    const memory = await Memory.create({
+      embedder: new MockEmbedder(64),
+      graphStore: await createSqliteGraphStore({ url: ":memory:" }),
+      llm: new MockLLM(() => JSON.stringify({ facts: [] })),
+      vectorStore: new SqliteVectorStore({ url: ":memory:" }),
+    });
+    const task = await enqueueMemoryInferenceTask(db as never, {
+      workspaceId: "workspace",
+      command: { content: "Thanks!", user_id: "ada" },
+      idempotencyKey: "no-memory-1",
+      derivationEnabled: false,
+    });
+
+    await processMemoryTaskById(
+      db as never,
+      memory,
+      task.documentId,
+      new Date(task.nextAttemptAt!.getTime() + 1_000),
+    );
+
+    await expect(
+      getMemoryEvent(db as never, "workspace", task.documentId),
+    ).resolves.toMatchObject({
+      status: "SUCCEEDED",
+      results: [],
+      write_summary: {
+        outcome: "NO_MEMORY",
+        planned: 0,
+        persisted: 0,
+        failed: 0,
+      },
+    });
+    client.close();
+  });
+
+  it("fails closed when a completed task result violates the public contract", async () => {
+    const { client, db } = await database();
+    const task = await enqueueMemoryInferenceTask(db as never, {
+      workspaceId: "workspace",
+      command: { content: "Ada prefers tea", user_id: "ada" },
+      idempotencyKey: "invalid-result-1",
+      derivationEnabled: false,
+    });
+    await db
+      .update(schema.operationTasks)
+      .set({
+        status: "success",
+        result: {
+          results: [
+            { id: "mem_1", memory: "", event: "ADD" },
+          ],
+        },
+        completedAt: new Date(),
+      })
+      .where(eq(schema.operationTasks.documentId, task.documentId));
+
+    await expect(
+      getMemoryEvent(db as never, "workspace", task.documentId),
+    ).rejects.toThrow(
+      `Completed memory inference event ${task.documentId} has an invalid result`,
+    );
     client.close();
   });
 

@@ -181,6 +181,7 @@ export {
 export {
   buildExtractionMessages,
   FACT_EXTRACTION_SYSTEM,
+  SELECTIVE_FACT_EXTRACTION_SYSTEM,
 } from "./prompts/index.js";
 // Core domain types. The record interface is exported as `MemoryItem` to avoid
 // clashing with the `Memory` facade class (which is also a type).

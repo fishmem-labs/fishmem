@@ -252,12 +252,20 @@ export type MemoryEventStatus =
   | "SUCCEEDED"
   | "FAILED";
 
+export type MemoryWriteSummary = {
+  outcome: "STORED" | "NO_MEMORY";
+  planned: number;
+  persisted: number;
+  failed: number;
+};
+
 export type MemoryEvent = {
   id: string;
   event_type: "ADD";
   status: MemoryEventStatus;
   scope: MemoryScope;
   results: AddMemoryResult[];
+  write_summary: MemoryWriteSummary | null;
   attempts: number;
   max_attempts: number;
   error: string | null;

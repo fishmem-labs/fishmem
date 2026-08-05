@@ -15,6 +15,31 @@ describe("public API contract", () => {
     expect(api.Memory).toBe(Memory);
     expect(api.buildExtractionMessages).toBeTypeOf("function");
     expect(api.FACT_EXTRACTION_SYSTEM).toContain("FISHMEM_TASK: extract");
+    expect(api.FACT_EXTRACTION_SYSTEM).toContain("extract EVERY distinct fact");
+    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
+      "The user's memory controls have highest priority",
+    );
+    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
+      "Never emit\n   credentials",
+    );
+    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
+      "Assistant claims are not user facts",
+    );
+    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
+      "summarize/rewrite/translate payloads are source",
+    );
+    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
+      "An explicit self-identification",
+    );
+    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
+      'Resolve "I" from its message role',
+    );
+    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
+      "Current-turn filter",
+    );
+    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).not.toContain(
+      "extract EVERY distinct fact",
+    );
     expect("buildUpdateMessages" in api).toBe(false);
     expect("UPDATE_MEMORY_SYSTEM" in api).toBe(false);
   });

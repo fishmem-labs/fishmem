@@ -23,6 +23,12 @@ curl https://fishmem.com/v1/events/task_… \
   "results": [
     { "id": "mem_…", "memory": "Prefers dark mode", "event": "ADD" }
   ],
+  "write_summary": {
+    "outcome": "STORED",
+    "planned": 1,
+    "persisted": 1,
+    "failed": 0
+  },
   "attempts": 1,
   "max_attempts": 5,
   "error": null,
@@ -43,6 +49,12 @@ Statuses are:
 | `RETRYING` | A bounded attempt failed and backoff is active |
 | `SUCCEEDED` | Refined canonical records committed |
 | `FAILED` | Retry budget exhausted; Cloud credits were refunded |
+
+`write_summary` is present only on `SUCCEEDED` events. `STORED` means every
+planned refined record was confirmed in the canonical store. `NO_MEMORY`
+means inference completed correctly but found nothing durable enough to store;
+it is not a silent write failure. A succeeded event always has `failed: 0` and
+`persisted` equal to the number of returned results.
 
 The event never returns `content`, `messages`, or the internal task payload.
 Only structural scope, refined results, timing, attempts, and the terminal

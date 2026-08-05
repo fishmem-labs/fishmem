@@ -460,6 +460,12 @@ describe("canonical API contracts", () => {
       status: "SUCCEEDED" as const,
       scope: { user_id: "ada" },
       results: [addResult],
+      write_summary: {
+        outcome: "STORED" as const,
+        planned: 1,
+        persisted: 1,
+        failed: 0,
+      },
       attempts: 1,
       max_attempts: 5,
       error: null,
@@ -470,6 +476,17 @@ describe("canonical API contracts", () => {
       latency_ms: 10,
     };
     expect(MemoryEventSchema.parse(event)).toBeTruthy();
+    expect(
+      MemoryEventSchema.safeParse({
+        ...event,
+        write_summary: { ...event.write_summary, persisted: 0 },
+      }).success,
+    ).toBe(false);
+    expect(
+      AddMemoryResponseSchema.safeParse({
+        results: [addResult, addResult],
+      }).success,
+    ).toBe(false);
     expect(
       MemoryEventPageSchema.parse({
         results: [event],

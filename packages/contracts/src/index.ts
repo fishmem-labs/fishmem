@@ -541,13 +541,27 @@ export const MemorySchema = z.object({
 
 export const AddResultSchema = z.object({
   id: z.string(),
-  memory: z.string(),
+  memory: NonBlankTextSchema,
   event: z.enum(["ADD", "UPDATE", "DELETE", "INVALIDATE"]),
 });
 
-export const AddMemoryResponseSchema = z.object({
-  results: z.array(AddResultSchema),
-});
+export const AddMemoryResponseSchema = z
+  .object({
+    results: z.array(AddResultSchema),
+  })
+  .superRefine((response, context) => {
+    const ids = new Set<string>();
+    for (const [index, result] of response.results.entries()) {
+      if (ids.has(result.id)) {
+        context.addIssue({
+          code: "custom",
+          message: `results[${index}].id duplicates an earlier memory id`,
+          path: ["results", index, "id"],
+        });
+      }
+      ids.add(result.id);
+    }
+  });
 
 export const AsyncMemoryReceiptSchema = z.object({
   message: z.string(),
@@ -563,25 +577,81 @@ export const MemoryEventStatusSchema = z.enum([
   "FAILED",
 ]);
 
-export const MemoryEventSchema = z.object({
-  id: z.string(),
-  event_type: z.literal("ADD"),
-  status: MemoryEventStatusSchema,
-  scope: z.object({
-    user_id: z.string().optional(),
-    agent_id: z.string().optional(),
-    run_id: z.string().optional(),
-  }),
-  results: z.array(AddResultSchema),
-  attempts: z.number().int().nonnegative(),
-  max_attempts: z.number().int().positive(),
-  error: z.string().nullable(),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
-  started_at: z.string().datetime().nullable(),
-  completed_at: z.string().datetime().nullable(),
-  latency_ms: z.number().int().nonnegative().nullable(),
+export const MemoryWriteSummarySchema = z.object({
+  outcome: z.enum(["STORED", "NO_MEMORY"]),
+  planned: z.number().int().nonnegative(),
+  persisted: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
 });
+
+export const MemoryEventSchema = z
+  .object({
+    id: z.string(),
+    event_type: z.literal("ADD"),
+    status: MemoryEventStatusSchema,
+    scope: z.object({
+      user_id: z.string().optional(),
+      agent_id: z.string().optional(),
+      run_id: z.string().optional(),
+    }),
+    results: z.array(AddResultSchema),
+    write_summary: MemoryWriteSummarySchema.nullable(),
+    attempts: z.number().int().nonnegative(),
+    max_attempts: z.number().int().positive(),
+    error: z.string().nullable(),
+    created_at: z.string().datetime(),
+    updated_at: z.string().datetime(),
+    started_at: z.string().datetime().nullable(),
+    completed_at: z.string().datetime().nullable(),
+    latency_ms: z.number().int().nonnegative().nullable(),
+  })
+  .superRefine((event, context) => {
+    if (event.status === "SUCCEEDED") {
+      if (!event.write_summary) {
+        context.addIssue({
+          code: "custom",
+          message: "SUCCEEDED events require a write_summary",
+          path: ["write_summary"],
+        });
+        return;
+      }
+      if (event.write_summary.planned !== event.results.length) {
+        context.addIssue({
+          code: "custom",
+          message: "write_summary.planned must match the number of results",
+          path: ["write_summary", "planned"],
+        });
+      }
+      if (event.write_summary.persisted !== event.results.length) {
+        context.addIssue({
+          code: "custom",
+          message: "write_summary.persisted must match the number of results",
+          path: ["write_summary", "persisted"],
+        });
+      }
+      if (event.write_summary.failed !== 0) {
+        context.addIssue({
+          code: "custom",
+          message: "SUCCEEDED events cannot contain failed writes",
+          path: ["write_summary", "failed"],
+        });
+      }
+      const expectedOutcome = event.results.length > 0 ? "STORED" : "NO_MEMORY";
+      if (event.write_summary.outcome !== expectedOutcome) {
+        context.addIssue({
+          code: "custom",
+          message: `write_summary.outcome must be ${expectedOutcome}`,
+          path: ["write_summary", "outcome"],
+        });
+      }
+    } else if (event.write_summary !== null) {
+      context.addIssue({
+        code: "custom",
+        message: "Non-successful events cannot claim a completed write summary",
+        path: ["write_summary"],
+      });
+    }
+  });
 
 export const MemoryEventPageSchema = z.object({
   results: z.array(MemoryEventSchema),
@@ -1027,6 +1097,7 @@ export const ImportMemoryCommandSchema = z.object({
 
 export type AddMemoryCommand = z.infer<typeof AddMemoryCommandSchema>;
 export type AsyncMemoryReceiptWire = z.infer<typeof AsyncMemoryReceiptSchema>;
+export type MemoryWriteSummaryWire = z.infer<typeof MemoryWriteSummarySchema>;
 export type MemoryEventWire = z.infer<typeof MemoryEventSchema>;
 export type MemoryEventPageWire = z.infer<typeof MemoryEventPageSchema>;
 export type MemoryEventListQuery = z.infer<typeof MemoryEventListQuerySchema>;
@@ -1939,6 +2010,7 @@ export const openApiDocument = {
       AddResult: z.toJSONSchema(AddResultSchema),
       AddMemoryResponse: z.toJSONSchema(AddMemoryResponseSchema),
       AsyncMemoryReceipt: z.toJSONSchema(AsyncMemoryReceiptSchema),
+      MemoryWriteSummary: z.toJSONSchema(MemoryWriteSummarySchema),
       MemoryEvent: z.toJSONSchema(MemoryEventSchema),
       MemoryEventPage: z.toJSONSchema(MemoryEventPageSchema),
       UpdateMemoryResponse: z.toJSONSchema(UpdateMemoryResponseSchema),

@@ -394,7 +394,8 @@ exist.
 
 | Priority | Candidate | Hypothesis | Primary evidence | Current disposition |
 |---|---|---|---|---|
-| 0 | Production-default rerun | Measure the shipped `infer:true` path against current mem0 | LOCOMO + LongMemEval | Blocks superiority claims |
+| 0a | Selective inference policy | A future-utility gate reduces unwanted writes without losing durable facts | 19-case inference-quality live A/B | Harness and opt-in candidate implemented; live gate blocks default promotion |
+| 0b | Production-default rerun | Measure the shipped `infer:true` path against current mem0 | LOCOMO + LongMemEval | Blocks superiority claims |
 | 1 | Deterministic temporal/state routing | State queries should use the sidecar; ordinary recall should query canonical records | LongMemEval update/temporal + FishBench stale facts | Architecture differentiator; unproven as default |
 | 2 | Conservative duplicate suppression | Duplicate canonical records waste topK and context without adding evidence | LOCOMO single-hop/multi-hop + MemBench | Test before graph expansion |
 | 3 | Document neighbor expansion | Adjacent document chunks recover distributed evidence | Long-document QA + ConvoMem | Blocked on document API |
@@ -543,7 +544,11 @@ export/purge, queued profile refresh, signed webhook outbox with replay,
 provider token/latency events and immutable price snapshots, exact aggregate
 cost/latency/warning queries, and persisted task/provider/index warnings. The
 IVFFlat performance downgrade emits `pgvector_ivfflat_index_failed` and has a
-regression test; no empty catch remains.
+regression test; no empty catch remains. Async memory inference events now
+fail closed when a completed task contains an invalid result and expose a
+`write_summary` that distinguishes `STORED` from a successful `NO_MEMORY`
+decision. Retry coverage proves that a projection failure is visible and can
+be repaired without a second LLM extraction or a duplicate canonical memory.
 
 ### P5 - Operator dashboard (1-2 weeks)
 
