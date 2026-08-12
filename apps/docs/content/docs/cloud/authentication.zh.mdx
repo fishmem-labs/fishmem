@@ -1,0 +1,31 @@
+---
+title: 身份验证
+description: 创建项目 API Key，并安全调用 FishMem API。
+---
+
+FishMem API 使用项目级 API Key。每次请求在 `Authorization` 头携带 Key；FishMem 把它解析成项目，计量操作，并限定可访问的数据。
+
+## 创建 Key
+
+在[控制台](/zh/cloud/dashboard)的 **API keys** 页面创建。Key 只显示一次，服务端只保存哈希。创建时按最小权限选择：
+
+| 权限 | 允许操作 |
+| --- | --- |
+| `memory:read` | 读取/搜索记忆与文档来源 |
+| `memory:write` | 写入/更新/删除记忆，写入/删除文档来源 |
+| `operations:read` | 查看持久导出、导入、清除与投影任务 |
+
+## 调用
+
+```bash
+curl https://fishmem.com/v1/memories?user_id=alex \
+  -H "Authorization: Bearer $FISHMEM_API_KEY"
+```
+
+Key 必须留在服务端环境。不要把它放进浏览器包、移动应用、公开仓库、查询字符串或日志。
+
+## 轮换与撤销
+
+轮换时先签发新 Key、逐步切换部署并验证，再删除旧 Key。怀疑泄露时立即撤销；使用旧 Key 的请求会开始返回认证失败。FishMem 不会再次显示原始 Key，也无法从哈希恢复。
+
+认证失败时会返回结构化错误与请求 ID。不要在错误报告中粘贴完整 Key。

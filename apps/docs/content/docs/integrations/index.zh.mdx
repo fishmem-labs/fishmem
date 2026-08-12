@@ -1,0 +1,23 @@
+---
+title: 集成
+description: 通过 TypeScript 或 Python SDK 把 FishMem 接入智能体框架。
+---
+
+FishMem 提供与框架无关的 TypeScript 与 Python SDK。TypeScript 包只依赖 Fetch API，可在多种运行时使用，避免框架适配器落后于宿主版本。
+
+所有集成都遵循同一生命周期：
+
+1. 调用模型前搜索 FishMem；
+2. 只把相关结果注入模型上下文；
+3. 回合结束后，用 `infer:false` 保存持久结论，或用 `infer:true` 提交原始消息并进行一次提取。
+
+<Cards>
+  <Card title="Vercel AI SDK" href="/zh/integrations/vercel-ai-sdk" description="在模型调用前后添加召回与记忆。" />
+  <Card title="Cloudflare Agents" href="/zh/integrations/cloudflare-agents-sdk" description="从 Worker 或 Agent 调用 FishMem。" />
+  <Card title="Mastra" href="/zh/integrations/mastra" description="在 Mastra 工作流或智能体旁使用 FishMem。" />
+  <Card title="OpenAI Agents SDK" href="/zh/integrations/openai-agents-sdk" description="在智能体运行边界使用 FishMem。" />
+</Cards>
+
+<Callout type="info">
+FishMem 目前不发布框架专用适配包。旧文档中出现的 `@fishmem/ai-sdk`、`@fishmem/mastra`、`@fishmem/openai-agents` 或 `@fishmem/cloudflare-agents` 已移除，因为仓库中并不存在这些包。
+</Callout>

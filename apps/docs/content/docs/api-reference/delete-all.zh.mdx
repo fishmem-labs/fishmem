@@ -1,0 +1,16 @@
+---
+title: 按作用域删除记忆
+description: 删除一个结构化作用域内的全部记忆。
+---
+
+## `DELETE /v1/memories`
+
+至少提供 `user_id`、`agent_id` 或 `run_id` 之一；多个字段按 AND 组合。服务会冻结第一次调用命中的准确 ID，重试不会删除之后新增的记录。
+
+```bash
+curl -X DELETE "https://fishmem.com/v1/memories?run_id=temporary-run" \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Idempotency-Key: purge-temporary-run-v1"
+```
+
+成功返回删除数量或持久操作回执。Cloud 要求幂等键；同步目标上限为 25,000，超限会在任何删除前失败。该操作免费，但不可逆，生产使用前应导出并确认准确作用域。

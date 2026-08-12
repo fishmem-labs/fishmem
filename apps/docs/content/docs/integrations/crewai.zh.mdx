@@ -1,0 +1,25 @@
+---
+title: CrewAI
+description: 为多智能体团队共享证据，同时保持智能体身份与用户作用域分离。
+---
+
+[CrewAI](https://docs.crewai.com/) 可以让多个角色围绕同一任务协作。请区分三种身份：已认证客户或账户 `user_id`、持久团队或角色 `agent_id`、当前执行 `run_id`。
+
+启动前，按当前目标搜索用户与角色作用域，并从 Documents 加载有来源的上下文。完成后只写入已验证的决策或结果；角色间的中间讨论属于执行状态。
+
+```python
+context = client.memories.search({
+    "query": objective,
+    "user_id": authenticated_user_id,
+    "agent_id": "research-crew",
+    "top_k": 6,
+})
+
+if verified_outcome:
+    receipt = client.memories.add_async(
+        {"content": verified_outcome, "user_id": authenticated_user_id, "agent_id": "research-crew"},
+        idempotency_key=f"crew:{execution_id}:outcome",
+    )
+```
+
+把返回的事件 ID 与团队执行一起持久化，不要让交互响应阻塞等待推理完成。

@@ -1,0 +1,25 @@
+---
+title: 操作与事件
+description: 把记忆推理与文档提取作为持久、可观察的工作运行。
+---
+
+FishMem 会明确表示慢速或依赖供应商的变更。HTTP 连接不是推理或提取是否成功的权威；持久操作或事件才是。
+
+## 记忆推理
+
+启用推理的 `POST /v1/memories` 会验证作用域、额度与幂等键，预留用量，提交任务并返回 HTTP `202`。工作进程在租约下领取任务，成功后提交提炼记录并结算一次；终态失败只退款一次。相同幂等键与相同负载返回同一事件。
+
+## 事件契约
+
+事件状态依次为 `PENDING`、`RUNNING`，最终进入 `SUCCEEDED` 或 `FAILED`。事件读取会返回时间、尝试次数、提炼结果或公开终态错误，但不会返回原始对话、供应商密钥或内部任务载荷。
+
+```ts
+const receipt = await fishmem.memories.addAsync(input, { idempotencyKey });
+const event = await fishmem.events.wait(receipt.event_id, { timeoutMs: 30_000 });
+```
+
+超时只表示客户端停止等待，不代表任务失败。保存 `event_id` 并继续轮询，或通过 Webhook 接收完成事件。
+
+## 文档操作
+
+文件上传完成后会建立持久提取任务。Queue 或轮询器只负责唤醒，数据库任务行拥有租约、重试与终态。上传、提取、文档提交与向量投影是可观察的不同阶段。控制台 Operations 与 Sources 页面展示当前状态并提供受控重试。

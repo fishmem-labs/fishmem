@@ -1,0 +1,25 @@
+---
+title: AI 陪伴应用的记忆
+description: 不重放全部聊天，只召回少量相关个人上下文。
+---
+
+不要保存每个聊天回合。回复前召回；只有用户明确披露或要求记住的持久事实才写入。
+
+```ts
+async function recallForReply(userId: string, message: string) {
+  return fishmem.memories.search({ query: message, user_id: userId, top_k: 5 });
+}
+```
+
+把召回结果作为带标签的上下文，并避免把模型猜测当用户事实。用户更正或偏好明确后再保存：
+
+```ts
+await fishmem.memories.add({
+  content: "Alex prefers quiet weekend activities.",
+  infer: false,
+  user_id: userId,
+  metadata: { source: "explicit-user-statement" },
+}, { idempotencyKey: `turn:${turnId}:preference` });
+```
+
+对位置、健康、关系等敏感内容建立更严格保留策略与用户控制。回忆不确定时，宁可询问也不要把旧事实当当前真相。

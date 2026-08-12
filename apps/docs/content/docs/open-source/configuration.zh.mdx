@@ -1,0 +1,95 @@
+---
+title: 配置
+description: 明确配置 FishMem TypeScript 引擎。
+---
+
+使用 `Memory.create(config)` 创建引擎。所有供应商都需明确选择；FishMem 不会静默替换成模拟嵌入模型或 LLM。
+
+## 本地确定性配置
+
+```ts
+import { Memory } from "fishmem";
+
+const memory = await Memory.create({
+  graphStore: { provider: "sqlite", config: { url: "file:fishmem.db" } },
+  vectorStore: {
+    provider: "sqlite",
+    config: { url: "file:fishmem.db", indexIdentity: "mock-384-v1" },
+  },
+  embedder: { provider: "mock", config: { dimensions: 384 } },
+  llm: { provider: "mock" },
+  derivation: { enabled: false },
+});
+```
+
+模拟嵌入模型使用确定性词法哈希，适合本地开发与测试，不能替代语义嵌入模型。
+
+## 提供商
+
+| 配置 | 支持项 |
+| --- | --- |
+| `graphStore` | `memory`、`sqlite`、`postgres`、`d1` 或自定义 `GraphStore` |
+| `vectorStore` | `memory`、`sqlite`、`pgvector`、`qdrant`、`vectorize` 或自定义 `VectorStore` |
+| `embedder` | `mock`、`openai` 或自定义 `Embedder` |
+| `llm` | `mock`、`openai`、`anthropic` 或自定义 `LLM` |
+
+图存储保存规范记忆与文档描述符；向量存储保存可重建的关键词与语义投影。文档原件默认内联保存，Cloudflare 应用通过 `documentOriginalStore` 接入 R2。
+
+## 文档原件存储
+
+```ts
+interface DocumentOriginalStore {
+  put(source: DocumentSource): Promise<void>;
+  get(source: Omit<DocumentSource, "content">): Promise<string>;
+  delete(namespaceId: string, documentIds: string[]): Promise<void>;
+  deleteNamespace(namespaceId: string): Promise<void>;
+  clear(): Promise<void>;
+}
+```
+
+Desktop 与纯 Node 库部署可以不设置该适配器，UTF-8 原件会与描述符一起保存。Node 控制平面使用 `FISHMEM_ASSET_DIR` 保存文件资产与提取产物；`apps/web` 在 Cloudflare 上自动配置 R2。实现必须幂等且私有，不能让调用方绕过文档命名空间检查。
+
+## OpenAI 配置示例
+
+```ts
+const memory = await Memory.create({
+  graphStore: { provider: "sqlite", config: { url: "file:fishmem.db" } },
+  vectorStore: {
+    provider: "sqlite",
+    config: { url: "file:fishmem.db", indexIdentity: "text-embedding-3-small" },
+  },
+  embedder: { provider: "openai", config: { model: "text-embedding-3-small" } },
+  llm: { provider: "openai", config: { model: "gpt-4o-mini" } },
+});
+```
+
+即使存在 `OPENAI_API_KEY`，生产代码也应显式配置，保证运行行为可以审计。
+
+## 规范推理与派生视图
+
+```ts
+const memory = await Memory.create({
+  derivation: {
+    enabled: true,
+    schedule: "deferred",
+    hook: (task) => executionContext.waitUntil(task),
+  },
+});
+```
+
+`infer` 是单次写入的规范存储选择，不是全局派生开关：`infer:true` 需要 LLM、调用一次提取且只保存提炼记录；`infer:false` 不调用 LLM，并按原文保存 `content` 或每条非空消息。`derivation` 只控制可重建的状态/画像投影，不会产生第二个写入者。
+
+## 延迟向量投影
+
+```ts
+const memory = await Memory.create({
+  vectorProjection: {
+    schedule: "deferred",
+    hook: (task) => executionContext.waitUntil(task),
+  },
+});
+```
+
+规范记录与词法索引先提交，语义投影可以后台运行。脚本或测试若必须等待完整索引，可调用 `flushVectorProjections()`。更换模型或维度必须重建向量投影；为支持的存储设置稳定 `indexIdentity`，避免混用不可比较的向量。
+
+使用 `onWarning` 观察可恢复的投影或可选召回失败。FishMem 会报告降级，不会用无关行为静默兜底。

@@ -1,0 +1,37 @@
+---
+title: 智能体记忆
+description: 通过 FishMem Desktop 为 Codex 与 Claude Code 提供私有本地记忆。
+---
+
+**一份私有记忆，服务每一个智能体。**
+
+FishMem Desktop 无需 MCP 服务，就能为编程智能体提供持久本地记忆。它安装两个小组件：
+
+1. FishMem Skill，告诉智能体何时召回与记住；
+2. 本地 `fishmem` 命令，通过正在运行的 Desktop 应用读写。
+
+Skill 负责判断，CLI 负责确定性执行。这样无需常驻 MCP 工具目录，整个集成也更容易检查。
+
+## 当前支持
+
+| 智能体 | Desktop 一键连接 | 集成方式 |
+| --- | --- | --- |
+| Codex | 支持 | 全局 Skill + 本地 CLI |
+| Claude Code | 支持 | 全局 Skill + 本地 CLI |
+
+## 记忆如何写入
+
+智能体在工作前召回相关记忆。只有用户明确要求记住，或持久偏好、约束与决策已经确定时才写入。Skill 会把信息整理为可独立理解的陈述，然后调用：
+
+```bash
+fishmem add --client codex \
+  --content "This repository uses pnpm and TypeScript strict mode." \
+  --json
+```
+
+FishMem 按原文保存该陈述；Desktop 不会调用聊天模型再次改写。
+
+<Cards>
+  <Card title="Codex" href="/zh/agent-plugins/codex" description="一键连接并验证已安装 Skill。" />
+  <Card title="Claude Code" href="/zh/agent-plugins/claude-code" description="一键连接并验证已安装 Skill。" />
+</Cards>

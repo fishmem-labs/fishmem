@@ -1,0 +1,23 @@
+---
+title: 列出记忆
+description: 列出一个结构化作用域内的记忆。
+---
+
+## `GET /v1/memories`
+
+至少提供 `user_id`、`agent_id` 或 `run_id` 之一。多个作用域按 AND 组合。
+
+```bash
+curl -G https://fishmem.com/v1/memories \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  --data-urlencode "user_id=alex" \
+  --data-urlencode "limit=50"
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `user_id` / `agent_id` / `run_id` | string | 至少一个作用域 |
+| `cursor` | string | 上一页返回的不透明游标 |
+| `limit` | integer | 1–100，默认 50 |
+
+响应包含 `results` 与可选 `next_cursor`。不要解析或修改游标。列表不消耗额度；无作用域返回 `400 INVALID_REQUEST`。

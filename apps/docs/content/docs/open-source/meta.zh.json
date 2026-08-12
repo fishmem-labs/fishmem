@@ -1,0 +1,6 @@
+{
+  "root": true,
+  "title": "FishMem 开源版",
+  "description": "自行托管 Apache-2.0 FishMem 引擎与控制台。",
+  "pages": ["index", "quickstart", "configuration", "architecture", "concepts", "---自行托管---", "self-hosting", "self-hosted-dashboard"]
+}

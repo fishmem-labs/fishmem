@@ -1,0 +1,32 @@
+---
+title: 读取与列表
+description: 按 ID 读取一条记忆，或列出作用域内的记忆；两者都免费。
+---
+
+## 按 ID 读取
+
+```bash
+curl https://fishmem.com/v1/memories/{id} \
+  -H "Authorization: Bearer $FISHMEM_API_KEY"
+```
+
+```ts
+const memory = await fishmem.memories.get(id);
+```
+
+响应直接是记忆对象，不带 `results` 外层。
+
+## 按作用域列出
+
+```ts
+const page = await fishmem.memories.list({ user_id: "alex", limit: 50 });
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `{id}` | 要读取的记忆 ID |
+| `user_id` / `agent_id` / `run_id` | 列表至少需要一个作用域 |
+| `cursor` | 上一页返回的不透明游标 |
+| `limit` | 1–100，默认 50 |
+
+不要解析或构造游标，只需原样传回。读取与列表都不消耗额度。

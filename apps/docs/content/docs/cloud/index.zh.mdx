@@ -1,0 +1,37 @@
+---
+title: FishMem Cloud
+description: 托管的 FishMem 记忆 API 与控制平面。
+---
+
+FishMem Cloud 是开源 [`fishmem`](https://github.com/fishmem-labs/fishmem) 引擎的托管版本。Cloud 在 REST API 后运行同一套引擎代码，因此你无需自行运营数据库、向量索引、密钥管理、计量与账单。
+
+Cloud 在开源引擎上增加：
+
+- 按项目限定作用域、以哈希保存的 **API Key**；
+- 自动执行的**工作区隔离**；
+- 带可审计账本的**用量计量与额度**；
+- 记忆与来源变更的 **Webhook**；
+- 可观察异步任务、来源、请求与使用量的控制台；
+- 由 FishMem 运营的部署、更新与支持。
+
+## 从这里开始
+
+<Cards>
+  <Card title="快速开始" href="/zh/cloud/quickstart" description="创建 Key，并写入与召回第一条记忆。" />
+  <Card title="身份验证" href="/zh/cloud/authentication" description="安全使用项目 API Key。" />
+  <Card title="记忆操作" href="/zh/cloud/memory-operations/add" description="写入、搜索、读取、更新、反馈与删除。" />
+  <Card title="文档与来源 RAG" href="/zh/cloud/documents" description="保留原件、提取文件并搜索可引用分块。" />
+</Cards>
+
+## 平台能力
+
+<Cards>
+  <Card title="作用域与过滤" href="/zh/cloud/filters-and-scope" description="设计用户、智能体、运行与元数据边界。" />
+  <Card title="操作与事件" href="/zh/cloud/operations-and-events" description="观察推理、提取、重试与终态。" />
+  <Card title="用量与额度" href="/zh/cloud/usage-and-credits" description="理解每类 API 操作的固定成本。" />
+  <Card title="生产检查" href="/zh/cloud/production-checklist" description="用真实部署验证发布闸门。" />
+</Cards>
+
+## 同一引擎，不锁定数据
+
+Cloud 与自托管版本共享核心记忆与文档契约。你可以导出规范命名空间快照，并在自托管环境重建派生投影。选择的是由谁运营基础设施，而不是一套不同的记忆模型。

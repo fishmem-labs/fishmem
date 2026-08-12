@@ -1,0 +1,93 @@
+---
+title: 安装
+description: 为编程智能体、应用或自托管环境安装 FishMem。
+---
+
+请选择与你正在构建的产品形态相符的安装方式。
+
+## Codex 与 Claude Code
+
+[下载 FishMem Desktop macOS 通用 DMG](https://downloads.fishmem.com/desktop/mac/latest/FishMem.dmg)。已签名并公证的版本支持 Apple Silicon、Intel Mac 和 macOS 13.4 及更高版本。你也可以下载 [ZIP 包](https://downloads.fishmem.com/desktop/mac/latest/FishMem.zip)与带 SHA-256 校验值的[发布清单](https://downloads.fishmem.com/desktop/mac/latest/manifest.json)。
+
+安装并打开 FishMem Desktop，然后选择 **Connect to Codex** 或 **Connect to Claude Code**。Desktop 会安装：
+
+- 本地 `fishmem` 命令；
+- 针对当前宿主的 FishMem Skill；
+- 访问本地 Desktop 服务所需的连接元数据。
+
+无需 MCP 服务。Skill 告诉智能体何时记住与召回；CLI 提供小而确定的命令界面。
+
+连接后重启智能体，并询问：
+
+```text
+记住这个项目使用 pnpm 和 TypeScript strict mode。
+```
+
+开启新会话后再问：
+
+```text
+你还记得哪些项目约定？
+```
+
+目前支持的 Desktop 集成是 Codex 与 Claude Code。
+
+## 应用 SDK
+
+```bash
+npm install @fishmem/sdk
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+  // baseUrl: "https://memory.example.com", // 自托管地址
+});
+
+await fishmem.memories.add({
+  content: "Alex prefers concise answers.",
+  user_id: "alex",
+});
+```
+
+同一个包可运行在 Node.js、Bun、Deno、Cloudflare Workers 与 Vercel。继续阅读 [SDK 快速开始](/zh/sdk/quickstart)。
+
+Python 应用使用同一套 API：
+
+```bash
+pip install fishmem
+```
+
+```python
+from fishmem import FishMem
+
+fishmem = FishMem(api_key="fm_...")
+```
+
+参阅 [Python SDK 指南](/zh/sdk/python)。
+
+## 直接调用 REST API
+
+```bash
+curl https://fishmem.com/v1/memories \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"Alex prefers concise answers.","user_id":"alex"}'
+```
+
+自托管时请改为你自己的实例地址。全部端点见 [API 参考](/zh/api-reference)。
+
+## 嵌入式 TypeScript 引擎
+
+如果引擎必须运行在你的进程内，请使用底层 `fishmem` 包：
+
+```bash
+npm install fishmem
+```
+
+这条路径会直接暴露存储、LLM、嵌入模型和召回配置。它不同于通过 HTTP 调用 FishMem 服务的 `@fishmem/sdk`。
+
+## 自托管服务
+
+自托管版本包含 REST API 与 Web 控制台。按照[自托管指南](/zh/open-source/self-hosting)部署后，把部署地址作为 SDK 的 `baseUrl`。

@@ -1,0 +1,16 @@
+---
+title: 记忆反馈
+description: 保存可审计的质量信号，而不在操作员不知情时改写记忆。
+---
+
+应用实际使用或审核某条召回记录后，可以提交反馈。信号属于持久记忆；`request_id` 可把它关联到当时暴露该记录的召回请求。
+
+```ts
+await fishmem.memories.setFeedback(
+  memory.id,
+  { rating: "helpful", request_id: requestId, note: "Resolved the case" },
+  { idempotencyKey: `feedback:${requestId}:${memory.id}` },
+);
+```
+
+评分使用小写受限值。反馈会追加不可变审计事件，不会自动更新、删除或改变记忆权重。网络重试应复用同一幂等键。每次反馈写入消耗 1 点额度。

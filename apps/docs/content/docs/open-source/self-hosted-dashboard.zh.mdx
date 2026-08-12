@@ -1,0 +1,193 @@
+---
+title: 自托管控制台
+description: 使用 Docker 或 Cloudflare 运行 FishMem 控制平面，包括控制台、API Key、异步操作、Webhook、REST API 与文件提取。
+---
+
+[`fishmem`](https://github.com/fishmem-labs/fishmem) 引擎是可嵌入的库。本页介绍它上方的**控制平面**：用界面与 REST API 包装引擎的完整应用。它位于开源仓库的 `apps/web`，也是 [FishMem Cloud](/zh/cloud) 使用的应用。
+
+如果只需要在一个服务内使用记忆，请[自行托管引擎](/zh/open-source/self-hosting)；需要面向团队的平台时再运行控制平面。
+
+## 提供的能力
+
+- 管理项目、Key 与记忆的 Web 控制台；
+- 处理直接文本、异步 PDF/Office/图片提取、不可变原件与可引用 RAG 的 Sources 工作区；
+- 按项目签发与撤销 `fm_...` API Key；
+- 操作与存储用量视图；
+- 在记忆事件发生时触发的 Webhook；
+- 与 [API 参考](/zh/api-reference)一致的 `add`、`search`、`get`、`update`、`delete` 与 `history` REST API。
+
+| 运行时 | 持久数据 | 文件提取 |
+| --- | --- | --- |
+| Node/Docker | libSQL + 持久资产卷 | 轮询任务进程 + 固定 Docling 容器 |
+| Cloudflare | D1、Vectorize 与 R2 | Queue + 固定 Docling Container |
+
+两者共用文档写入模块、任务状态、重试规则与产物格式。开源控制平面不包含托管账单、代运营基础设施与 SLA。
+
+## 使用 Docker
+
+内置 Compose 是最短的完整自托管路径：
+
+```bash
+git clone https://github.com/fishmem-labs/fishmem
+cd fishmem
+cp .env.example .env
+```
+
+在根目录 `.env` 中把 `OPENAI_API_KEY`、`BETTER_AUTH_SECRET`、`FISHMEM_SETUP_TOKEN` 与 `CRON_SECRET` 设置为不同的非占位值。三个应用密钥缺失时 Compose 会失败关闭。
+
+```bash
+docker compose up -d web task-worker
+docker compose logs -f web task-worker extractor
+```
+
+Compose 会启动：
+
+- 位于 `http://localhost:3000` 的 `web`；
+- 私有 Compose 网络中固定版本的 CPU Docling `extractor`；
+- 每两秒唤醒到期任务、每天执行维护的 `task-worker`；
+- 保存 libSQL 与原始/提取产物的持久卷 `fishmem-webdata`。
+
+Web 容器会在启动前应用数据库变更。关系行与对象目录构成同一个保留单元，必须备份整个卷。24 小时未完成的上传会由维护任务清理。
+
+## 在 Cloudflare 上运行
+
+<Steps>
+
+<Step>
+
+### 前置条件
+
+- 已启用 Workers 的 Cloudflare 账户；
+- 一个 D1 数据库、一个 Vectorize 索引、一个 R2 存储桶、两条 Queue，并启用 Containers；
+- OpenAI 兼容的 LLM 与嵌入提供商；默认模型是 `gpt-4o-mini` 与 `text-embedding-3-small`，也可以更换 base URL 与模型；
+- 本地安装 Node.js 与 Wrangler CLI。
+
+</Step>
+
+<Step>
+
+### 克隆并安装
+
+```bash
+git clone https://github.com/fishmem-labs/fishmem
+cd fishmem
+pnpm install
+cd apps/web
+```
+
+</Step>
+
+<Step>
+
+### 配置绑定与密钥
+
+绑定写在 `wrangler.jsonc`，密钥通过 `wrangler secret put` 设置。
+
+| 变量 | 类型 | 用途 |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | secret | LLM 与嵌入提供商密钥 |
+| `BETTER_AUTH_SECRET` | secret | 控制台会话签名密钥 |
+| `FISHMEM_SETUP_TOKEN` | secret | 创建首位生产管理员的一次性凭证，必须不同于会话密钥 |
+| `CRON_SECRET` | secret | 定时任务与维护调用认证 |
+| `D1` | D1 binding | 图与控制平面数据库 |
+| `VECTORIZE` | Vectorize binding | 向量索引 |
+| `R2` | R2 binding | 对象存储桶 |
+| `DOCUMENT_TASKS` | Queue binding | 文件提取低延迟唤醒 |
+| `DOCUMENT_EXTRACTOR` | Durable Object binding | 把工作路由到 Docling Container |
+| `MEMORY_RATE_LIMITER` | Rate Limit binding | 按 Key 保护公开 API |
+| `FISHMEM_TRUSTED_IP_HEADERS` | 可选变量 | 身份层信任的客户端 IP 响应头；Cloudflare 默认 `cf-connecting-ip`，Node 反向代理必须覆盖其配置值 |
+
+```bash
+wrangler secret put OPENAI_API_KEY
+wrangler secret put BETTER_AUTH_SECRET
+wrangler secret put FISHMEM_SETUP_TOKEN
+wrangler secret put CRON_SECRET
+```
+
+仓库已在 `apps/web/wrangler.jsonc` 声明绑定；请替换成你账户中的资源名称或 ID，并在部署前创建资源：
+
+```bash
+wrangler queues create fishmem-document-tasks
+wrangler queues create fishmem-document-tasks-dlq
+wrangler r2 bucket create fishmem
+```
+
+</Step>
+
+<Step>
+
+### 创建 Vectorize 元数据索引
+
+首个写入之前必须建立所有过滤索引。Vectorize 只会把元数据索引应用于索引创建后插入的向量。
+
+```bash
+wrangler vectorize create fishmem-memories --dimensions=1536 --metric=cosine
+for prop in namespaceId recordKind userId agentId runId memoryType documentId sourceKey; do
+  wrangler vectorize create-metadata-index fishmem-memories \
+    --property-name="$prop" --type=string
+done
+```
+
+`namespaceId` 是项目边界；`recordKind` 防止文档分块与记忆进入彼此的召回通道；`documentId` 与 `sourceKey` 支持按来源 RAG。八个属性未超过 Vectorize 的十项限制。FishMem 仍会从 D1 重新水合每个候选项并重新检查完整作用域，索引不是最终授权判断。
+
+</Step>
+
+<Step>
+
+### 运行迁移
+
+```bash
+pnpm run deploy:database
+```
+
+FishMem 在一次事务型 D1 batch 中写入不可变来源版本、确定性分块和当前来源指针。直接文本原件与异步文件/产物写入 R2；读取会验证 SHA-256 与字节长度，删除文档或项目时会移除关联对象族。Sources 界面使用公开的三步上传生命周期，并展示持久提取状态。
+
+</Step>
+
+<Step>
+
+### 部署 Worker
+
+```bash
+pnpm run deploy
+```
+
+Wrangler 会输出部署 URL。控制台位于根路径，FishMem API 位于 `/v1`。
+
+</Step>
+
+<Step>
+
+### 创建首个项目与 API Key
+
+打开部署 URL，在 `/setup` 创建首位管理员，并输入部署时的 `FISHMEM_SETUP_TOKEN`。生产环境会拒绝没有该凭证的首用户注册，避免新公开 Worker 被第一位访客占用。Token 不写入 FishMem 数据库，初始账户存在后会被忽略。
+
+登录、创建项目并从控制台签发 API Key：
+
+```bash
+curl https://<your-worker>.workers.dev/v1/memories \
+  -H "Authorization: Bearer fm_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "I prefer dark mode."}],
+    "user_id": "alex"
+  }'
+```
+
+</Step>
+
+</Steps>
+
+Worker 会分派导出/导入、重建、派生与维护任务。文件完成后发送 Queue 唤醒；消费者以有限并发一次处理一个提取任务。`*/1 * * * *` 修复丢失唤醒与过期租约，`0 4 * * *` 还会加入夜间维护。必须保留两个 cron 与 `CRON_SECRET`。
+
+容器镜像固定在 `apps/web/services/extractor/Dockerfile`。提取使用 Docling 的异步提交、状态与结果端点。拥有重试与终态的是 D1 任务行，不是 Queue 或 Container 实例。
+
+<Callout type="info">
+自行托管与 [FishMem Cloud](/zh/cloud) 使用相同记忆引擎与公开契约。Cloud 额外运营账单、扩缩容、更新与组织功能；自行托管意味着资源、迁移、监控和升级由你负责。
+</Callout>
+
+<Cards>
+  <Card title="自行托管引擎" href="/zh/open-source/self-hosting" description="在一个服务中嵌入 fishmem 库，不运行控制平面。" />
+  <Card title="FishMem Cloud" href="/zh/cloud" description="同一应用的托管版本。" />
+  <Card title="API 参考" href="/zh/api-reference" description="实例暴露的端点、请求与响应结构。" />
+</Cards>

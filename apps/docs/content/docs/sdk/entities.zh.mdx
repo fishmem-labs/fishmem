@@ -1,0 +1,23 @@
+---
+title: 作用域实体方法
+description: 通过 HTTP 或 Desktop 浏览与移除结构化用户、智能体与运行作用域。
+---
+
+`entities` 资源暴露从有效规范记忆派生的 `user_id`、`agent_id` 与 `run_id` 所有者。它不同于 FishMem 的命名实体图。一条同时带多种作用域的记忆会分别计入每个结构化实体。
+
+```ts
+const page = await fishmem.entities.list({ type: "user", limit: 50 });
+
+for await (const entity of fishmem.entities.listAll({ type: "agent" })) {
+  console.log(entity.id, entity.total_memories);
+}
+
+const alex = await fishmem.entities.get("user", "alex");
+await fishmem.entities.delete("user", alex.id, {
+  idempotencyKey: "delete-user-alex-v1",
+});
+```
+
+SDK 会对实体 ID 做 URL 编码。删除需要幂等键，返回 `{ id, type, deleted_memories }`。它会让匹配记忆退出当前召回并保留删除审计，不会删除命名实体图中的同名概念。
+
+Python 同步与异步客户端提供同样的 `list`、`list_all`、`get` 与 `delete`。`FishMemDesktop` 也使用相同方法与响应结构，通过认证本地套接字执行 `entityList`、`entityGet` 与 `entityDelete`，不会访问远程提供商或第二个实体数据库。

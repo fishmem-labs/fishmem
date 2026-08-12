@@ -1,0 +1,46 @@
+---
+title: 控制台
+description: FishMem Cloud 控制台各区域说明。
+---
+
+[控制台](https://fishmem.com/login)用于管理项目、检查 API 行为、浏览记忆、交互测试、管理 Key 与账单。
+
+## Overview
+
+汇总请求量、作用域实体与记忆活动，快速了解项目状态。
+
+## Requests
+
+逐次查看计量 API 活动、操作类型、状态、耗时、请求 ID 与额度。排障时用请求 ID 关联应用错误与托管操作，不要在日志中保存密钥或原始对话。
+
+## Entities
+
+浏览 API 使用的 `user_id`、`agent_id` 与 `run_id`。实体由有效规范记忆派生，不是独立权威表；删除实体会让匹配记忆退出当前召回并记录 tombstone，不代表删除图中的同名人物或概念。
+
+## Memories
+
+浏览、搜索和维护准确保存的记忆。搜索使用与 API 相同的召回路径；可以检查来源、更正不准确内容并删除不应继续保留的信息。
+
+## Sources
+
+上传 PDF、Office、EPUB、邮件、图片或文本文件，观察从 queued、processing 到 ready 的持久提取状态；也可同步粘贴文本。搜索可引用分块，检查 Markdown 与 SHA-256 来源，并永久删除整个来源族。文件上限 25 MB 与 300 个提取页面，直接文本上限 1 MB。
+
+## Playground
+
+用于快速验证核心循环：写入一条权威记忆，再通过查询召回。先在这里确认作用域与排名，再写集成代码。
+
+## API keys
+
+创建、轮换与撤销项目级 `fm_...` Key。新 Key 只显示一次并以哈希保存。详见[身份验证](/zh/cloud/authentication)。
+
+## Usage and billing
+
+查看套餐额度与操作消耗，并进入 Stripe 客户门户管理订阅。参阅[用量与额度](/zh/cloud/usage-and-credits)与[账单](/zh/cloud/billing)。
+
+## Operations
+
+查看记忆推理、文档提取、导出、导入、命名空间清除、恢复、画像与投影重建。状态、尝试、终态错误与结果数量会跨进程重启保留；失败任务可执行有限重试。
+
+## Webhooks 与 Settings
+
+按项目配置签名 Webhook。Settings 管理项目与账户；Backup 可下载版本化规范快照或 CSV 子集，并把 JSON 快照恢复到空项目。删除项目会永久清除规范记录、向量、派生状态、日志、排队任务、Key、Webhook 与操作元数据；存在进行中的托管用量预留时会阻止删除，付费项目需先取消订阅。

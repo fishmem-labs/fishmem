@@ -1,0 +1,28 @@
+---
+title: Cloudflare Agents
+description: 在 Cloudflare Workers 或 Agent 运行时使用 FishMem。
+---
+
+`@fishmem/sdk` 只使用 Web API，因此可以直接运行在 Worker：
+
+```bash
+npm install @fishmem/sdk
+wrangler secret put FISHMEM_API_KEY
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+interface Env { FISHMEM_API_KEY: string; }
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const { query, userId } = await request.json<{ query: string; userId: string }>();
+    const fishmem = new FishMem({ apiKey: env.FISHMEM_API_KEY });
+    const memories = await fishmem.memories.search({ query, user_id: userId, top_k: 5 });
+    return Response.json(memories);
+  },
+};
+```
+
+在 Cloudflare 自行托管时，把部署后的 FishMem URL 作为 `baseUrl`。凭据必须保存为 Worker secret，不要写入 `wrangler.jsonc`。

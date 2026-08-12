@@ -1,0 +1,27 @@
+---
+title: 删除记忆
+description: 按 ID 删除一条记忆，或永久清空一个作用域。
+---
+
+两种删除的保留效果不同：按 ID 删除会建立 tombstone、从召回移除记录并保留审计历史；整段作用域删除是永久批量清除，必须谨慎。
+
+## 删除一条
+
+```ts
+await fishmem.memories.delete(id);
+```
+
+```bash
+curl -X DELETE https://fishmem.com/v1/memories/{id} \
+  -H "Authorization: Bearer $FISHMEM_API_KEY"
+```
+
+## 清空作用域
+
+```ts
+const operation = await fishmem.memories.deleteAll({ user_id: "alex" });
+```
+
+作用域批量清除返回持久操作回执，应轮询到终态并保存逐项结果。至少提供 `user_id`、`agent_id` 或 `run_id` 之一；不能发出无作用域的全项目删除。
+
+按 ID 删除消耗 1 点额度。批量清除按实际处理结果计量；删除前请先导出并在非生产作用域验证。

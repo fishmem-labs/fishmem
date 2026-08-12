@@ -1,0 +1,13 @@
+---
+title: 读取一条记忆
+description: 按 ID 获取一条记忆。
+---
+
+## `GET /v1/memories/{id}`
+
+```bash
+curl https://fishmem.com/v1/memories/mem_... \
+  -H "Authorization: Bearer $FISHMEM_API_KEY"
+```
+
+`id` 是必填路径参数。成功时直接返回记忆对象；不属于已认证项目或不存在时返回 `404 MEMORY_NOT_FOUND`，不会泄露其他项目是否存在同一 ID。该读取不消耗额度。

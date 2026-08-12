@@ -1,0 +1,37 @@
+---
+title: OpenAI Agents SDK
+description: 通过通用 SDK 在智能体运行边界使用 FishMem。
+---
+
+FishMem 不发布 OpenAI Agents SDK 适配器。请在运行边界加入召回与保存：
+
+```bash
+npm install @openai/agents @fishmem/sdk
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({ apiKey: process.env.FISHMEM_API_KEY! });
+const { results } = await fishmem.memories.search({
+  query: userMessage,
+  user_id: userId,
+  agent_id: agentName,
+  top_k: 5,
+});
+const memoryContext = results.map((item) => `- ${item.memory}`).join("\n");
+```
+
+把 `memoryContext` 放入运行指令或输入。运行结束后，只保存应跨会话存在的结论：
+
+```ts
+await fishmem.memories.add({
+  content: "The deployment target is Cloudflare Workers.",
+  infer: false,
+  user_id: userId,
+  agent_id: agentName,
+  metadata: { source: "openai-agent-run" },
+});
+```
+
+FishMem API Key 必须留在服务端环境，不要暴露给浏览器或客户端智能体界面。

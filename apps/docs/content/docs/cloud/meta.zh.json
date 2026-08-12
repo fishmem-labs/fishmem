@@ -1,0 +1,6 @@
+{
+  "root": true,
+  "title": "FishMem Cloud",
+  "description": "托管记忆、来源 RAG、异步操作与工作区控制。",
+  "pages": ["index", "quickstart", "authentication", "platform-vs-open-source", "migrate-from-mem0", "migrate-from-zep", "production-checklist", "security", "---平台概念---", "filters-and-scope", "operations-and-events", "documents", "exports-and-portability", "organizations-and-tenancy", "---记忆 API---", "memory-operations", "---控制台---", "dashboard", "usage-and-credits", "webhooks", "billing"]
+}

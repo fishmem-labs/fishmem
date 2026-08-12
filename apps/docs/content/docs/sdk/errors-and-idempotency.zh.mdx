@@ -1,0 +1,43 @@
+---
+title: 错误与幂等
+description: 处理结构化失败、超时、重试与变更安全。
+---
+
+非 `2xx` 响应会抛出 `FishMemError`：
+
+```ts
+import { FishMemError } from "@fishmem/sdk";
+
+try {
+  await fishmem.memories.search({ query: "answer style", user_id: "alex" });
+} catch (error) {
+  if (error instanceof FishMemError) {
+    console.error(error.status, error.code, error.requestId, error.details);
+  }
+}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `status` | HTTP 状态码 |
+| `code` | 服务端提供的稳定 FishMem 错误码 |
+| `requestId` | 用于日志与支持排障的请求标识 |
+| `details` | 结构化校验或冲突细节 |
+
+## 超时
+
+```ts
+await fishmem.memories.search(input, { signal: AbortSignal.timeout(5_000) });
+```
+
+客户端超时不等于异步任务失败。对于已经返回 `event_id` 或操作 ID 的工作，应继续按该 ID 查询。
+
+## 安全重试
+
+所有可能重放的变更都使用稳定幂等键：
+
+```ts
+await fishmem.memories.addAsync(input, { idempotencyKey: `turn:${turnId}:memory` });
+```
+
+同一键配同一负载返回同一命令；同一键配不同负载会返回冲突。网络错误后不要生成新键，否则可能建立重复任务或收费。读取可以按网络策略重试，但仍应限制次数与总时长。

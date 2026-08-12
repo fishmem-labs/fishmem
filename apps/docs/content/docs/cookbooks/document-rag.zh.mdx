@@ -1,0 +1,43 @@
+---
+title: 有来源的 RAG
+description: 让原始文档保持权威，召回可引用分块，并只把持久结论存成记忆。
+---
+
+使用两条明确路径：来源材料进入 `documents`，用户偏好、决策与持久结论进入 `memories`。这样任意段落不会变成个人事实，同时模型仍能获得有根据的上下文。
+
+## 写入来源
+
+```ts
+const ingested = await fishmem.documents.ingest(
+  { source_key: "handbook/deployments.md", content: markdown, mime_type: "text/markdown" },
+  { idempotencyKey: `source:${contentHash}` },
+);
+```
+
+二进制文件使用 `documents.upload()`，保存返回的操作 ID并等待提取终态。
+
+## 模型调用前召回证据
+
+```ts
+const { results } = await fishmem.documents.search({
+  query: userQuestion,
+  source_key: "handbook/deployments.md",
+  limit: 5,
+  neighbors: 1,
+});
+```
+
+把来源 key、版本、字节区间与内容一起传入带标签的 Evidence 区块，答案展示时保留引用。
+
+## 单独保存持久结果
+
+```ts
+await fishmem.memories.add({
+  content: "Production deployment requires the integration suite and rollback owner.",
+  infer: false,
+  agent_id: "release-agent",
+  metadata: { source_document_id: ingested.document.id },
+}, { idempotencyKey: `decision:${decisionId}` });
+```
+
+新版本会保留旧版本并移动 current head。永久删除来源时，所有版本、分块、向量、原件与提取产物作为同一来源族删除；关联记忆应按你的保留策略单独处理。

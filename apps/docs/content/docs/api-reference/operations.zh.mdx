@@ -1,0 +1,21 @@
+---
+title: 操作
+description: 查看异步批量变更、文件提取、导出、导入、派生与维护工作。
+---
+
+## `GET /v1/operations`
+
+```bash
+curl "https://fishmem.com/v1/operations?limit=20" \
+  -H "Authorization: Bearer $FISHMEM_API_KEY"
+```
+
+返回按项目限定的操作列表，支持状态、类型、游标与分页。
+
+## `GET /v1/operations/{id}`
+
+返回一个操作的类型、状态、尝试、时间、进度、公开错误与结果。批量任务必须同时检查顶层状态和 `result.failed`；顶层完成不保证每一项成功。
+
+## `POST /v1/operations/{id}/retry`
+
+只有处于 `retry` 或 `dead` 的操作可以重驱动，需要 `memory:write`。重试复用保存的持久命令与用量身份，不接受新的任意负载。文件提取会复用保留的原始字节/产物。操作读取免费；重试后的实际工作按原操作计量规则处理。

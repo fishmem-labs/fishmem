@@ -1,0 +1,37 @@
+---
+title: 为编程智能体添加项目记忆
+description: 工作前召回项目决策，工作后保留持久结论。
+---
+
+用 `agent_id` 表示智能体，用 `run_id` 表示仓库，让一个项目的约定不会进入另一个项目。
+
+```ts
+const scope = { agent_id: "coding-agent", run_id: repositoryId };
+```
+
+## 工作前召回
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: taskDescription,
+  ...scope,
+  top_k: 8,
+});
+```
+
+把结果放进明确标记的“Project memory”区块，并保留记忆 ID。不要把完整聊天历史当长期记忆。
+
+## 工作后保存
+
+只有测试、合并或用户确认后才保存结论：
+
+```ts
+await fishmem.memories.add({
+  content: "This repository uses pnpm and TypeScript strict mode.",
+  infer: false,
+  ...scope,
+  metadata: { source: "verified-task-outcome" },
+}, { idempotencyKey: `task:${taskId}:conclusion` });
+```
+
+计划、猜测与未执行命令不应保存成完成事实。FishMem Desktop 用户可使用内置 Skill 让智能体执行相同策略。

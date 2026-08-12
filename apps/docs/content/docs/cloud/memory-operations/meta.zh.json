@@ -1,0 +1,4 @@
+{
+  "title": "记忆操作",
+  "pages": ["add", "search", "get-and-list", "update", "feedback", "batch", "delete", "history"]
+}

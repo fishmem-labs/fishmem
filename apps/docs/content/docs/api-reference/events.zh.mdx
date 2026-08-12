@@ -1,0 +1,27 @@
+---
+title: 记忆推理事件
+description: 在不暴露原始对话的前提下轮询持久异步提取。
+---
+
+事件是持久 `memory_infer` 任务的隐私安全读取投影，不是第二条队列或第二份事实来源。API Key 需要 `operations:read`。
+
+## `GET /v1/events/{id}`
+
+```bash
+curl https://fishmem.com/v1/events/evt_... \
+  -H "Authorization: Bearer $FISHMEM_API_KEY"
+```
+
+| 状态 | 含义 |
+| --- | --- |
+| `PENDING` | 已持久化，等待工作进程 |
+| `RUNNING` | 在持久租约下领取 |
+| `RETRYING` | 一次有限尝试失败，正在退避 |
+| `SUCCEEDED` | 提炼规范记录已提交 |
+| `FAILED` | 重试额度耗尽；Cloud 已退款 |
+
+事件返回作用域、时间、尝试、提炼结果与公开终态错误，不返回原始对话、供应商请求或内部任务载荷。
+
+## `GET /v1/events`
+
+支持按状态过滤、游标与 `limit` 分页。事件读取免费。SDK 提供 `events.list/get/wait`；等待超时只停止客户端等待，`RETRYING` 仍是非终态。

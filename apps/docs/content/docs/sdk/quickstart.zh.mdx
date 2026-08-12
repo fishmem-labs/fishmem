@@ -1,0 +1,79 @@
+---
+title: SDK 快速开始
+description: 安装通用 TypeScript SDK，保存一条记忆并召回。
+---
+
+<Steps>
+<Step>
+
+### 安装
+
+```bash
+npm install @fishmem/sdk
+# 或 pnpm add @fishmem/sdk
+# 或 bun add @fishmem/sdk
+```
+
+Deno 使用 `import { FishMem } from "npm:@fishmem/sdk";`。
+
+</Step>
+<Step>
+
+### 创建客户端
+
+API Key 必须留在服务端；Cloud Key 以 `fm_` 开头。
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({ apiKey: process.env.FISHMEM_API_KEY! });
+```
+
+自托管时再传入 `baseUrl: "https://memory.example.com"`。
+
+</Step>
+<Step>
+
+### 保存记忆
+
+每次写入至少需要 `user_id`、`agent_id` 或 `run_id` 之一。可能重试的写入必须使用幂等键。
+
+```ts
+const added = await fishmem.memories.addAndWait(
+  {
+    content: "Alex prefers concise answers with runnable examples.",
+    user_id: "alex",
+    metadata: { source: "onboarding" },
+  },
+  { idempotencyKey: "alex-answer-style-v1" },
+);
+```
+
+默认 `infer:true` 会排队持久任务、调用一次 LLM，并只保存提炼记录。想立即取得 `event_id` 时使用 `addAsync`；内容已整理好或必须按原文保存时用 `memories.add({ ..., infer:false })`，该路径不调用 LLM。
+
+</Step>
+<Step>
+
+### 召回
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: "How should I answer Alex?",
+  user_id: "alex",
+  top_k: 5,
+});
+
+const context = results.map((item) => `- ${item.memory}`).join("\n");
+```
+
+</Step>
+</Steps>
+
+<Callout type="warn">不要把 FishMem API Key 放进浏览器代码、公开环境变量或客户端 bundle。请从服务端、Worker 或 Edge Function 调用。</Callout>
+
+<Cards>
+  <Card title="客户端配置" href="/zh/sdk/client" description="URL、自定义 fetch、响应头与取消。" />
+  <Card title="记忆方法" href="/zh/sdk/memories" description="写入、列表、搜索、更新、删除与历史。" />
+  <Card title="文档方法" href="/zh/sdk/documents" description="把长来源与持久记录分开。" />
+  <Card title="运行时" href="/zh/sdk/runtimes" description="各服务端运行时的完整示例。" />
+</Cards>

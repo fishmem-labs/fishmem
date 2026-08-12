@@ -1,0 +1,25 @@
+---
+title: 错误与幂等
+description: 稳定错误外层、权限、请求标识与重试行为。
+---
+
+所有非 `2xx` API 响应使用同一外层：
+
+```json
+{ "code": "INVALID_REQUEST", "message": "One scope is required", "request_id": "req_...", "details": {} }
+```
+
+| 状态 | 示例错误码 | 含义 |
+| ---: | --- | --- |
+| 400 | `INVALID_REQUEST`、`INVALID_CURSOR`、`IDEMPOTENCY_KEY_REQUIRED` | 请求无法执行 |
+| 401 | `INVALID_API_KEY`、`API_KEY_EXPIRED` | 认证失败 |
+| 402 | `INSUFFICIENT_CREDITS` | 托管项目额度不足 |
+| 403 | `INSUFFICIENT_PERMISSION` | Key 缺少读、写或操作权限 |
+| 404 | `MEMORY_NOT_FOUND`、`DOCUMENT_NOT_FOUND`、`OPERATION_NOT_FOUND` | 已认证项目中资源不存在 |
+| 409 | `IDEMPOTENCY_CONFLICT`、`VERSION_CONFLICT`、上传/用量冲突 | 重试身份、不可变资源或版本冲突 |
+| 413 | 上传、提取文本或页数超限 | 生产边界超限 |
+| 415 | `UNSUPPORTED_DOCUMENT_MEDIA_TYPE` | 不支持的文件类型 |
+| 429 | `RATE_LIMITED` | 按 Key 的请求窗口耗尽 |
+| 500 | `MEMORY_ENGINE_ERROR` | 引擎或供应商操作失败 |
+
+变更请求使用稳定 `Idempotency-Key`。同一键配同一规范化命令返回原结果；配不同命令返回 `409`。客户端超时不代表持久任务失败，应保留事件/操作 ID。读取可以有限重试，写入只能在复用原键时重试。`request_id` 可用于支持排障，但不得连同 API Key 或敏感负载一起记录。

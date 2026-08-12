@@ -1,0 +1,6 @@
+{
+  "root": true,
+  "title": "SDK",
+  "description": "官方 TypeScript、Python 与 Desktop CLI 客户端。",
+  "pages": ["index", "quickstart", "python", "desktop", "client", "memories", "entities", "documents", "resources", "pagination", "runtimes", "errors-and-idempotency"]
+}

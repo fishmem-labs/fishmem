@@ -1,0 +1,47 @@
+---
+title: Webhook
+description: 订阅带签名、可重试的记忆与来源变更事件。
+---
+
+在[控制台](/zh/cloud/dashboard)为每个项目配置 Webhook。FishMem 在成功变更后排队投递，并对准确请求体签名；搜索与读取不产生 Webhook。
+
+| 事件 | 触发时机 |
+| --- | --- |
+| `memory_add` | 推理或原文写入提交 |
+| `memory_update` | 明确更新提交 |
+| `memory_delete` | 单条或作用域记忆删除 |
+| `document_extract_queued` | 已校验文件进入持久提取队列 |
+| `document_ingest` | 来源版本与召回投影提交 |
+| `document_delete` | 稳定来源族永久删除 |
+
+新端点默认订阅五种提交/删除事件；`document_extract_queued` 需选择加入。
+
+## 请求与签名
+
+FishMem 使用 `POST application/json`，包含稳定事件 `id`、`type`、`created_at`、项目标识和事件数据。响应头包括：
+
+| Header | 含义 |
+| --- | --- |
+| `x-fishmem-delivery` | 稳定投递尝试记录 ID |
+| `x-fishmem-event` | 事件类型 |
+| `x-fishmem-timestamp` | 参与签名的 Unix 时间 |
+| `x-fishmem-signature` | `v1=<hex HMAC-SHA256>` |
+
+端点密钥只在创建与轮换后显示，必须放入密钥管理器。对 `<timestamp>.<raw request body>` 计算 HMAC-SHA256，验证前不能解析后重新序列化请求体。
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verifyFishMemWebhook(rawBody: string, timestamp: string, signature: string, secret: string) {
+  const expected = `v1=${createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex")}`;
+  const received = Buffer.from(signature);
+  const wanted = Buffer.from(expected);
+  return received.length === wanted.length && timingSafeEqual(received, wanted);
+}
+```
+
+同时拒绝超出重放窗口的时间戳，并按顶层事件 `id` 去重。
+
+## 投递与重试
+
+任何 `2xx` 表示成功。网络错误或非 `2xx` 最多尝试 5 次，从 60 秒开始指数退避；第五次失败后标记为 `dead`。投递至少一次，接收方必须幂等，并应快速确认后再异步处理慢任务。轮换密钥影响后续尝试；停用或删除端点会停止待投递尝试。

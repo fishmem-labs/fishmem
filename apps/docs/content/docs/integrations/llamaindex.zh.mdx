@@ -1,0 +1,14 @@
+---
+title: LlamaIndex
+description: 组合来源索引与持久用户、智能体记忆，而不复制权威来源。
+---
+
+[LlamaIndex](https://developers.llamaindex.ai/typescript/framework/) 提供文档与召回抽象。请明确每个来源由哪个系统拥有，避免把同一权威内容索引两次。
+
+## 推荐边界
+
+- LlamaIndex 拥有语料时，只在 FishMem 记忆元数据中保存其稳定来源引用。
+- FishMem 拥有来源时，使用 Documents 保存准确内容、分块与引用。
+- FishMem Memory 用于用户偏好、结果与时间状态，不应成为文档段落的另一份副本。
+
+分别执行文档检索和记忆召回，为输出添加清楚标签，并保留两者的来源信息。这样派生用户事实不会伪装成文档原文，文档摘录也不会变成画像事实。只有下游响应或工具结果经过验证后才写回。

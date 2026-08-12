@@ -1,0 +1,33 @@
+---
+title: Claude Code
+description: 通过全局 Skill 与本地 CLI 把 Claude Code 接入 FishMem Desktop。
+---
+
+## 连接
+
+1. 打开 FishMem Desktop。
+2. 打开 **Codex & Claude**。
+3. 选择 **Connect to Claude Code**。
+4. 重启 Claude Code，让它发现新安装的 Skill。
+
+Desktop 把 Skill 安装到：
+
+```text
+~/.claude/skills/fishmem
+```
+
+它使用与 Codex 相同的本地 `fishmem` 命令，与正在运行的 Desktop 应用通信。
+
+## 验证
+
+对 Claude Code 说：
+
+```text
+记住发布前必须运行集成测试套件。
+```
+
+开启新会话后，询问它记得哪些发布流程。你也可以在 FishMem Desktop 中检查准确保存的文字。
+
+## 运行要求
+
+FishMem Desktop 必须正在运行。CLI 使用带认证的私有本地套接字，并且刻意不提供备用存储。应用关闭时会明确报连接错误，避免把记忆拆进两个数据库。FishMem 不会为 Claude Code 安装 MCP 服务。

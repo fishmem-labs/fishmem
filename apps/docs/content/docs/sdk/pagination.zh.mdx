@@ -1,0 +1,28 @@
+---
+title: 分页
+description: 使用稳定游标或异步迭代读取大型记忆集合。
+---
+
+## 手动分页
+
+```ts
+let cursor: string | undefined;
+
+do {
+  const page = await fishmem.memories.list({ user_id: "alex", limit: 100, cursor });
+  for (const memory of page.results) process(memory);
+  cursor = page.next_cursor ?? undefined;
+} while (cursor);
+```
+
+游标是不透明值，不能解析、修改或自行构造。筛选条件变化时重新从第一页开始。
+
+## 使用 `listAll`
+
+```ts
+for await (const memory of fishmem.memories.listAll({ user_id: "alex" }, { limit: 100 })) {
+  process(memory);
+}
+```
+
+文档与结构化实体也提供 `listAll`。异步迭代会逐页请求，不会一次把整个集合载入内存；在长任务中配合 `AbortSignal` 与断点记录。

@@ -1,0 +1,44 @@
+---
+title: 写入记忆
+description: 提取规范记录，或按原文保存提交的记录。
+---
+
+`POST /v1/memories` 接受 `content` 或 `messages`。对于启用推理的写入，推荐使用 SDK 的等待助手：
+
+```ts
+const result = await fishmem.memories.addAndWait(
+  {
+    messages: [{ role: "user", content: "I prefer dark mode." }],
+    user_id: "alex",
+  },
+  { idempotencyKey: "conversation:42:memory", timeoutMs: 30_000 },
+);
+```
+
+直接 HTTP 调用：
+
+```bash
+curl https://fishmem.com/v1/memories \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Idempotency-Key: conversation:42:memory" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"I prefer dark mode."}],"user_id":"alex"}'
+```
+
+| 字段 | 用途 |
+| --- | --- |
+| `content` | 一条可独立理解的记忆 |
+| `messages` | 启用推理时作为对话提取；`infer:false` 时每条非空消息分别按原文保存 |
+| `event_date` | 可选 ISO 8601 时间，表示事实发生或开始成立的时间 |
+
+## 推理语义
+
+`infer:true` 是默认值：一次 LLM 调用提取并去重，只保存提炼后的规范记录。它需要 `Idempotency-Key`，返回 HTTP `202` 与事件回执。`infer:false` 不调用 LLM，按原文同步保存，适合应用已经判断好的持久结论。
+
+## 作用域
+
+至少传入 `user_id`、`agent_id` 或 `run_id` 之一。读取时使用相同结构化作用域。项目边界由 API Key 自动注入，不能由请求覆盖。
+
+## 异步响应与重试
+
+推理写入返回 `event_id`、`status` 与轮询 URL。SDK 的 `addAndWait` 会等待终态；`addAsync` 只返回回执。网络重试必须复用相同幂等键，相同请求会返回同一事件；同一键配不同负载会被拒绝。

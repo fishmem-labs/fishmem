@@ -1,0 +1,27 @@
+---
+title: 批量更新与删除
+description: 以可重试的持久操作执行大规模记忆变更。
+---
+
+FishMem 会把批量变更排入任务，而不是让一个 Worker 请求等待数百次规范与向量写入。
+
+```ts
+const operation = await fishmem.memories.batchUpdate(
+  {
+    memories: [
+      { id: "mem_1", content: "Corrected value" },
+      { id: "mem_2", importance: 0.9 },
+    ],
+  },
+  { idempotencyKey: "migration:42:update" },
+);
+```
+
+```ts
+const operation = await fishmem.memories.batchDelete(
+  { memory_ids: ["mem_1", "mem_2"] },
+  { idempotencyKey: "migration:42:delete" },
+);
+```
+
+响应是持久操作，不代表每一项已经完成。保存操作 ID，轮询到 `SUCCEEDED` 或 `FAILED`，再检查逐项结果。重试必须复用相同幂等键；不同负载不能复用同一个键。不要把单次批量成功当作迁移完成，仍需对数量、内容、历史和召回进行验收。

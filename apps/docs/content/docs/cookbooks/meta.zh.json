@@ -1,0 +1,6 @@
+{
+  "root": true,
+  "title": "实战指南",
+  "description": "构建具备记忆的智能体的端到端做法。",
+  "pages": ["index", "document-rag", "multi-tenant-saas", "memory-evaluation", "migration-rollout", "temporal-profile", "production-operations", "support-agent", "coding-agent", "personal-assistant", "companion"]
+}

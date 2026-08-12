@@ -1,0 +1,31 @@
+---
+title: LangGraph
+description: 为图工作流加入限定作用域的 FishMem 召回与持久写入。
+---
+
+[LangGraph](https://docs.langchain.com/oss/javascript/langgraph/overview) 为图执行保存 checkpoint。FishMem 则补充跨运行的持久结论与来源 RAG。
+
+在需要长期上下文的节点之前加入召回节点；只有图获得已验证结果或更正后，才加入写入节点。
+
+```ts
+async function recallNode(state: AgentState) {
+  const { results } = await fishmem.memories.search({
+    query: state.latestUserMessage,
+    user_id: state.authenticatedUserId,
+    agent_id: "support-graph",
+    top_k: 6,
+  });
+  return { recalledMemories: results };
+}
+
+async function rememberNode(state: AgentState) {
+  if (!state.verifiedOutcome) return {};
+  const event = await fishmem.memories.addAsync(
+    { content: state.verifiedOutcome, user_id: state.authenticatedUserId, agent_id: "support-graph" },
+    { idempotencyKey: `case:${state.caseId}:outcome` },
+  );
+  return { memoryEventId: event.event_id };
+}
+```
+
+不要把 API Key 或模型可修改的任意作用域放进图状态。应由服务端运行时注入 FishMem 客户端与已认证身份。

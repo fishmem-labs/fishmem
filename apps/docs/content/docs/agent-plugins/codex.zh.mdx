@@ -1,0 +1,41 @@
+---
+title: Codex
+description: 通过全局 Skill 与本地 CLI 把 Codex 接入 FishMem Desktop。
+---
+
+## 连接
+
+1. 打开 FishMem Desktop。
+2. 打开 **Codex & Claude**。
+3. 选择 **Connect to Codex**。
+4. 重启 Codex，让它发现新安装的 Skill。
+
+Desktop 把 Skill 安装到：
+
+```text
+~/.agents/skills/fishmem
+```
+
+它还会把 `fishmem` 命令安装到 `~/.fishmem/bin`，并链接到 `~/.local/bin`。
+
+## 验证
+
+对 Codex 说：
+
+```text
+记住这个项目使用 pnpm 和 TypeScript strict mode。
+```
+
+然后在终端验证：
+
+```bash
+fishmem search --query "project package manager and TypeScript settings" \
+  --limit 10 \
+  --json
+```
+
+FishMem Desktop 必须正在运行，因为 CLI 连接它的私有认证本地套接字。若 Desktop 已关闭，命令会明确失败，而不会写入第二个隐藏存储。
+
+## 保存什么
+
+Codex 会先把持久结论整理为简洁、自包含的记忆，再调用 CLI。FishMem 按原文保存提交内容，并把 `codex` 记录为客户端来源。FishMem 不会为 Codex 安装 MCP 服务。

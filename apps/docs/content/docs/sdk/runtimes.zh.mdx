@@ -1,0 +1,51 @@
+---
+title: 运行时指南
+description: 在 Node、Bun、Deno、Cloudflare Workers 与 Vercel 使用同一 FishMem SDK。
+---
+
+默认 HTTP 入口不使用 Node 内置模块，各运行时只在环境变量和请求处理器写法上不同。`@fishmem/sdk/desktop` 是明确的 Node 专用子路径，因为它需要调用本地 CLI。
+
+## Node.js
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+const fishmem = new FishMem({ apiKey: process.env.FISHMEM_API_KEY! });
+```
+
+## Bun
+
+```ts
+const fishmem = new FishMem({ apiKey: Bun.env.FISHMEM_API_KEY! });
+```
+
+## Deno
+
+```ts
+import { FishMem } from "npm:@fishmem/sdk";
+const fishmem = new FishMem({ apiKey: Deno.env.get("FISHMEM_API_KEY")! });
+```
+
+## Cloudflare Workers
+
+```ts
+interface Env { FISHMEM_API_KEY: string }
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const fishmem = new FishMem({ apiKey: env.FISHMEM_API_KEY });
+    return Response.json(await fishmem.health.get());
+  },
+};
+```
+
+## Vercel Functions
+
+```ts
+export async function POST(request: Request) {
+  const input = await request.json();
+  const fishmem = new FishMem({ apiKey: process.env.FISHMEM_API_KEY! });
+  return Response.json(await fishmem.memories.search(input));
+}
+```
+
+所有环境都必须把 Key 留在服务端，支持标准 Fetch 与 AbortSignal，并使用相同 snake_case 传输结构。不要在 Edge 运行时导入 Desktop 子路径。

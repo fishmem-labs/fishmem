@@ -1,0 +1,29 @@
+---
+title: 记忆过滤器
+description: 在不削弱作用域隔离的前提下，对规范记忆做严格逻辑过滤。
+---
+
+`filters` 支持两种形式：旧版元数据相等映射，例如 `{ "environment": "production" }`；或由 `and`、`or`、`not` 组合的规范逻辑表达式。`user_id`、`agent_id` 与 `run_id` 始终位于顶层，并与过滤表达式做 AND。
+
+```json
+{
+  "and": [
+    { "field": "metadata.channel", "operator": "eq", "value": "support" },
+    { "field": "importance", "operator": "gte", "value": 0.7 },
+    { "not": { "field": "content", "operator": "icontains", "value": "resolved" } }
+  ]
+}
+```
+
+条件包含 `field`、`operator` 与 `value`。字段可以是允许的内置记忆字段或安全的 `metadata.<path>`；不接受 SQL、任意 JSONPath、项目键或密钥字段。
+
+| 运算符 | 值 | 含义 |
+| --- | --- | --- |
+| `eq`、`ne` | 标量 | 已存在字段精确相等/不等 |
+| `in`、`nin` | 非空标量数组 | 包含/排除集合 |
+| `gt`、`gte`、`lt`、`lte` | 标量 | 数字、时间戳或元数据比较 |
+| `contains` | string | 区分大小写子串或数组成员 |
+| `icontains` | string | 不区分大小写子串或字符串数组成员 |
+| `exists` | boolean | 字段存在且非 null，或缺失/null |
+
+表达式有节点、深度、数组长度与字符串大小限制，并在候选排名前执行。类型不匹配不会做宽松强制转换。旧版相等映射只用于简单元数据键；新代码优先使用类型化表达式。

@@ -1,0 +1,13 @@
+---
+title: 记忆历史
+description: 获取一条记忆的审计变更轨迹。
+---
+
+## `GET /v1/memories/{id}/history`
+
+```bash
+curl https://fishmem.com/v1/memories/mem_.../history \
+  -H "Authorization: Bearer $FISHMEM_API_KEY"
+```
+
+响应按时间返回 `ADD`、`UPDATE`、`INVALIDATE`、`DELETE` 与审计 `FEEDBACK` 事件，包括变更前后值、有效时间与记录时间。`id` 是唯一参数。历史读取免费；未知或跨项目 ID 返回 `404`。

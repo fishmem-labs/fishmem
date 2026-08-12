@@ -1,0 +1,47 @@
+---
+title: 从 Zep 或 Graphiti 迁移
+description: 在不压平来源与历史的前提下，把图式智能体记忆迁入 FishMem。
+---
+
+Zep 与 Graphiti 常把对话 episode、提取事实、实体、图边与组装后的上下文区块结合在一起。FishMem 使用不同契约：限定作用域的记忆、保留来源的文档、实体关联、时间历史，以及由应用组装提示词。应把它视为数据与行为迁移，不是客户端改名。
+
+## 盘点真实集成
+
+记录实际 SDK/服务版本，以及生产应用读写的用户、线程、episode、事实、实体、边、时间字段、上下文、过滤、延迟、删除与导出路径。不要根据最新快速开始推断已部署行为；保存脱敏的真实请求/响应作为验收集。
+
+| 来源概念 | FishMem 目标 | 决策 |
+| --- | --- | --- |
+| user | 项目 + `user_id` | 保留外部用户 ID，项目作为应用边界 |
+| thread/session | `run_id` 或来源元数据 | 只有生命周期一致时使用 `run_id` |
+| message/episode | 回放输入、记忆来源或 Document | 对话是证据，不能把每条消息都变成记忆 |
+| extracted fact | Memory | 来源已产出最终记录时用 `infer:false` |
+| entity/edge | 关联投影或元数据 | 保留来源导出，只重建应用需要的关系 |
+| temporal fact | 事件时间与有效区间 | 分别验证当前与历史问题 |
+| context block | 应用提示词组装 | 应用决定顺序与 token 预算 |
+
+FishMem 不实现 Zep/Graphiti SDK、图查询语言或上下文响应外层，也不声称即插即用兼容。
+
+## 选择权威导入
+
+优先使用官方导出或来源系统 API，不要复制渲染后的上下文字符串。保留导出产物与生成时间，并给每条导入记录添加可追溯元数据：
+
+```ts
+await fishmem.memories.add(
+  {
+    content: "Alex moved to Berlin in July 2026.",
+    user_id: "alex",
+    infer: false,
+    event_date: "2026-07-01T00:00:00.000Z",
+    metadata: { migrated_from: "graph-memory", migration_batch: "zep-cutover-01", source_kind: "fact-export" },
+  },
+  { idempotencyKey: "zep-cutover-01:fact:alex-location" },
+);
+```
+
+元数据中不得放供应商凭据或完整来源 token。
+
+## 回放、比较与回滚
+
+在隔离项目导入，按用户和来源类型核对数量、拒绝与重复；测试当前事实、历史、纠正、矛盾与删除；比较真实问题返回的证据；用生产 token 预算组装提示词；测量错误率、尾延迟与空/降级召回。
+
+只有应用能给两边写入稳定身份并观察部分失败时才双写，否则使用有限的停写窗口。先迁一个 cohort 或工作区，保留旧读取路径和来源导出，直到删除、恢复与线上召回全部通过。参阅[迁移发布](/zh/cookbooks/migration-rollout)。

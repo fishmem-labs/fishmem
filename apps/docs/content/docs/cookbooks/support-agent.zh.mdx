@@ -1,0 +1,36 @@
+---
+title: 构建具备记忆的客服智能体
+description: 不重放完整工单历史，也能召回客户上下文。
+---
+
+每次调用按已认证客户限定作用域。应用项目由服务端 API Key 决定，`user_id` 来自账户系统。
+
+## 保存已解决结论
+
+```ts
+await fishmem.memories.add({
+  content: "Customer uses SSO and the login issue was resolved by rotating the SAML certificate.",
+  infer: false,
+  user_id: customerId,
+  metadata: { source: "support-case", case_id: caseId },
+}, { idempotencyKey: `case:${caseId}:resolution` });
+```
+
+只在工单实际解决后保存，不要把拟议步骤写成成功结果。
+
+## 回复前召回
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: incomingMessage,
+  user_id: customerId,
+  filters: { source: "support-case" },
+  top_k: 6,
+});
+```
+
+把工单文档通过 Documents 单独检索，并在提示词中区分“客户记忆”与“文档证据”。
+
+## 隐私边界
+
+不要让模型选择 `user_id`，不要保存支付卡号、密码、API Key 或不必要的敏感原文。账户删除时同时验证记忆、文档、Webhook 与派生投影的清除结果。

@@ -1,0 +1,28 @@
+---
+title: 搜索记忆
+description: 在结构化作用域内语义搜索相关记忆。
+---
+
+## `POST /v1/memories/search`
+
+```bash
+curl https://fishmem.com/v1/memories/search \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Which database runs in production?","agent_id":"support-agent","top_k":5}'
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `query` | string | 必填查询 |
+| `user_id` / `agent_id` / `run_id` | string | 至少一个作用域 |
+| `top_k` | number | 默认 10，范围 1–50；别名 `limit` |
+| `memory_type` | string | `fact`、`preference`、`decision`、`identity`、`event`、`observation`、`goal` 或 `todo` |
+| `filters` | object | 元数据相等映射或受限逻辑表达式 |
+| `mode` | string | `hybrid`、`recent`、`important` 或 `typed` |
+| `search_strategy` | string | `balanced`、`precision`、`recall` 或 `auto` |
+| `sort_by` | string | `recent`、`importance`、`most_accessed` 或 `last_accessed` |
+| `min_score` | number | 0–1 的最终融合分数下限 |
+| `trace` | boolean | 是否包含各召回通道诊断证据 |
+
+响应的 `results` 按 `score` 排序。`trace` 用于排障，不应通常放进模型上下文。项目边界与结构化作用域先于排名强制执行；逻辑 OR 不能扩大它们。启用延迟向量投影时，刚写入记录可先由词法通道命中，语义可见性随后完成。每次搜索消耗 1 点额度。

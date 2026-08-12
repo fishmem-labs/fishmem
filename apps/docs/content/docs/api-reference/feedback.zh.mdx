@@ -1,0 +1,22 @@
+---
+title: 记忆反馈
+description: 读取、设置或清除一条记忆上可审计的质量信号。
+---
+
+## `GET /v1/memories/{id}/feedback`
+
+返回当前反馈；没有信号时 `200` 且 `feedback:null`，未知或不可访问记忆返回 `404`。
+
+## `POST /v1/memories/{id}/feedback`
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | ---: | --- |
+| `rating` | string | 是 | `positive`、`negative` 或 `very_negative` |
+| `reason` | string | 否 | 最多 2,000 字符的可执行说明 |
+| `request_id` | string | 否 | 暴露该结果的召回/请求轨迹 |
+
+需要 `Idempotency-Key`。成功会设置当前信号并追加不可变 FEEDBACK 审计事件。
+
+## `DELETE /v1/memories/{id}/feedback`
+
+清除当前信号但不删除历史，也需要幂等键。反馈不会静默改写记忆内容或排名；应用可以在评估与人工审查流程中明确使用。读取免费，设置/清除按写入权限执行。

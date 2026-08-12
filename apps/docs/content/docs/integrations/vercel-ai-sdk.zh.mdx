@@ -1,0 +1,35 @@
+---
+title: Vercel AI SDK
+description: 用 FishMem 召回与保存包围一次 Vercel AI SDK 模型调用。
+---
+
+```bash
+npm install ai @fishmem/sdk
+```
+
+在服务端创建一个客户端：
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+export const fishmem = new FishMem({ apiKey: process.env.FISHMEM_API_KEY! });
+```
+
+调用模型前，用当前用户作用域搜索并格式化小型上下文区块：
+
+```ts
+const { results } = await fishmem.memories.search({ query: latestUserMessage, user_id: userId, top_k: 5 });
+const memoryContext = results.map((item) => `- ${item.memory}`).join("\n");
+```
+
+把该区块加入系统上下文。回合结束后，只保存持久偏好、约束、决策或事实：
+
+```ts
+await fishmem.memories.add({
+  content: "Alex wants TypeScript examples with no framework fallback.",
+  infer: false,
+  user_id: userId,
+  metadata: { source: "assistant-turn" },
+});
+```
+
+不要自动发送完整对话。应用或智能体应先判断哪些内容值得长期保存，再提交可独立理解的记忆。

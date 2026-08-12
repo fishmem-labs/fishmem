@@ -1,0 +1,56 @@
+---
+title: 状态、画像与操作
+description: 使用健康、派生状态、画像、操作、导出与导入资源。
+---
+
+## 健康状态
+
+```ts
+const health = await fishmem.health.get({ signal: AbortSignal.timeout(5_000) });
+if (health.status === "degraded") console.error(health.engine.code, health.tasks, health.operations);
+```
+
+`health.get()` 需要 `operations:read`，会报告准确持久积压数量，不触发付费供应商请求。
+
+## 状态与画像
+
+```ts
+const current = await fishmem.state.get({ user_id: "ada", subject: "Ada", attribute: "residence" });
+const timeline = await fishmem.state.history({ user_id: "ada", subject: "Ada", attribute: "residence" });
+const profile = await fishmem.profile.get({ user_id: "ada", query: "communication style", limit: 3 });
+```
+
+状态时间线从旧到新，每个 slot 的 `source_ids` 指向规范记录。画像无 `query` 时返回字符串或 null，有查询时返回排序后的 section。它们都是有来源、可重建的派生视图。
+
+## 操作与事件
+
+```ts
+const page = await fishmem.operations.list({ limit: 20 });
+const operation = await fishmem.operations.get(page.results[0].id);
+const completed = await fishmem.operations.wait(operation.id, { timeoutMs: 30_000 });
+```
+
+`wait` 在 `success`/`committed` 完成，在 `dead`/`failed` 抛 `FishMemOperationError`。只有处于 `retry` 或 `dead` 的操作可以 `retry`，且需要 `memory:write`。批量任务即使顶层成功，也要检查 `result.failed`。
+
+```ts
+const receipt = await fishmem.memories.addAsync(
+  { content: "Ada moved to Taipei.", user_id: "ada" },
+  { idempotencyKey: "ada-residence-v1" },
+);
+const event = await fishmem.events.wait(receipt.event_id);
+```
+
+事件只在 `SUCCEEDED` 成功，在 `FAILED` 抛错；`RETRYING` 不是终态。事件不暴露原始对话或任务载荷。
+
+## 导出与导入
+
+```ts
+const exported = await fishmem.exports.create({ idempotencyKey: "export-2026-08-12" });
+const done = await fishmem.operations.wait(exported.id);
+const imported = await fishmem.imports.create(
+  { snapshot: done.result },
+  { idempotencyKey: "import-2026-08-12" },
+);
+```
+
+类型系统要求导出与导入提供幂等键。来源 RAG 使用专用[文档方法](/zh/sdk/documents)。

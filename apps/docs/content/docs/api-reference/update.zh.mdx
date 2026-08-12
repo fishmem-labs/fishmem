@@ -1,0 +1,25 @@
+---
+title: 更新一条记忆
+description: 修改记忆内容或元数据。
+---
+
+## `PUT /v1/memories/{id}`
+
+```bash
+curl -X PUT https://fishmem.com/v1/memories/mem_... \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Idempotency-Key: correction-42" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"The production database is PostgreSQL 17.","version":"2026-08-12T00:00:00.000Z"}'
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | path string | 必填记忆 ID |
+| `content` | string | 新记忆文本 |
+| `metadata` | object | 替换元数据 |
+| `importance` | number | 0–1 |
+| `memory_type` | string | 规范记忆类型 |
+| `version` | string | 预期当前 `updated_at`，用于乐观并发 |
+
+至少提供一个变更字段。成功返回 `{ id, memory, event }` 并记录 UPDATE 历史。过期 `version` 返回 `409 VERSION_CONFLICT`，未知 ID 返回 `404`。更新免费，但应使用稳定幂等键安全重试。

@@ -1,0 +1,12 @@
+---
+title: OpenAPI 契约
+description: 下载路由、SDK 测试与文档共同使用的规范 OpenAPI 3.1 描述。
+---
+
+## `GET /v1/openapi.json`
+
+```bash
+curl https://fishmem.com/v1/openapi.json > fishmem-openapi.json
+```
+
+文档版本为 OpenAPI `3.1.0`，定义公开请求 schema、成功响应、错误、认证与端点。它是生成客户端与契约测试的机器可读来源，但运行时限制、幂等语义和迁移说明仍应结合本网站阅读。发布前应将生成客户端固定到一个经过审核的 OpenAPI 版本，而不是在运行时下载最新 schema。

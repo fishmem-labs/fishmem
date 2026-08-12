@@ -1,0 +1,73 @@
+---
+title: Desktop SDK
+description: 通过稳定的机器接口 `fishmem` CLI 调用正在运行的本地 FishMem 应用。
+---
+
+FishMem Desktop 只在本地运行，使用量化多语言 E5 模型，不支持远程嵌入提供商、API Key 或托管兜底。Codex 或 Claude Code 先提炼持久记录，Desktop 以 `infer:false` 保存。
+
+`fishmem` 命令必须从 Desktop 集成界面安装。它可以启动已安装应用并等待认证本地套接字：
+
+```bash
+fishmem desktop start --json
+```
+
+Desktop 已运行时该命令幂等；它不会建立第二个守护进程，也不会切换到 Cloud。
+
+## TypeScript
+
+```ts
+import { FishMemDesktop } from "@fishmem/sdk/desktop";
+
+const desktop = new FishMemDesktop();
+await desktop.memories.add(
+  { content: "Use the canonical deployment pipeline.", infer: false },
+  { idempotencyKey: "deployment-pipeline-v1" },
+);
+
+const { results } = await desktop.memories.search({ query: "How do we deploy?" });
+const source = await desktop.documents.ingest(
+  { source_key: "handbook/deployments.md", content: "# Deployments\n\nProduction deploys require..." },
+  { idempotencyKey: "local-handbook-v1" },
+);
+```
+
+## Python
+
+```python
+from fishmem import FishMemDesktop
+
+desktop = FishMemDesktop()
+desktop.memories.add(
+    {"content": "Use the canonical deployment pipeline.", "infer": False},
+    idempotency_key="deployment-pipeline-v1",
+)
+```
+
+两种适配器都支持写入、搜索、列表、分页、读取、更新、删除、按作用域删除与历史；文档资源支持文本写入、搜索、准确内容与来源族删除；实体资源通过同一本地核心聚合。
+
+## CLI 契约
+
+SDK 使用参数数组调用 `execFile`/`subprocess`，不经过 shell。长 JSON 通过 stdin 传入：
+
+```bash
+printf '%s' '{"query":"deployment","limit":5}' \
+  | fishmem call search --input-stdin
+```
+
+所有结果与错误都是 JSON。CLI 连接认证私有本地套接字；本地模型或索引未就绪时，写入/搜索会明确返回 `LOCAL_EMBEDDING_NOT_READY` 或 `LOCAL_EMBEDDING_UNAVAILABLE`，不会替换成关键词兜底。
+
+Desktop 不提供账单、团队授权、Webhook 或托管操作，也不暴露 HTTP `addAsync`、`addAndWait` 与 events；它在一次 CLI 调用中执行已整理的 `infer:false` 写入。
+
+## 备份与恢复
+
+Settings 可以导出一个可移植 `.fishmem.json` 命名空间快照，包含规范记忆、历史、实体、关联、文档、操作与事件；向量和 sidecar 投影只标记为待重建。
+
+恢复要求输入 `RESTORE`。Desktop 会先完整验证快照，保留恢复前快照，导入失败时自动尝试回滚。备份使用临时文件、原子重命名与仅当前用户权限。
+
+```bash
+fishmem call exportSnapshot
+fishmem call importSnapshot --input-stdin
+fishmem call restoreSnapshot --input-stdin
+```
+
+日常备份优先使用 Settings 文件选择器；CLI 面向已经验证 JSON 输入的受控自动化。

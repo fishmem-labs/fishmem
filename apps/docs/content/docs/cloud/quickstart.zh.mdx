@@ -1,0 +1,55 @@
+---
+title: 快速开始
+description: 使用 FishMem Cloud 保存并召回第一条记忆。
+---
+
+## 1. 创建 API Key
+
+在 FishMem 控制台中创建项目 Key。只把它放在服务端，通过 `FISHMEM_API_KEY` 传给运行时。
+
+## 2. 安装 SDK
+
+```bash
+npm install @fishmem/sdk
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({ apiKey: process.env.FISHMEM_API_KEY! });
+```
+
+## 3. 保存提炼记忆
+
+```ts
+const result = await fishmem.memories.addAndWait(
+  {
+    messages: [{ role: "user", content: "I prefer concise TypeScript examples." }],
+    user_id: "alex",
+  },
+  { idempotencyKey: "onboarding:alex:preference" },
+);
+```
+
+`infer:true` 是默认值，会异步提取并只保存提炼后的规范记录。应用已经生成可独立理解的结论时，可以传 `infer:false` 同步按原文保存。
+
+## 4. 召回
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: "How should I write an example for Alex?",
+  user_id: "alex",
+  top_k: 5,
+});
+```
+
+## 直接 HTTP
+
+```bash
+curl https://fishmem.com/v1/memories \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"Alex prefers concise TypeScript examples.","infer":false,"user_id":"alex"}'
+```
+
+继续阅读[身份验证](/zh/cloud/authentication)、[记忆写入](/zh/cloud/memory-operations/add)、[搜索](/zh/cloud/memory-operations/search)与[生产检查](/zh/cloud/production-checklist)。

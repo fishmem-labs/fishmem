@@ -1,0 +1,26 @@
+---
+title: Mastra
+description: 在 Mastra 工作流或智能体边界使用 FishMem。
+---
+
+FishMem 不发布 Mastra 适配器。请在工作流步骤或工具中使用通用 SDK：
+
+```bash
+npm install @mastra/core @fishmem/sdk
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({ apiKey: process.env.FISHMEM_API_KEY! });
+
+export async function recallForTask(task: string, userId: string) {
+  return fishmem.memories.search({ query: task, user_id: userId, top_k: 5 });
+}
+
+export async function rememberConclusion(content: string, userId: string) {
+  return fishmem.memories.add({ content, infer: false, user_id: userId, metadata: { source: "mastra" } });
+}
+```
+
+在面向模型的步骤之前调用 `recallForTask`，只有工作流确定了持久结论后才调用 `rememberConclusion`。这样记忆策略明确存在于工作流中，而不是隐藏在适配器里。

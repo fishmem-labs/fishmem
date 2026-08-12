@@ -1,0 +1,67 @@
+---
+title: API 参考
+description: FishMem REST API 的端点、请求/响应结构、身份验证与额度。
+---
+
+FishMem REST API 使用常见记忆操作与 mem0 风格作用域名，但客户端必须以本参考作为契约。现有 mem0 或图记忆集成可能需要修改响应处理与行为；请先阅读[从 mem0 迁移](/zh/cloud/migrate-from-mem0)或[从 Zep/Graphiti 迁移](/zh/cloud/migrate-from-zep)。
+
+## Base URL 与认证
+
+Cloud 使用 `https://fishmem.com/v1`；自托管使用你的部署 origin 加 `/v1`。除公开 OpenAPI 外，请求通过项目 Key 认证：
+
+```http
+Authorization: Bearer fm_...
+Content-Type: application/json
+```
+
+Key 决定项目边界并在数据层限制所有资源。它必须留在服务端，不可放进浏览器或查询字符串。
+
+## 记忆对象
+
+公开对象包含 `id`、`memory`、结构化作用域、`metadata`、`memory_type`、`importance`、有效时间与记录时间、创建/更新时间，以及可选相关性 `score`。内部项目键与供应商载荷不会返回。
+
+## 错误
+
+```json
+{
+  "code": "INVALID_REQUEST",
+  "message": "One of user_id, agent_id, run_id is required",
+  "request_id": "req_...",
+  "details": {}
+}
+```
+
+保存 `request_id` 用于排障，但不要记录完整 API Key 或敏感负载。
+
+## 额度
+
+| 操作 | 额度 |
+| --- | --- |
+| 推理写入 `infer:true` | 2 |
+| 原文写入 `infer:false` | 1 |
+| 记忆或文档搜索 | 1 |
+| 直接文档写入 | 每个预计分块 1 |
+| 文件提取 | 每开始 5 MB 50，再加每个预计分块 1 |
+| 读取、列表、历史 | 免费 |
+| 实体读取/移除、文档读取/删除 | 免费 |
+| 更新、删除、批量更新/删除 | 免费 |
+
+## 端点
+
+| 资源 | 方法与路径 |
+| --- | --- |
+| 健康 | `GET /v1/health` |
+| 作用域实体 | `/v1/entities[/{type}/{id}]` |
+| 文档与来源 RAG | `/v1/documents[/{id}]` |
+| 异步文件提取 | `/v1/document-uploads[/{id}]` |
+| 写入记忆 | `POST /v1/memories` |
+| 推理事件 | `GET /v1/events[/{id}]` |
+| 列表/搜索 | `GET /v1/memories`、`POST /v1/memories/search` |
+| 批量变更 | `PUT/DELETE /v1/memories/batch` |
+| 单条读取/更新/删除 | `GET/PUT/DELETE /v1/memories/{id}` |
+| 作用域删除 | `DELETE /v1/memories` |
+| 历史/反馈 | `/v1/memories/{id}/history`、`/feedback` |
+| 状态/画像 | `/v1/state`、`/v1/profile` |
+| 操作 | `/v1/operations[/{id}]` |
+| 导出/导入 | `POST /v1/exports`、`POST /v1/imports` |
+| OpenAPI | `GET /v1/openapi.json` |

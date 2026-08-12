@@ -19,7 +19,7 @@ function initOrama() {
 	return create({
 		schema: { _: "string" },
 		// https://zbsearch.dev/docs/zbsearch/text-analysis/stemming
-		language: "english",
+		language: "multilingual",
 	});
 }
 

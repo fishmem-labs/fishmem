@@ -1,0 +1,6 @@
+{
+  "root": true,
+  "title": "API 参考",
+  "description": "FishMem REST API 的端点与传输契约。",
+  "pages": ["index", "health", "entities", "documents", "document-uploads", "add", "events", "list", "search", "filters", "batch", "get", "update", "delete", "delete-all", "history", "feedback", "state", "profile", "operations", "export-import", "errors", "openapi"]
+}

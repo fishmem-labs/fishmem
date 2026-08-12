@@ -1,0 +1,18 @@
+---
+title: MCP 工具
+description: 通过收窄的 Model Context Protocol 边界暴露 FishMem 召回与写入。
+---
+
+MCP 服务可以让多个智能体客户端使用 FishMem，但工具边界不能把授权交给模型。
+
+## 收窄工具集合
+
+建议从以下工具开始：`recall_memory(query, limit)`、`remember_decision(content, source, idempotency_key)`、`search_documents(query, source_key)`、`get_document_content(document_id)`。
+
+在 MCP 服务的已认证会话中绑定项目凭据与结构化用户/智能体作用域。不要接受原始 FishMem API Key、工作区 ID 或任意 `user_id` 作为模型工具参数。
+
+## 谨慎执行破坏性操作
+
+更新、实体删除、项目删除与恢复应要求面向操作员的确认路径，而不是暴露成通用模型工具。工具输出应返回 FishMem 请求或事件 ID，保证失败可追踪。
+
+本地编程智能体优先使用内置 Desktop Skill 与认证 CLI 桥接；它提供更窄的本地传输，不暴露 HTTP 服务。

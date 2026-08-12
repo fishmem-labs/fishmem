@@ -1,0 +1,49 @@
+---
+title: 文档概览
+description: 一份私有记忆，服务每一个智能体。
+---
+
+FishMem 是面向 AI 智能体的隐私优先记忆层。默认情况下，它把对话提炼为紧凑、持久的记录；需要时也能按原文保存已经整理好的输入。所有记录都按作用域隔离，并在后续会话中召回相关部分。
+
+FishMem 提供三个产品形态：
+
+- **FishMem Desktop**：供 Codex 和 Claude Code 使用的本地记忆。
+- **FishMem 开源版**：可自行托管的记忆服务、REST API、控制台与 TypeScript 引擎。
+- **FishMem Cloud**：带 API Key、可观测操作、异步任务与 Webhook 的托管商业服务。
+
+## 从这里开始
+
+<Cards>
+  <Card title="桌面智能体" href="/zh/agent-plugins" description="把 Codex 或 Claude Code 接入私有本地记忆。" />
+  <Card title="TypeScript 与 Python SDK" href="/zh/sdk" description="通过官方客户端使用 HTTP API 或本地 Desktop CLI。" />
+  <Card title="自行托管 FishMem" href="/zh/open-source/self-hosting" description="在自己的基础设施上运行服务与控制台。" />
+  <Card title="REST API" href="/zh/api-reference" description="直接通过 HTTP 使用全部记忆端点。" />
+</Cards>
+
+## 按任务浏览
+
+<Cards>
+  <Card title="可靠运行推理任务" href="/zh/cloud/operations-and-events" description="事件回执、重试、终态与计费。" />
+  <Card title="构建保留来源的 RAG" href="/zh/cloud/documents" description="不可变文件、提取、分块、引用与删除。" />
+  <Card title="设计租户作用域" href="/zh/cloud/filters-and-scope" description="项目、用户、智能体、运行、实体与过滤器。" />
+  <Card title="准备生产发布" href="/zh/cloud/production-checklist" description="身份、记忆、文档、恢复、安全与运维闸门。" />
+  <Card title="评估记忆质量" href="/zh/cookbooks/memory-evaluation" description="贴近生产的轨迹与分层验收标准。" />
+  <Card title="安全迁移" href="/zh/cookbooks/migration-rollout" description="盘点、映射、回放、观察并保留回滚能力。" />
+</Cards>
+
+## 记忆契约
+
+`infer: true` 是应用默认路径：一次 LLM 调用提取规范化记录，系统只保存提炼后的记录。`infer: false` 按原文保存提交的内容，不调用 LLM。一次写入不会同时保存两种形式，提取失败时也不会静默降级。
+
+长文本与文件使用独立的文档路径：保留原始来源并为 RAG 索引分块，而不是把每段文字都伪装成持久的个人事实。派生状态与画像视图是可重建的投影，并保留回到规范记录的来源关系。
+
+配置允许时，召回可组合关键词、向量、时间与图信号。确切能力取决于部署配置；基础存储并不要求使用托管嵌入模型。
+
+## 选择使用方式
+
+<Cards>
+  <Card title="FishMem Cloud" href="/zh/cloud" description="托管记忆 API 与控制平面。" />
+  <Card title="FishMem 开源版" href="/zh/open-source" description="自行托管的服务与可嵌入 TypeScript 引擎。" />
+  <Card title="SDK 参考" href="/zh/sdk" description="客户端配置、记忆方法、分页与错误。" />
+  <Card title="实战指南" href="/zh/cookbooks" description="真实智能体工作流的端到端记忆模式。" />
+</Cards>

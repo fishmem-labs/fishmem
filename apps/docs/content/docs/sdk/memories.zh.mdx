@@ -1,0 +1,75 @@
+---
+title: 记忆方法
+description: 完整记忆生命周期的类型化 SDK 方法。
+---
+
+## 写入
+
+```ts
+const receipt = await fishmem.memories.addAsync(
+  {
+    content: "The production database is PostgreSQL 16.",
+    agent_id: "support-agent",
+    metadata: { environment: "production" },
+  },
+  { idempotencyKey: "prod-database-v1" },
+);
+const event = await fishmem.events.wait(receipt.event_id);
+```
+
+`infer` 默认 `true`：一个持久任务进行一次提取，只保存增量提炼记录，不并行保存原始输入。`infer:false` 不调用 LLM，按原文保存 `content` 或每条非空消息。提取失败是错误，不会静默保存原文。需要直接获得最终记录时使用 `addAndWait`；推理输入上限为 250,000 UTF-8 字节与 500 条消息，长来源使用 Documents。
+
+## 搜索
+
+```ts
+const result = await fishmem.memories.search({
+  query: "Which database runs in production?",
+  agent_id: "support-agent",
+  top_k: 8,
+  memory_type: "decision",
+  filters: { environment: "production" },
+  search_strategy: "precision",
+});
+```
+
+复杂过滤器支持 `and`、`or`、`not` 与字段运算。`mode` 可选 `hybrid`、`recent`、`important`、`typed`；`search_strategy` 可选 `balanced`、`precision`、`recall`、`auto`；`sort_by` 支持最近、重要、最多访问与最近访问；`min_score` 是 0–1 的融合分数下限。`trace:true` 只用于排障，不应通常放入模型提示词。
+
+## 列表、读取与更新
+
+```ts
+const page = await fishmem.memories.list({ user_id: "alex", limit: 50 });
+const memory = await fishmem.memories.get("memory-id");
+const update = await fishmem.memories.update(
+  memory.id,
+  { content: "The production database is PostgreSQL 17.", version: memory.updated_at },
+  { idempotencyKey: "upgrade-prod-db-v1" },
+);
+```
+
+分页使用 `next_cursor`，游标不可修改。更新返回 `{ id, memory, event }`；传 `version` 启用乐观并发，过期版本返回 HTTP 409。
+
+## 批量变更与删除
+
+```ts
+const queued = await fishmem.memories.batchUpdate(
+  { memories: [{ memory_id: "mem_1", content: "Updated record" }] },
+  { idempotencyKey: "crm-refresh-v1" },
+);
+const completed = await fishmem.operations.wait(queued.id);
+```
+
+`batchDelete` 使用 `{ memories: [{ memory_id }] }`，两者都返回带逐项结果的持久操作。删除单条建立 tombstone 并移出召回；`deleteAll` 冻结第一次调用的准确目标 ID，重试不会删除之后新增的匹配记录。Cloud 要求幂等键，同步目标上限为 25,000，超限会在删除前失败。
+
+## 历史、反馈与操作
+
+```ts
+const { results: history } = await fishmem.memories.history(memory.id);
+await fishmem.memories.setFeedback(
+  memory.id,
+  { rating: "negative", reason: "Out of date", request_id: "req_123" },
+  { idempotencyKey: "req-123-feedback-v1" },
+);
+const { results: operations } = await fishmem.operations.list({ limit: 20 });
+```
+
+历史保留 `ADD`、`UPDATE`、`INVALIDATE`、`DELETE` 与审计 `FEEDBACK`。反馈不会静默改写内容或排名。推理事件通过 `events.list/get/wait` 查看，省略原始对话，只暴露作用域、提炼结果、尝试、时间与终态错误。

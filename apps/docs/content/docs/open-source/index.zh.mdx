@@ -1,0 +1,45 @@
+---
+title: 开源版
+description: FishMem TypeScript 引擎与可自行托管的记忆服务。
+---
+
+FishMem 提供两个开源构建模块。
+
+## TypeScript 引擎
+
+`fishmem` 包直接运行在你的进程中。图存储、向量/关键词索引、嵌入模型和 LLM 都由你选择。
+
+```ts
+import { Memory } from "fishmem";
+
+const memory = await Memory.create({
+  graphStore: { provider: "memory" },
+  vectorStore: { provider: "memory" },
+  embedder: { provider: "mock" },
+  llm: { provider: "mock" },
+});
+
+await memory.add("The user says this project uses pnpm.", {
+  userId: "alex",
+  infer: true,
+});
+```
+
+默认的推理写入只调用一次 LLM，并且只保存提炼后的规范记录。已整理好的内容应使用 `infer: false` 按原文保存。状态与画像是可重建投影，不是平行的权威存储。
+
+## 自托管服务
+
+`apps/web` 把记忆服务、REST API、控制台、身份验证、异步操作与可观测性组合在一起。应用通过 [`@fishmem/sdk`](/zh/sdk) 或直接 HTTP 调用。
+
+多个应用或用户需要共享记忆平台时使用服务；记忆只属于单个进程时使用嵌入式引擎。
+
+## 托管云
+
+FishMem Cloud 是商业托管部署。它增加由 FishMem 运营的基础设施与服务承诺，但使用相同的记忆模型。
+
+<Cards>
+  <Card title="引擎快速开始" href="/zh/open-source/quickstart" description="在 TypeScript 进程内执行写入与搜索。" />
+  <Card title="配置" href="/zh/open-source/configuration" description="选择存储、提供商、派生与召回行为。" />
+  <Card title="记忆如何工作" href="/zh/open-source/concepts/how-memory-works" description="理解推理、原文与文档存储路径。" />
+  <Card title="自行托管" href="/zh/open-source/self-hosting" description="自行运行服务与控制台。" />
+</Cards>

@@ -1,0 +1,35 @@
+---
+title: 客户端配置
+description: 配置身份验证、部署 URL、Fetch 行为、响应头与请求取消。
+---
+
+## 构造函数
+
+```ts
+const fishmem = new FishMem({
+  apiKey: "fm_...",
+  baseUrl: "https://fishmem.com",
+  fetch: globalThis.fetch,
+  headers: { "X-Application": "support-agent" },
+});
+```
+
+| 选项 | 必填 | 说明 |
+| --- | ---: | --- |
+| `apiKey` | 是 | 作为 `Authorization: Bearer …` 发送的项目 Key |
+| `baseUrl` | 否 | Cloud 或自托管 origin，默认 `https://fishmem.com` |
+| `fetch` | 否 | 标准兼容的 Fetch 实现，默认 `globalThis.fetch` |
+| `headers` | 否 | 每次请求附加的响应头 |
+
+## 单次请求选项
+
+```ts
+await fishmem.memories.get(id, {
+  signal: AbortSignal.timeout(5_000),
+  headers: { "X-Trace": traceId },
+});
+```
+
+`signal` 用于取消或超时，`headers` 可覆盖单次响应头，`idempotencyKey` 让变更请求可以安全重试。SDK 不做隐藏自动重试；应用应根据错误类型决定是否重试，并复用幂等键。
+
+自托管 `baseUrl` 只写 origin，不要附加 `/v1`。Key 与 base URL 应来自服务端配置，不要接受模型或浏览器输入。

@@ -1,0 +1,6 @@
+{
+  "root": true,
+  "title": "集成",
+  "description": "把 FishMem 记忆接入常用智能体框架。",
+  "pages": ["index", "agent-loop", "langgraph", "crewai", "llamaindex", "mcp-tools", "vercel-ai-sdk", "mastra", "openai-agents-sdk", "cloudflare-agents-sdk"]
+}

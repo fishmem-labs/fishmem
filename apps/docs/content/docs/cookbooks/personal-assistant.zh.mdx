@@ -1,0 +1,30 @@
+---
+title: 跟踪变化的偏好
+description: 保存准确的偏好变化并保留审计轨迹。
+---
+
+让一次提取调用把每次变化转换成带时间与状态字段的规范记录：
+
+```ts
+await fishmem.memories.addAsync(
+  {
+    messages: [{ role: "user", content: "Starting next month, use Mandarin for weekly summaries." }],
+    user_id: "alex",
+    event_date: "2026-09-01T00:00:00.000Z",
+  },
+  { idempotencyKey: "alex-summary-language-2026-09" },
+);
+```
+
+召回时使用同一用户作用域，并优先查询当前有效事实：
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: "Which language should weekly summaries use?",
+  user_id: "alex",
+  mode: "hybrid",
+  top_k: 5,
+});
+```
+
+如果用户只是说“现在喜欢中文”，不要虚构具体生效日期。更正时更新或失效旧事实，保留历史链；画像应从规范记录派生，而不是成为第二份不可追溯事实库。

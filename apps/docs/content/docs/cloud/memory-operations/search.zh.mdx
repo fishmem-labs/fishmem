@@ -1,0 +1,37 @@
+---
+title: 搜索记忆
+description: 在用户、智能体或运行作用域内，语义召回最相关的记忆。
+---
+
+搜索接收自然语言 `query`，返回按相关性排序且带 `score` 的记忆。这通常接在提示词组装步骤之前。始终传入查询以及至少一个作用域。
+
+```bash
+curl -G https://fishmem.com/v1/memories/search \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  --data-urlencode "query=How should I format examples?" \
+  --data-urlencode "user_id=alex" \
+  --data-urlencode "top_k=5"
+```
+
+```ts
+const { results } = await fishmem.memories.search({
+  query: "How should I format examples?",
+  user_id: "alex",
+  top_k: 5,
+});
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `query` | 必填，自然语言查询 |
+| `user_id` / `agent_id` / `run_id` | 至少一个结构化作用域 |
+| `top_k` | 默认 10，范围 1–50；别名 `limit` |
+| `memory_type` | 精确记忆类型过滤 |
+| `filters` | 元数据相等映射或受限逻辑表达式 |
+| `mode` | `hybrid`、`recent`、`important` 或 `typed` |
+| `search_strategy` | `balanced`、`precision`、`recall` 或 `auto` |
+| `sort_by` | `recent`、`importance`、`most_accessed` 或 `last_accessed` |
+| `min_score` | 0–1 的最终融合分数下限 |
+| `trace` | 是否返回诊断召回轨迹，默认 `false` |
+
+过滤器在排名前限制候选集；项目隔离总是由服务端强制执行。响应中的顺序与 `score` 是公开排名契约，不要依赖内部单项分数。启用延迟向量投影时，刚写入的记录可先被词法路径读到，语义投影完成后召回更完整。每次搜索消耗 1 点额度。

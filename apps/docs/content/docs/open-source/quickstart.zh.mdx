@@ -1,0 +1,56 @@
+---
+title: 快速开始
+description: 在你的应用中运行 FishMem TypeScript 引擎。
+---
+
+`fishmem` 是底层 TypeScript 引擎；它不同于通过 HTTP 调用 FishMem 服务的 `@fishmem/sdk`。
+
+## 安装
+
+```bash
+npm install fishmem
+```
+
+嵌入式引擎以 TypeScript 为主。Python 应用请使用[官方 HTTP SDK](/zh/sdk/python)。
+
+## 创建引擎
+
+引擎接收明确的图、向量、LLM 和嵌入实现。下面的确定性内存配置无需供应商密钥：
+
+```ts
+import { Memory } from "fishmem";
+
+const memory = await Memory.create({
+  graphStore: { provider: "memory" },
+  vectorStore: { provider: "memory" },
+  embedder: { provider: "mock" },
+  llm: { provider: "mock" },
+});
+```
+
+持久部署请改用 SQLite、Postgres、D1、Qdrant、Vectorize 或其他支持的适配器。详见[配置](/zh/open-source/configuration)。
+
+## 保存记忆
+
+```ts
+await memory.add("Alex prefers dark mode and writes TypeScript.", {
+  userId: "alex",
+  infer: false,
+  metadata: { source: "onboarding" },
+});
+```
+
+`infer: false` 不调用 LLM，按原文保存字符串。对话输入可以省略 `infer`（或设为 `true`），进行一次提取并只保存规范化记录。
+
+## 召回
+
+```ts
+const { results } = await memory.search("How should I present examples to Alex?", {
+  userId: "alex",
+  limit: 5,
+});
+```
+
+搜索必须使用与写入相同的作用域。配置允许时，召回可组合关键词、向量、时间与图信号。
+
+共享或远程部署请使用 [`@fishmem/sdk`](/zh/sdk/quickstart)，同一客户端可运行于 Node、Bun、Deno、Cloudflare Workers 与 Vercel。

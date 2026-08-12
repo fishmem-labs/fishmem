@@ -1,0 +1,84 @@
+---
+title: 文档方法
+description: 通过 TypeScript 与 Python SDK 写入准确文本来源并召回可引用证据。
+---
+
+## TypeScript
+
+### 写入文本
+
+```ts
+const ingested = await fishmem.documents.ingest(
+  {
+    source_key: "docs/architecture.md",
+    title: "Architecture",
+    mime_type: "text/markdown",
+    content: markdown,
+    user_id: "alex",
+    metadata: { repository: "fishmem" },
+  },
+  { idempotencyKey: "architecture-v1" },
+);
+```
+
+Cloud 要求幂等键；同一命令重放返回已提交结果，不同内容复用同一键返回 `409`。
+
+### 上传文件
+
+```ts
+import { readFile } from "node:fs/promises";
+
+const queued = await fishmem.documents.upload(
+  {
+    file: new Blob([await readFile("./handbook.pdf")], { type: "application/pdf" }),
+    filename: "handbook.pdf",
+    source_key: "docs/handbook.pdf",
+    user_id: "alex",
+  },
+  { idempotencyKey: "handbook-pdf-v1" },
+);
+
+const ready = await fishmem.operations.wait(queued.operation.id, {
+  intervalMs: 1_000,
+  timeoutMs: 10 * 60_000,
+});
+```
+
+`upload()` 完成创建、准确字节 `PUT` 与完成确认，在持久 `document_extract` 操作入队后返回。它会本地计算 SHA-256，但不会等待 Docling。需要手动流式上传或保存每个 checkpoint 时，使用 `createUpload()`、返回的 `upload.url`、`completeUpload()` 与 `getUpload()`。尚未 processing/ready 的上传可用 `deleteUpload(id)` 取消，失败任务用 `operations.retry()` 重驱动。
+
+### 搜索、列表与内容
+
+```ts
+const { results } = await fishmem.documents.search({
+  query: "projection repair",
+  user_id: "alex",
+  limit: 5,
+  neighbors: 1,
+});
+
+const page = await fishmem.documents.list({ user_id: "alex", limit: 50 });
+const descriptor = await fishmem.documents.get(ingested.document.id);
+const original = await fishmem.documents.content(descriptor.id);
+await fishmem.documents.delete(descriptor.id, { idempotencyKey: `delete-${descriptor.id}` });
+```
+
+`neighbors` 返回相邻分块但不改变命中分块来源。`content()` 返回准确 UTF-8 原件。删除任一版本会删除完整稳定来源族。
+
+## Python
+
+```python
+from pathlib import Path
+
+uploaded = fishmem.documents.upload(
+    Path("./handbook.pdf"),
+    {"source_key": "docs/handbook.pdf", "user_id": "alex"},
+    idempotency_key="handbook-pdf-v1",
+)
+ready = fishmem.operations.wait(uploaded["operation"]["id"], timeout=600.0)
+```
+
+同步与异步客户端提供相同资源，异步列表使用 `async for`。
+
+## 输入边界
+
+HTTP SDK 支持 PDF、Office、EPUB、邮件、图片与文本文件，最大 25,000,000 字节和 300 个提取页面；音视频不接受。直接 `documents.ingest()` 同步接收最多 1,000,000 字节的 UTF-8。Desktop 只支持文本路径，`upload()` 在本地严格解码 UTF-8，不调用 Docling 或远程嵌入提供商。

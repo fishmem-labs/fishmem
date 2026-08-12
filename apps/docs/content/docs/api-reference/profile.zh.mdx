@@ -1,0 +1,16 @@
+---
+title: 画像
+description: 读取完整派生画像，或只召回与查询相关的画像片段。
+---
+
+## `GET /v1/profile`
+
+至少提供 `user_id`、`agent_id` 或 `run_id` 之一。不传 `query` 时，`data` 是完整画像字符串或 `null`：
+
+```bash
+curl -G https://fishmem.com/v1/profile \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  --data-urlencode "user_id=ada"
+```
+
+传 `query` 与可选 `limit` 时，返回按相关性排序的画像片段及来源 ID。画像是从规范记录重建的投影，不应当作第二个权威事实库。读取免费。

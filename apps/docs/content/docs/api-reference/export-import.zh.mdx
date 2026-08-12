@@ -1,0 +1,22 @@
+---
+title: 导出与导入
+description: 使用持久幂等操作生成与恢复可移植命名空间快照。
+---
+
+导出与导入都是异步操作，需要 `Idempotency-Key`，返回 HTTP `202` 与 [operation](/zh/api-reference/operations)。持久任务行与定时工作进程会恢复中断或过期尝试。
+
+## `POST /v1/exports`
+
+为已认证项目建立版本化规范快照。快照保留规范记忆、历史、作用域、文档来源与重建所需信息；向量与派生投影不作为权威导出。
+
+```bash
+curl -X POST https://fishmem.com/v1/exports \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Idempotency-Key: export-2026-08-12"
+```
+
+## `POST /v1/imports`
+
+请求体包含版本化 `snapshot`。导入会先完整校验格式、作用域与冲突，通常要求空目标命名空间，再提交规范数据并单独重建投影。
+
+不要把数据库 dump 当快照，也不要把来自不同租户的数据未经审查合并。完成后必须核对数量、历史、搜索、文档内容与删除。

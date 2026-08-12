@@ -1,0 +1,30 @@
+---
+title: SDK
+description: 适用于 Cloud、自托管 FishMem 与本地 Desktop CLI 的官方 TypeScript 和 Python 客户端。
+---
+
+FishMem 维护两套 HTTP SDK 与一套语言无关的 Desktop CLI 契约：
+
+- TypeScript/JavaScript：`@fishmem/sdk`；
+- 同步与异步 Python：`fishmem`；
+- 两种 SDK 都可包装 `fishmem call` 本地桥接。
+
+TypeScript HTTP 客户端只使用标准 Web API：`fetch`、`Headers`、`URL` 与 `AbortSignal`，无需平台适配器即可运行于 Node.js、Bun、Deno、Cloudflare Workers 和 Vercel。Desktop 子路径是 Node 专用，因为它调用本地 CLI。
+
+```bash
+npm install @fishmem/sdk
+pip install fishmem
+```
+
+```ts
+import { FishMem } from "@fishmem/sdk";
+
+const fishmem = new FishMem({ apiKey: process.env.FISHMEM_API_KEY! });
+```
+
+<Cards>
+  <Card title="快速开始" href="/zh/sdk/quickstart" description="写入并召回第一条记忆。" />
+  <Card title="客户端配置" href="/zh/sdk/client" description="身份、URL、Fetch、响应头与取消。" />
+  <Card title="记忆方法" href="/zh/sdk/memories" description="完整记忆生命周期。" />
+  <Card title="Python SDK" href="/zh/sdk/python" description="同步、异步与 Desktop 客户端。" />
+</Cards>

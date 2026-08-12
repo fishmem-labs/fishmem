@@ -20,6 +20,9 @@ export const metadata: Metadata = {
 export default function Layout({ children }: LayoutProps<'/'>) {
   return (
     <html lang="en" className={inter.className} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `document.documentElement.lang = location.pathname === '/zh' || location.pathname.startsWith('/zh/') ? 'zh-CN' : 'en';` }} />
+      </head>
       <body className="flex flex-col min-h-screen">
         <Provider>{children}</Provider>
       </body>

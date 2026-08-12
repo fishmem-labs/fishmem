@@ -1,0 +1,41 @@
+---
+title: 发布说明
+description: FishMem 引擎、Cloud 与 SDK 的最新变化。
+---
+
+这里记录 FishMem 引擎、托管云、SDK 与文档的重要变化。日期使用 UTC。完整提交历史见 [github.com/fishmem-labs/fishmem](https://github.com/fishmem-labs/fishmem)。
+
+## 2026-08 — FishMem 0.2.0
+
+- **Desktop 恢复**：导出可移植的命名空间备份，并通过格式校验与自动回滚恢复完整本地资料库。
+- **Desktop 发布证据**：打包后的 macOS 应用会等待本地嵌入服务就绪，并通过内置 CLI 实际执行新增、搜索、读取、更新、历史与删除后才接受产物。
+- **发布来源**：Desktop 清单记录源码提交；托管部署锁定开源核心版本，同时记录 Cloud 源码版本。
+- **安全加固**：更新依赖、让自托管密钥配置失败即关闭、补充 Cloud 安全响应头与必需 Worker 密钥，并移除未使用的 macOS 隐私与传输例外。
+- **文档**：扩展异步操作、来源 RAG、作用域与过滤器、组织、可移植性、安全、生产发布、集成与评估指南。
+
+## 2026-08 — Python SDK 0.1.0
+
+- **PyPI 发布**：官方 Python 包 [`fishmem`](https://pypi.org/project/fishmem/0.1.0/) 支持 Python 3.10 及以上；使用 `pip install fishmem` 安装，以 `from fishmem import FishMem` 导入。
+- **同步与异步类型化客户端**：包含 `FishMem`、`AsyncFishMem` 与 `FishMemDesktop`，并提供 `py.typed` 标记。
+- **可信发布**：GitHub Actions 通过 PyPI 的短期 OIDC 流程构建与发布，不需要长期上传令牌。
+
+## 2026-07 — 异步推理与来源 RAG
+
+- **破坏性 API 变化**：启用推理的 `POST /v1/memories` 写入需要 `Idempotency-Key`，并返回 HTTP `202` 与持久 `event_id`；已经整理好的 `infer:false` 写入保持同步。
+- **事件 API**：`GET /v1/events` 与 `/v1/events/{id}` 提供推理状态、有限重试、耗时、提炼记录与终态错误，不返回原始对话或内部任务载荷。
+- **官方 SDK**：TypeScript 与 Python 新增 `addAsync`/`add_async`、`addAndWait`/`add_and_wait`，以及事件列表、读取和等待资源。
+- **控制台与 Cloud 计费**：记忆推理任务会显示在 Operations；额度在入队时预留，成功后只结算一次，终态失败后只退款一次。
+- **来源 RAG**：Cloud 与自托管版本均支持不可变文件上传、持久 Docling 提取、保留原件、可引用分块与永久删除整个来源族。
+
+## 2026-06 — 公开发布
+
+- **FishMem Cloud** 在 [fishmem.com](https://fishmem.com) 上线，提供托管 REST API、控制台、API Key、用量计量、Webhook 与 Stripe 账单。
+- **`fishmem` 引擎** 以 Apache-2.0 在 [GitHub](https://github.com/fishmem-labs/fishmem) 开源，支持图与向量混合召回及双时间事实。
+- **基准测试** 发布冻结配置与逐项报告。这些结果是可复现的项目证据，不保证其他模型、数据集或生产负载获得相同结果。
+- **文档站** 在 [docs.fishmem.com](https://docs.fishmem.com) 上线，覆盖 Cloud、开源引擎、实战指南、集成、智能体插件与完整 API 参考。
+
+## 约定
+
+- **Engine** 变化同时影响自托管 `fishmem` 与 Cloud。
+- **Cloud** 变化只影响托管平台。
+- **Breaking** 变化会明确标出；Cloud 会通过版本化保证既有 API 客户端继续工作。

@@ -1,0 +1,25 @@
+---
+title: 更新记忆
+description: 确定性地更正规范内容或元数据。
+---
+
+更新通过 `id` 修正现有规范记录，不调用提取。只有应用或操作员已经知道替换值时才使用。
+
+```ts
+const updated = await fishmem.memories.update(id, {
+  content: "Alex prefers concise TypeScript examples.",
+  importance: 0.8,
+  version: current.updated_at,
+});
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `{id}` | 要更新的记忆 ID |
+| `content` | 新内容 |
+| `metadata` | 替换现有元数据对象 |
+| `importance` | 0–1 |
+| `memory_type` | 规范记忆类型 |
+| `version` | 预期的当前 `updated_at`，用于乐观并发 |
+
+必须至少提供一个可更新字段。传入 `version` 后，如果记录已经改变会返回冲突，避免丢失更新。成功响应返回更新后的记忆，并在历史中追加 UPDATE 事件。更新消耗 1 点额度。

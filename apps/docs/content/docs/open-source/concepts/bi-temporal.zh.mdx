@@ -1,0 +1,33 @@
+---
+title: 双时间事实
+description: 同时记录事实何时成立与何时被系统知晓，以失效替代删除，让历史仍可查询。
+---
+
+## 两条时间线
+
+多数存储只知道一行何时写入。FishMem 记录两种时间：
+
+- **有效时间**：事实在现实中成立的时间，以 `valid_from` 与 `valid_to` 表示；
+- **记录时间**：FishMem 得知事实的时间，在记忆对象上显示为 `event_date`。
+
+例如用户六月才说自己三月搬了城市。事实三月开始成立，但六月才被记录。分开这两条时间线，才能分别回答“他四月住在哪里”和“我们什么时候知道”。
+
+## 替代而不是删除
+
+新事实与旧事实冲突时，引擎不会覆盖或删除旧记忆，而是让旧事实失效：为它设置 `valid_to` 关闭有效窗口，再为新事实打开新窗口。两行都会保留。普通读取只返回当前事实，历史读取可以看到完整链条。
+
+```text
+3 月 3 日  ADD         用户住在 Lisbon   valid_from=3 月 3 日  valid_to=∞
+6 月 9 日  INVALIDATE  用户住在 Lisbon   valid_to=6 月 9 日
+           ADD         用户住在 Berlin   valid_from=6 月 9 日  valid_to=∞
+```
+
+6 月 9 日后普通搜索返回 Berlin，Lisbon 事实没有消失，只是窗口已关闭。
+
+## 查看时间线
+
+```bash
+GET /v1/memories/{id}/history
+```
+
+响应会展示每次 ADD、UPDATE 与 INVALIDATE 及其 `valid_from`、`valid_to` 和 `event_date`。完整结构见[历史记录](/zh/cloud/memory-operations/history)。双时间存储保留审计轨迹，同时不会让日常召回充满过期事实。

@@ -1,0 +1,31 @@
+---
+title: 多租户 SaaS 记忆
+description: 在服务端智能体产品中安全推导项目与用户作用域。
+---
+
+这套模式让授权远离模型控制的输入。
+
+## 请求边界
+
+1. 验证应用用户身份；
+2. 解析其组织/工作区成员关系；
+3. 在服务端选择一个 FishMem 项目 Key；
+4. 从认证主体推导 `user_id`；
+5. 把模型提出的作用域或 API Key 当作不可信文本。
+
+```ts
+export async function handle(request: Request, session: Session) {
+  const project = await authorizeWorkspace(session.userId, request);
+  const fishmem = clientForProject(project.id);
+  const scope = { user_id: session.userId, agent_id: "support-agent" };
+  return fishmem.memories.search({ query: await readQuery(request), ...scope });
+}
+```
+
+## 写入策略
+
+只在业务事务完成后保存持久结论。使用业务事件生成幂等键，把 FishMem 请求/事件 ID 与内部任务关联。短期执行状态留在应用数据库或框架 checkpoint。
+
+## 租户删除
+
+账户关闭前先停止新写入，导出允许保留的数据，发起记忆与文档清除，等待持久终态，再撤销 Key 与 Webhook。不要把“删除成员”误当作“删除项目数据”。

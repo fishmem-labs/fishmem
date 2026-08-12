@@ -1,0 +1,22 @@
+---
+title: 状态与状态历史
+description: 查询派生主题属性的当前值或完整时间线。
+---
+
+状态是规范记忆的可重建投影，用于回答“某个属性现在是什么”，而不会产生第二个规范写入者。
+
+## `GET /v1/state`
+
+必填：至少一个 `user_id`/`agent_id`/`run_id`，以及 `subject` 与 `attribute`。可选 `as_of` 查询历史时间点。
+
+```bash
+curl -G https://fishmem.com/v1/state \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  --data-urlencode "user_id=ada" \
+  --data-urlencode "subject=Ada" \
+  --data-urlencode "attribute=residence"
+```
+
+## `GET /v1/state/history`
+
+使用相同作用域、subject 与 attribute，返回从旧到新的状态窗口。每个 slot 带 `source_ids` 指向规范记录。状态读取免费；投影不可用时会明确返回降级或错误，而不是虚构值。

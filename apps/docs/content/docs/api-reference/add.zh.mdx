@@ -1,0 +1,47 @@
+---
+title: 写入记忆
+description: 从消息中提取记忆，或按原文保存内容。
+---
+
+## `POST /v1/memories`
+
+默认 `infer:true`：FishMem 把推理排入持久任务，只进行一次提取，并只保存提炼后的规范记录。请求立即返回 `event_id`，通过[事件 API](/zh/api-reference/events)观察。设置 `infer:false` 后不调用 LLM，按原文同步保存。
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | ---: | --- |
+| `messages` | array | 与 `content` 二选一 | `{ role, content }` 对话消息 |
+| `content` | string | 与 `messages` 二选一 | 要保存或提取的文本 |
+| `user_id` / `agent_id` / `run_id` | string | 至少一个 | 结构化作用域 |
+| `metadata` | object | 否 | 键值元数据 |
+| `infer` | boolean | 否 | 默认 `true`；`false` 按原文保存 |
+| `event_date` | ISO 8601 | 否 | 事实发生/成立时间，或推理回退时间 |
+
+## 请求
+
+```bash
+curl https://fishmem.com/v1/memories \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Idempotency-Key: turn-42-memory" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"I prefer dark mode."}],"user_id":"alex"}'
+```
+
+## 推理响应 `202`
+
+```json
+{ "event_id": "evt_...", "status": "PENDING" }
+```
+
+幂等键必填，且相同键必须配相同负载。安全重放返回同一事件，不重复建立任务或计费。
+
+## 原文响应 `200`
+
+```bash
+curl https://fishmem.com/v1/memories \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Idempotency-Key: decision-42" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"Use PostgreSQL 17.","infer":false,"agent_id":"release-agent"}'
+```
+
+响应返回写入的规范记忆。推理写入消耗 2 点，原文写入消耗 1 点。无作用域、超出 250,000 UTF-8 字节或 500 条消息、幂等冲突、额度不足或供应商终态失败会返回结构化错误；提取失败不会静默保存原文。

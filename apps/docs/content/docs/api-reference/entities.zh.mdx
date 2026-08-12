@@ -1,0 +1,22 @@
+---
+title: 作用域实体
+description: 列出、查看并移除从有效记忆派生的用户、智能体与运行作用域。
+---
+
+实体 API 是规范、未删除记忆的实时聚合，不维护可能漂移的第二张实体表。这里的实体是记忆所有者，不是内容中提取的人物、组织、地点或概念。
+
+## `GET /v1/entities`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `type` | `user`、`agent` 或 `run` | 可选类型过滤 |
+| `cursor` | string | 上一页不透明游标 |
+| `limit` | integer | 1–100，默认 50 |
+
+## `GET /v1/entities/{type}/{id}`
+
+返回结构化实体及其有效记忆数量。SDK 会正确编码 ID。
+
+## `DELETE /v1/entities/{type}/{id}`
+
+需要 `Idempotency-Key`。删除让匹配记忆退出当前召回并保留删除历史，返回 `{ id, type, deleted_memories }`。它不会删除命名实体图中的同名概念。实体列表、读取与移除免费。

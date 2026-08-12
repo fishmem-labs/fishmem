@@ -1,0 +1,27 @@
+---
+title: 批量记忆变更
+description: 为最多 1,000 条记忆排队持久更新或删除，并返回明确逐项结果。
+---
+
+批量变更是持久异步操作。服务先校验完整请求、持久化一个操作，再通过任务进程按有限分块处理。
+
+## `PUT /v1/memories/batch`
+
+```json
+{
+  "memories": [
+    { "memory_id": "mem_1", "content": "Updated record" },
+    { "memory_id": "mem_2", "metadata": { "source": "crm" } }
+  ]
+}
+```
+
+## `DELETE /v1/memories/batch`
+
+```json
+{ "memories": [{ "memory_id": "mem_1" }, { "memory_id": "mem_2" }] }
+```
+
+两种请求最多 1,000 项，都需要稳定 `Idempotency-Key`，成功接受返回 HTTP `202` 与 operation。输入中重复 ID、无效字段或超限会在排队前失败。
+
+保存操作 ID，轮询 `/v1/operations/{id}`。结果逐项标出成功与失败，不声称跨所有存储原子完成。重试复用相同命令；相同键配不同批次返回冲突。批量更新/删除本身免费。

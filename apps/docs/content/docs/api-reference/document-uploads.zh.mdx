@@ -1,0 +1,94 @@
+---
+title: 异步文件提取
+description: 上传不可变 PDF、Office、图片与文本文件，异步提取并索引进来源 RAG。
+---
+
+二进制与长文件使用明确的三步生命周期：
+
+```text
+创建来源资产 -> PUT 准确字节 -> 完成 -> 提取 -> Document/RAG
+```
+
+原始文件不会进入会话记忆写入器。FishMem 保留不可变上传字节、提取 Markdown 与无损 JSON 结构；规范文档、分块和向量通过同一 Documents 模块建立。
+
+## 1. 创建上传：`POST /v1/document-uploads`
+
+```json
+{
+  "filename": "handbook.pdf",
+  "source_key": "docs/handbook.pdf",
+  "mime_type": "application/pdf",
+  "size_bytes": 248193,
+  "checksum_sha256": "...",
+  "user_id": "alex",
+  "metadata": { "repository": "fishmem" }
+}
+```
+
+需要 `Idempotency-Key`。响应返回 source asset、只能用于该对象的上传 URL/方法与必要响应头。服务端在创建时验证扩展名、媒体类型、大小与作用域，但只有上传后才能验证实际字节。
+
+## 2. 上传准确字节
+
+对返回 URL 执行 `PUT`，不得改变内容编码或以 multipart 包裹。对象存储会保存原始字节。长度或 SHA-256 不匹配时完成步骤失败关闭。
+
+SDK 的 `documents.upload()` 会读取 File/Blob、计算 SHA-256、创建上传、PUT 准确字节并完成，不需要应用自行实现协议。
+
+## 3. 排队提取：`POST /v1/document-uploads/{id}/complete`
+
+完成调用会重新校验对象，按原始大小预留 Cloud 额度，建立持久 `document_extract` 操作并返回 HTTP `202`。Queue/轮询器只负责唤醒；数据库任务行拥有租约、尝试、状态与终态。
+
+| 状态 | 含义 |
+| --- | --- |
+| `awaiting_upload` | 只有元数据，尚无校验字节 |
+| `uploaded` | 字节已持久化，尚未排队 |
+| `queued` | 持久提取任务等待领取 |
+| `processing` | Docling 正在转换 |
+| `ready` | 提取产物与最终 RAG 文档已关联 |
+| `failed` | 最新尝试失败，可检查错误与操作 |
+| `cancelled` | 取消清理正在执行并设置围栏 |
+
+使用 `GET /v1/document-uploads/{id}` 查看状态，或查询返回的 operation。ready 后响应包含 `document_id`、页数、分块数和产物来源。
+
+## 重试或取消
+
+处于 `retry`/`dead` 的操作通过 `POST /v1/operations/{id}/retry` 重驱动，复用已经保留的原始字节或产物。未进入 processing/ready 的上传可用 `DELETE /v1/document-uploads/{id}` 取消；正在处理的资产返回 busy，ready 后应删除完整文档来源族。
+
+## 支持文件与限制
+
+支持 PDF、常见 Office/OpenDocument、EPUB、邮件、图片与结构化文本，实际媒体白名单以 OpenAPI 为准。
+
+| 限制 | 值 |
+| --- | ---: |
+| 原始文件 | 25,000,000 字节 |
+| 页数 | 300 |
+| 提取 Markdown | 1,000,000 UTF-8 字节 |
+| 单次提取尝试 | 10 分钟 |
+| 尝试次数 | 最多 5 次，持久退避 |
+
+音频与视频不接受。24 小时未完成的上传可由维护任务清理。
+
+## 运行时行为
+
+Cloudflare 使用 R2、Queue 与固定版本 Docling Container，分钟 cron 修复丢失唤醒和过期租约。Node/Docker 使用持久资产目录、任务轮询器与固定 Docling 容器。两者使用相同任务状态、产物格式与文档提交模块。Desktop 不支持二进制提取，只允许本地 UTF-8 文本。
+
+## 常见错误
+
+| 错误码 | 状态 | 含义 |
+| --- | ---: | --- |
+| `IDEMPOTENCY_KEY_REQUIRED` | 400 | 创建请求缺少重试身份 |
+| `IDEMPOTENCY_CONFLICT` | 409 | 同一键配不同命令 |
+| `UNSUPPORTED_DOCUMENT_MEDIA_TYPE` | 415 | 不支持的声明类型 |
+| `DOCUMENT_UPLOAD_TOO_LARGE` | 413 | 元数据或字节超过 25 MB |
+| `DOCUMENT_UPLOAD_SIZE_MISMATCH` | 409 | PUT 长度与 `size_bytes` 不同 |
+| `DOCUMENT_UPLOAD_CHECKSUM_MISMATCH` | 409 | SHA-256 不同 |
+| `DOCUMENT_UPLOAD_IMMUTABLE` | 409 | 试图替换已排队/处理的来源 |
+| `DOCUMENT_UPLOAD_INCOMPLETE` | 409 | 有效 PUT 前请求完成 |
+| `EXTRACTED_DOCUMENT_TOO_LARGE` | 413 | Markdown 超过 1 MB |
+| `DOCUMENT_PAGE_LIMIT_EXCEEDED` | 413 | 超过 300 页 |
+| `SOURCE_ASSET_BUSY` | 409 | 正在处理，不能安全取消 |
+| `SOURCE_ASSET_READY` | 409 | 应改为删除已索引来源族 |
+| `OPERATION_NOT_RETRYABLE` | 404 | 操作不存在或不可重试 |
+
+## Cloud 额度
+
+完成上传时，每开始 5,000,000 字节预留 50 点。若所有提取尝试都在产物产生前失败，则退款。产物存在后结算提取费，再按实际投影分块每块 1 点授权文档提交。所有重试复用稳定用量身份，不重复收费。

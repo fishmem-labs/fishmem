@@ -1,0 +1,67 @@
+---
+title: 文档与来源 RAG
+description: 索引准确文本或文件提取内容，构建确定性分块，并在不把段落变成记忆的前提下搜索证据。
+---
+
+FishMem 把长来源保留在独立文档路径。直接文本写入以提交的 UTF-8 内容为规范来源；异步文件提取保留不可变原始字节与无损结构，提取 Markdown 成为 RAG 规范文本。分块、关键词与向量都是确定性、可重建投影。
+
+Cloud/Cloudflare 自托管把对象原件保存在 R2，Node/Docker 使用持久资产目录，Desktop 把准确 UTF-8 文本保存在本地数据库。任何路径都先按项目与结构化作用域授权。
+
+## 支持输入
+
+直接文本上限 1,000,000 UTF-8 字节。二进制与长文件使用[异步文件提取](/zh/api-reference/document-uploads)，上限 25,000,000 原始字节与 300 个提取页面。音视频不在当前契约内。
+
+## 写入来源：`POST /v1/documents`
+
+```bash
+curl https://fishmem.com/v1/documents \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Idempotency-Key: architecture-v1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_key":"docs/architecture.md",
+    "title":"Architecture",
+    "mime_type":"text/markdown",
+    "content":"# Architecture\n...",
+    "user_id":"alex",
+    "metadata":{"repository":"fishmem"}
+  }'
+```
+
+`source_key` 是应用定义的稳定来源键。重复写入相同内容与同一幂等键返回已提交结果；相同 key 配不同内容返回冲突。内容或元数据变化会建立不可变新版本并移动 current head。响应返回文档描述符、版本、内容哈希与准确分块数量。
+
+小型文本文件也可以由 SDK 在本地严格解码 UTF-8 后调用同一端点；浏览器不应建立另一套来源写入逻辑。
+
+## 列出当前来源：`GET /v1/documents`
+
+支持 `user_id`、`agent_id`、`run_id`、`source_key`、`cursor` 与 `limit`。默认只列当前版本，返回 `results` 和 `next_cursor`。列表免费。
+
+## 元数据与内容
+
+- `GET /v1/documents/{id}` 返回文档描述符与版本来源；
+- `GET /v1/documents/{id}/content` 返回准确规范 UTF-8 文本；
+- 文件来源的原始字节与无损 JSON 产物不通过未经授权的对象 URL 暴露。
+
+读取时会校验保存的字节长度与 SHA-256。内容读取免费。
+
+## 搜索：`POST /v1/documents/search`
+
+```json
+{
+  "query": "projection repair",
+  "user_id": "alex",
+  "source_key": "docs/architecture.md",
+  "limit": 5,
+  "neighbors": 1
+}
+```
+
+返回命中分块、`start_byte`/`end_byte`、文档/版本/来源标识、分数与可选相邻分块。`neighbors` 只增加局部上下文，不改变命中来源。应用应保留这些字段用于引用，并把文档证据与用户记忆分开。每次搜索消耗 1 点额度。
+
+## 永久删除：`DELETE /v1/documents/{id}`
+
+删除任一版本会删除完整稳定来源族：全部版本、current head、分块、向量、直接文本原件、上传资产与提取产物。需要幂等键。此操作免费但不可逆，删除前应先确认保留与导出要求。
+
+## Cloud 额度
+
+直接写入按实际确定性分块数每块 1 点；在规范提交前授权准确数量，失败不会留下部分来源。文档读取、列表与删除免费。文件提取另按原始大小计费，详见异步文件页。

@@ -1,0 +1,17 @@
+---
+title: 实战指南
+description: 把写入、搜索与作用域组合成真正具备记忆的智能体。
+---
+
+实战指南是一套完整配方，不是一次 API 调用。每篇都把[写入](/zh/cloud/memory-operations/add)、[搜索](/zh/cloud/memory-operations/search)与[作用域](/zh/open-source/concepts/scoping)连接起来。复制结构，替换成你的模型调用与 ID，再用真实验收集验证。
+
+<Cards>
+  <Card title="保留来源的 RAG" href="/zh/cookbooks/document-rag" description="保留规范原件，并把可引用证据交给模型。" />
+  <Card title="客服智能体" href="/zh/cookbooks/support-agent" description="不再重复询问客户已经提供的信息。" />
+  <Card title="多租户 SaaS" href="/zh/cookbooks/multi-tenant-saas" description="把授权留在服务端。" />
+  <Card title="评估记忆" href="/zh/cookbooks/memory-evaluation" description="用生产形态的验收集检查完整循环。" />
+  <Card title="分阶段迁移" href="/zh/cookbooks/migration-rollout" description="用回放证据和回滚能力切换系统。" />
+  <Card title="时间画像" href="/zh/cookbooks/temporal-profile" description="保存变化事实与有效时间。" />
+</Cards>
+
+所有配方都遵循同一模式：从认证状态推导作用域，在决策前召回，把证据与记忆分区，完成并验证下游动作后才写入持久结论，保存请求/事件 ID，并为重试使用稳定幂等键。

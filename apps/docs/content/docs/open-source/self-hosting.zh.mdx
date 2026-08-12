@@ -1,0 +1,43 @@
+---
+title: 自行托管
+description: 运行开源 FishMem 服务与控制台。
+---
+
+自行托管是应用平台路径：运行 `apps/web`，管理数据库与凭据，并暴露 `@fishmem/sdk` 使用的同一套 `/v1` API。
+
+## 组成部分
+
+- TanStack Start Web 应用与 REST API；
+- 保存规范记忆与控制平面数据的关系存储；
+- 关键词/向量投影后端；
+- 可选 LLM 与嵌入提供商；
+- 用于记忆推理、文件提取与维护任务的持久任务领取路径；
+- 身份验证与外部提供商密钥。
+
+默认 `infer:true` 写入与配置的画像/状态合成需要 LLM；始终提交 `infer:false` 已整理记录的应用不需要 LLM 写入。语义召回需要嵌入模型。
+
+`infer:true` 不会让 HTTP 请求等待供应商调用。API 先提交 `operation_tasks` 行并返回 Event 回执，再由工作进程在租约下领取。Docker Compose 使用 `task-worker` 轮询；Cloudflare 用 Queue 低延迟唤醒，并由每分钟 cron 修复丢失投递。D1 是唯一状态、重试与结果权威。
+
+## 部署流程
+
+1. 克隆仓库并用 pnpm 安装工作区依赖。
+2. 把 `apps/web/.env.example` 的字段放入部署密钥配置。
+3. 创建数据库和 Web 配置引用的投影绑定。
+4. 执行 `apps/web/migrations` 中的迁移。
+5. 设置独立的 `FISHMEM_SETUP_TOKEN`。
+6. 构建并部署 `apps/web` 与任务轮询器，或配置 Cloudflare Queue 消费者和定时触发器。
+7. 首次输入 setup token 创建管理员，再从控制台创建 API Key。
+8. 配置 SDK：
+
+```ts
+const fishmem = new FishMem({
+  apiKey: process.env.FISHMEM_API_KEY!,
+  baseUrl: "https://memory.example.com",
+});
+```
+
+上线前必须验证两条任务唤醒路径：提交带 `Idempotency-Key` 的 `infer:true` 写入，确认 HTTP `202` 并保存 `event_id`；轮询到 `SUCCEEDED`；暂停即时唤醒并确认定时任务能修复；模拟供应商失败并验证有限重试、终态错误与控制台手动重试。
+
+准确环境变量与平台绑定以 `apps/web/.env.example`、`apps/web/wrangler.jsonc` 和应用 README 为准。
+
+当数据必须留在你的账户或地区、需要网络隔离或自定义供应商、要接入内部可观测系统，且团队愿意负责迁移、备份和升级时选择自托管；希望使用相同应用界面但不承担运维时选择 FishMem Cloud。

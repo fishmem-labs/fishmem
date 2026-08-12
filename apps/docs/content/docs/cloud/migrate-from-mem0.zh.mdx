@@ -1,0 +1,52 @@
+---
+title: 从 mem0 迁移
+description: 把现有 mem0 集成映射到 FishMem，并验证实际行为。
+---
+
+FishMem 同样使用 `user_id`、`agent_id` 与 `run_id`，并提供写入、搜索、读取、更新、删除与历史，但不能假设 mem0 客户端只改 URL 就能工作。
+
+## 迁移步骤
+
+1. 导出或回放你有权保留的来源记忆；
+2. 创建 FishMem 项目与服务端 API Key；
+3. 改用 [`@fishmem/sdk`](/zh/sdk) 或 REST；
+4. 保留现有作用域 ID；
+5. 验证响应结构、分页、排名与更新语义；
+6. 先影子读取，再切换生产召回。
+
+| mem0 概念 | FishMem 方法 | 必验行为 |
+| --- | --- | --- |
+| add | `memories.add` | `infer:true` 提取与 `infer:false` 原文语义 |
+| search | `memories.search` | 排名与 `top_k` |
+| list | `memories.list` | 游标分页 |
+| users/agents/runs | `entities.list` | 从有效记录派生结构化实体 |
+| get/update/delete | 对应 `memories.*` | 对象字段、历史与投影处理 |
+| batch | `batchUpdate` / `batchDelete` | 持久操作与逐项结果 |
+| feedback | `setFeedback` | 小写评分、记忆路径、幂等与审计事件 |
+
+FishMem 不提供 mem0 `POST /v1/feedback/` 兼容别名。请调用 `POST /v1/memories/{id}/feedback`，使用小写评分与 `Idempotency-Key`。
+
+## 过滤与应用边界
+
+结构化作用域与逻辑过滤分开：
+
+```ts
+await fishmem.memories.search({
+  query: "open ticket",
+  user_id: "alex",
+  filters: {
+    or: [
+      { field: "metadata.priority", operator: "gte", value: 8 },
+      { field: "content", operator: "icontains", value: "urgent" },
+    ],
+  },
+});
+```
+
+不要把 `user_id`、`agent_id` 或 `run_id` 翻译为逻辑条件；FishMem 总是把顶层作用域与表达式做 AND，OR 不能扩大租户边界。mem0 `app_id` 不应迁成第四种实体：FishMem 项目已经是应用命名空间、API Key 与控制台边界。
+
+## 推理与切换验收
+
+两者都区分推理提取与原文保存，但不要假设提示词输出、去重、响应外层、分页或排名完全一致。FishMem 只提取一次，不为推理写入保留平行原始副本，失败时也不会静默降级。
+
+对真实样本比较作用域隔离、推理与原文记录、真实查询的前几名、纠正与删除、幂等重试、目标运行时延迟与错误。只有这些行为满足应用契约后才切换。

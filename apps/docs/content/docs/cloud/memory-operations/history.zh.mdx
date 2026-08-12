@@ -1,0 +1,24 @@
+---
+title: 历史记录
+description: 查看一条记忆的完整变更日志，包括新增、更新、失效与删除。
+---
+
+历史按顺序返回所有影响指定记忆的事件，以及变更前后值。这让操作员不仅知道现在是什么，也能知道如何演变而来。
+
+```bash
+curl https://fishmem.com/v1/memories/{id}/history \
+  -H "Authorization: Bearer $FISHMEM_API_KEY"
+```
+
+```ts
+const history = await fishmem.memories.history(id);
+```
+
+| 事件 | 含义 |
+| --- | --- |
+| `ADD` | 创建记忆 |
+| `UPDATE` | 修改内容或字段 |
+| `INVALIDATE` | 被新事实替代，从某一时间起不再有效 |
+| `DELETE` | 记忆被删除 |
+
+事件包含事实有效时间与系统记录时间，因此可以重建双时间链。参数只有路径中的 `{id}`；读取历史不消耗额度。

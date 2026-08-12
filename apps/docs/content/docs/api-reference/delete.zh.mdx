@@ -1,0 +1,14 @@
+---
+title: 删除一条记忆
+description: 按 ID 删除单条记忆。
+---
+
+## `DELETE /v1/memories/{id}`
+
+```bash
+curl -X DELETE https://fishmem.com/v1/memories/mem_... \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  -H "Idempotency-Key: delete-mem-v1"
+```
+
+删除会建立 tombstone、让记录退出当前召回，并保留审计历史。`id` 是必填路径参数。成功返回删除确认；未知或不可访问 ID 返回 `404 MEMORY_NOT_FOUND`。操作免费，重试时复用同一幂等键。

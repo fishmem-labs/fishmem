@@ -4,6 +4,30 @@
 
 html {
   scrollbar-gutter: stable;
+  --fd-layout-width: 1440px;
+}
+
+body {
+  color: #181815;
+  font-size: 16px;
+}
+
+[data-radix-scroll-area-viewport] a,
+nav a {
+  letter-spacing: -0.01em;
+}
+
+.prose {
+  --tw-prose-body: #625e57;
+  --tw-prose-headings: #181815;
+  font-size: 1.0625rem;
+  line-height: 1.78;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+  letter-spacing: -0.035em;
 }
 
 html > body[data-scroll-locked] {

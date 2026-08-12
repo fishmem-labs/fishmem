@@ -1,0 +1,91 @@
+---
+title: Python SDK
+description: 使用同步或异步 Python 客户端连接 FishMem Cloud 与自托管 FishMem。
+---
+
+## 安装
+
+```bash
+pip install fishmem
+```
+
+发行包与导入包都叫 `fishmem`，需要 Python 3.10 或更高版本。
+
+## 同步客户端
+
+```python
+from fishmem import FishMem
+
+with FishMem(api_key="fm_...", base_url="https://fishmem.com") as fishmem:
+    added = fishmem.memories.add_and_wait(
+        {"content": "Alex prefers concise answers.", "user_id": "alex"},
+        idempotency_key="alex-answer-style-v1",
+    )
+    result = fishmem.memories.search(
+        {"query": "How should I answer Alex?", "user_id": "alex", "top_k": 5}
+    )
+```
+
+Python 使用与 HTTP、TypeScript 相同的逻辑过滤语法。`user_id`、`agent_id` 与 `run_id` 必须位于顶层，不能藏进 OR 表达式。`add_async()` 即使在同步客户端也会立即返回持久 `event_id`；方法名描述服务端处理方式，不表示 Python coroutine。原文同步保存使用 `memories.add({..., "infer": False})`。
+
+## 异步客户端
+
+```python
+from fishmem import AsyncFishMem
+
+async with AsyncFishMem(api_key="fm_...") as fishmem:
+    result = await fishmem.memories.search(
+        {"query": "answer style", "user_id": "alex"}
+    )
+```
+
+`AsyncFishMem` 暴露与 `FishMem` 相同的 health、documents、entities、memories、events、state、profile、operations、exports 与 imports 资源。
+
+## 分页与批量任务
+
+```python
+for memory in fishmem.memories.list_all({"user_id": "alex"}, limit=100):
+    process(memory)
+
+queued = fishmem.memories.batch_update(
+    [{"memory_id": "mem_1", "content": "Updated record"}],
+    idempotency_key="crm-refresh-v1",
+)
+completed = fishmem.operations.wait(queued["id"])
+```
+
+异步客户端使用 `async for`。结构化实体和文档也支持 `list_all`。批量更新与删除是持久任务，必须检查逐项结果。
+
+## 文件与反馈
+
+```python
+from pathlib import Path
+
+queued = fishmem.documents.upload(
+    Path("./handbook.pdf"),
+    {"source_key": "docs/handbook.pdf", "user_id": "alex"},
+    idempotency_key="handbook-pdf-v1",
+)
+ready = fishmem.operations.wait(queued["operation"]["id"], timeout=600.0)
+
+fishmem.memories.set_feedback(
+    "mem_1",
+    {"rating": "negative", "reason": "Out of date", "request_id": "req_123"},
+    idempotency_key="req-123-feedback-v1",
+)
+```
+
+客户端会计算 SHA-256、创建不可变来源资产、上传准确字节并排队提取。支持的文件最多 25,000,000 字节与 300 个提取页面；音视频不接受。Desktop 的 `documents.upload()` 只支持本地 UTF-8 文本。
+
+## 错误
+
+```python
+from fishmem import FishMemError
+
+try:
+    fishmem.memories.get("missing")
+except FishMemError as error:
+    print(error.status, error.code, error.request_id)
+```
+
+客户端基于 `httpx`，支持自定义测试 transport，不执行隐藏自动重试。

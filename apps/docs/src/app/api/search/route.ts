@@ -5,5 +5,5 @@ export const revalidate = false;
 
 export const { staticGET: GET } = createFromSource(source, {
 	// https://zbsearch.dev/docs/zbsearch/text-analysis/stemming
-	language: "english",
+	language: "multilingual",
 });

@@ -1,0 +1,6 @@
+{
+  "root": true,
+  "title": "智能体插件",
+  "description": "让编程智能体与命令行工具拥有持久记忆。",
+  "pages": ["index", "claude-code", "codex"]
+}
