@@ -78,15 +78,15 @@
 	},
 	"devDependencies": {
 		"@libsql/client": "^0.14.0",
-		"@qdrant/js-client-rest": "^1.18.0",
-		"@types/node": "^22.10.2",
-		"@types/pg": "^8.11.10",
-		"@vitest/coverage-v8": "3.2.7",
-		"miniflare": "4.20260128.0",
-		"pg": "^8.13.1",
+		"@qdrant/js-client-rest": "^1.19.0",
+		"@types/node": "^26.2.0",
+		"@types/pg": "^8.21.0",
+		"@vitest/coverage-v8": "4.1.10",
+		"miniflare": "4.20260730.0",
+		"pg": "^8.23.0",
 		"tsup": "^8.3.5",
-		"typescript": "^5.7.2",
-		"vitest": "3.2.7"
+		"typescript": "^7.0.2",
+		"vitest": "4.1.10"
 	},
 	"engines": {
 		"node": ">=20"
