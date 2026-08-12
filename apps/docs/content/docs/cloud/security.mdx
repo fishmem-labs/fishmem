@@ -1,0 +1,40 @@
+---
+title: Security and privacy
+description: Current FishMem Cloud controls, deployment boundaries, and non-claims.
+---
+
+This page describes controls implemented in the current product. It is not a
+certification statement.
+
+## Current controls
+
+- Human dashboard sessions and project API keys are separate credentials.
+- API keys are shown once, stored as hashes, scoped to a project, and revocable.
+- Public API requests are rate-limited with a hashed request identity.
+- Workspace authorization is resolved before memory, document, or usage access.
+- Mutation idempotency prevents ambiguous replay and conflicting re-use.
+- Security response headers include CSP, HSTS on HTTPS, frame denial, MIME
+  sniffing protection, referrer policy, and disabled browser permissions.
+- Required deployment secrets are declared in Wrangler configuration.
+- Hosted builds pin one full open-core Git revision; deployment metadata records
+  the Cloud source revision.
+
+## Data boundaries
+
+Cloud stores canonical graph/control-plane state in D1, vectors in Vectorize,
+and source assets in R2. Provider-backed inference sends the submitted content
+to the provider configured for that project. Provider terms and retention still
+apply.
+
+Choose [Desktop](/sdk/desktop) for local-only coding-agent memory or
+[self-hosting](/open-source/self-hosted-dashboard) when your team must operate
+the full infrastructure boundary.
+
+## Current non-claims
+
+FishMem does not currently claim SOC 2, HIPAA, ISO 27001, or a formal regional
+data-residency program. Do not infer those guarantees from general security or
+privacy language.
+
+Report a vulnerability privately through the process in
+[`SECURITY.md`](https://github.com/fishmem-labs/fishmem/blob/main/SECURITY.md).

@@ -31,6 +31,7 @@ const desktop = new FishMemDesktop();
 await desktop.memories.add(
   {
     content: "Use the canonical deployment pipeline.",
+    event_date: "2026-08-12T00:00:00.000Z",
     infer: false,
   },
   { idempotencyKey: "deployment-pipeline-v1" },
@@ -84,6 +85,7 @@ desktop = FishMemDesktop()
 desktop.memories.add(
     {
         "content": "Use the canonical deployment pipeline.",
+        "event_date": "2026-08-12T00:00:00.000Z",
         "infer": False,
     },
     idempotency_key="deployment-pipeline-v1",
@@ -155,3 +157,30 @@ The Desktop adapter also does not expose HTTP `addAsync`, `addAndWait`, or
 `events`: it performs an already-distilled `infer=false` local write in one CLI
 call. Async inference belongs to Cloud and self-hosted HTTP deployments, where
 an LLM worker and durable task store are configured.
+
+## Backup and restore
+
+Desktop Settings can export one portable `.fishmem.json` namespace snapshot.
+The file contains canonical memories, history, entities, associations,
+documents, operations, and events. Vector and sidecar projections are marked
+for rebuild rather than treated as portable authority.
+
+Restore requires typing `RESTORE`. Desktop validates the complete snapshot
+before purging current data, retains a pre-restore snapshot, and attempts an
+automatic rollback if import fails. Backup writes use a temporary file plus an
+atomic rename and user-only file permissions.
+
+The machine bridge exposes the same format for automation:
+
+```bash
+fishmem call exportSnapshot
+
+# Import requires an empty namespace and an idempotency key.
+fishmem call importSnapshot --input-stdin
+
+# Replacement requires { "snapshot": ..., "confirm": "RESTORE" }.
+fishmem call restoreSnapshot --input-stdin
+```
+
+Prefer the Settings file picker for routine backup and recovery; the CLI calls
+are intended for controlled automation that already validates its JSON input.

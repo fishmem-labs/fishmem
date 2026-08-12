@@ -1,0 +1,48 @@
+---
+title: Documents and source RAG
+description: Retain exact sources, extract files durably, and search citation-ready chunks.
+---
+
+Documents are not conversational memories. They preserve long-form sources and
+serve retrieval context while Memory stores concise durable conclusions.
+
+## Two ingestion paths
+
+| Path | Use it for | Authority |
+| --- | --- | --- |
+| Direct text | Markdown, notes, or text already available to your server | Submitted UTF-8 content |
+| File upload | PDF, Office, OpenDocument, EPUB, email, image, and structured text | Immutable uploaded bytes |
+
+Both paths converge on one `DocumentCorpus` writer. It owns the Document,
+current source head, deterministic chunks, and vector mutations.
+
+## File lifecycle
+
+```text
+create metadata -> upload exact bytes -> complete -> extract -> index -> ready
+```
+
+The create request returns an upload URL and a durable operation. FishMem
+checks byte length and, when provided, SHA-256 before accepting the object.
+Extraction retains Markdown plus a lossless artifact; chunks and vectors remain
+replaceable projections.
+
+## Search and citations
+
+Document search returns a chunk together with its owning Document. Use the
+document ID and source key as citation provenance. Fetch exact indexed Markdown
+with `documents.content(...)`; use neighbor expansion when a matched chunk
+needs surrounding context.
+
+## Deletion
+
+Deleting a ready Document permanently removes its source family, chunks, and
+linked projections. An upload still awaiting extraction can be cancelled and
+deleted through the Source Asset endpoint. A busy source is fenced so cleanup
+cannot race the canonical writer.
+
+<Cards>
+  <Card title="Direct documents" href="/api-reference/documents" description="Ingest, list, search, read, and delete text sources." />
+  <Card title="File uploads" href="/api-reference/document-uploads" description="Checksums, file limits, task states, retry, and cancellation." />
+  <Card title="Document RAG cookbook" href="/cookbooks/document-rag" description="Build a source-backed answer loop." />
+</Cards>

@@ -1,119 +1,131 @@
 {
-  "name": "@fishmem/desktop",
-  "version": "0.1.0",
-  "description": "Local FishMem companion for Codex and Claude Code",
-  "author": "FishMem",
-  "private": true,
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/fishmem-labs/fishmem.git",
-    "directory": "apps/desktop"
-  },
-  "type": "module",
-  "main": "./out/main/index.js",
-  "scripts": {
-    "dev": "electron-vite dev",
-    "build": "pnpm --filter fishmem build && electron-vite build && pnpm run build:cli",
-    "build:cli": "bun build src/cli/index.ts --compile --minify --outfile out/cli/fishmem && node scripts/repair-bun-macho-signature.mjs out/cli/fishmem",
-    "build:cli:mac-universal": "node scripts/build-universal-cli.mjs",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit",
-    "start": "electron-vite preview",
-    "pack": "pnpm build && electron-builder --dir",
-    "dist": "pnpm build && electron-builder",
-    "release:mac": "node scripts/release-mac.mjs",
-    "release:mac:finalize": "node scripts/release-mac.mjs --finalize-existing"
-  },
-  "dependencies": {
-    "@fishmem/application": "workspace:*",
-    "@fishmem/contracts": "workspace:*",
-    "@fishmem/dashboard": "workspace:*",
-    "@huggingface/transformers": "4.2.0",
-    "@libsql/client": "^0.14.0",
-    "fishmem": "workspace:*",
-    "lucide-react": "^0.561.0",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "zod": "^4.2.1"
-  },
-  "optionalDependencies": {
-    "@img/sharp-darwin-arm64": "0.34.5",
-    "@img/sharp-darwin-x64": "0.34.5",
-    "@img/sharp-libvips-darwin-arm64": "1.2.4",
-    "@img/sharp-libvips-darwin-x64": "1.2.4",
-    "@libsql/darwin-arm64": "0.4.7",
-    "@libsql/darwin-x64": "0.4.7",
-    "@libsql/linux-arm64-gnu": "0.4.7",
-    "@libsql/linux-arm64-musl": "0.4.7",
-    "@libsql/linux-x64-gnu": "0.4.7",
-    "@libsql/linux-x64-musl": "0.4.7",
-    "@libsql/win32-x64-msvc": "0.4.7"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^22.19.20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "@vitejs/plugin-react": "5.1.4",
-    "bun": "1.3.13",
-    "electron": "43.2.0",
-    "electron-builder": "26.15.3",
-    "electron-vite": "5.0.0",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^4",
-    "typescript": "^5",
-    "vitest": "2.1.9"
-  },
-  "build": {
-    "appId": "com.fishmem.desktop",
-    "productName": "FishMem",
-    "afterPack": "scripts/after-pack.mjs",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "out/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "out/cli",
-        "to": "bin",
-        "filter": ["fishmem", "fishmem.exe"]
-      },
-      {
-        "from": "resources/skills/fishmem",
-        "to": "skills/fishmem",
-        "filter": ["**/*"]
-      }
-    ],
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "icon": "build/icon.icns",
-      "files": [
-        "!node_modules/onnxruntime-node/bin/napi-v6/linux/**",
-        "!node_modules/onnxruntime-node/bin/napi-v6/win32/**"
-      ],
-      "minimumSystemVersion": "13.4",
-      "target": ["dmg", "zip"],
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
-      "mergeASARs": true,
-      "singleArchFiles": "{node_modules/@img/**,node_modules/@libsql/**,node_modules/onnxruntime-node/bin/napi-v6/darwin/**}",
-      "x64ArchFiles": "{Contents/Resources/bin/fishmem,Contents/Resources/app.asar.unpacked/node_modules/{@img,@libsql,onnxruntime-node}/**}",
-      "notarize": true
-    },
-    "win": {
-      "icon": "build/icon.ico",
-      "target": ["nsis"]
-    },
-    "linux": {
-      "category": "Development",
-      "icon": "build/icon.png",
-      "target": ["AppImage"]
-    }
-  }
+	"name": "@fishmem/desktop",
+	"version": "0.2.0",
+	"description": "Local FishMem companion for Codex and Claude Code",
+	"author": "FishMem",
+	"private": true,
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/fishmem-labs/fishmem.git",
+		"directory": "apps/desktop"
+	},
+	"type": "module",
+	"main": "./out/main/index.js",
+	"scripts": {
+		"dev": "electron-vite dev",
+		"build": "pnpm --filter fishmem build && electron-vite build && pnpm run build:cli",
+		"build:cli": "bun build src/cli/index.ts --compile --minify --outfile out/cli/fishmem && node scripts/repair-bun-macho-signature.mjs out/cli/fishmem",
+		"build:cli:mac-universal": "node scripts/build-universal-cli.mjs",
+		"test": "vitest run",
+		"typecheck": "tsc --noEmit",
+		"start": "electron-vite preview",
+		"pack": "pnpm build && electron-builder --dir",
+		"dist": "pnpm build && electron-builder",
+		"release:mac": "node scripts/release-mac.mjs",
+		"release:mac:finalize": "node scripts/release-mac.mjs --finalize-existing"
+	},
+	"dependencies": {
+		"@fishmem/application": "workspace:*",
+		"@fishmem/contracts": "workspace:*",
+		"@fishmem/dashboard": "workspace:*",
+		"@huggingface/transformers": "4.2.0",
+		"@libsql/client": "^0.14.0",
+		"fishmem": "workspace:*",
+		"lucide-react": "^0.561.0",
+		"react": "19.2.3",
+		"react-dom": "19.2.3",
+		"zod": "^4.2.1"
+	},
+	"optionalDependencies": {
+		"@img/sharp-darwin-arm64": "0.35.3",
+		"@img/sharp-darwin-x64": "0.35.3",
+		"@img/sharp-libvips-darwin-arm64": "1.3.2",
+		"@img/sharp-libvips-darwin-x64": "1.3.2",
+		"@libsql/darwin-arm64": "0.4.7",
+		"@libsql/darwin-x64": "0.4.7",
+		"@libsql/linux-arm64-gnu": "0.4.7",
+		"@libsql/linux-arm64-musl": "0.4.7",
+		"@libsql/linux-x64-gnu": "0.4.7",
+		"@libsql/linux-x64-musl": "0.4.7",
+		"@libsql/win32-x64-msvc": "0.4.7"
+	},
+	"devDependencies": {
+		"@tailwindcss/postcss": "^4",
+		"@types/node": "^22.19.20",
+		"@types/react": "^19",
+		"@types/react-dom": "^19",
+		"@vitejs/plugin-react": "5.1.4",
+		"bun": "1.3.13",
+		"electron": "43.2.0",
+		"electron-builder": "26.15.3",
+		"electron-vite": "5.0.0",
+		"postcss": "^8.5.6",
+		"tailwindcss": "^4",
+		"typescript": "^5",
+		"vitest": "3.2.7"
+	},
+	"build": {
+		"appId": "com.fishmem.desktop",
+		"productName": "FishMem",
+		"afterPack": "scripts/after-pack.mjs",
+		"directories": {
+			"output": "release"
+		},
+		"files": [
+			"out/**/*",
+			"package.json"
+		],
+		"extraResources": [
+			{
+				"from": "out/cli",
+				"to": "bin",
+				"filter": [
+					"fishmem",
+					"fishmem.exe"
+				]
+			},
+			{
+				"from": "resources/skills/fishmem",
+				"to": "skills/fishmem",
+				"filter": [
+					"**/*"
+				]
+			}
+		],
+		"mac": {
+			"category": "public.app-category.developer-tools",
+			"icon": "build/icon.icns",
+			"files": [
+				"!node_modules/onnxruntime-node/bin/napi-v6/linux/**",
+				"!node_modules/onnxruntime-node/bin/napi-v6/win32/**"
+			],
+			"minimumSystemVersion": "13.4",
+			"target": [
+				"dmg",
+				"zip"
+			],
+			"artifactName": "${productName}-${version}-${arch}.${ext}",
+			"hardenedRuntime": true,
+			"gatekeeperAssess": false,
+			"entitlements": "build/entitlements.mac.plist",
+			"entitlementsInherit": "build/entitlements.mac.inherit.plist",
+			"mergeASARs": true,
+			"singleArchFiles": "{node_modules/@img/**,node_modules/@libsql/**,node_modules/onnxruntime-node/bin/napi-v6/darwin/**}",
+			"x64ArchFiles": "{Contents/Resources/bin/fishmem,Contents/Resources/app.asar.unpacked/node_modules/{@img,@libsql,onnxruntime-node}/**}",
+			"notarize": true
+		},
+		"win": {
+			"icon": "build/icon.ico",
+			"target": [
+				"nsis"
+			]
+		},
+		"linux": {
+			"category": "Development",
+			"icon": "build/icon.png",
+			"target": [
+				"AppImage"
+			]
+		}
+	}
 }

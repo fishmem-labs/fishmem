@@ -1,19 +1,28 @@
 {
-  "root": true,
-  "title": "FishMem Cloud",
-  "description": "The hosted, mem0-compatible memory API.",
-  "pages": [
-    "index",
-    "quickstart",
-    "authentication",
-    "platform-vs-open-source",
-    "migrate-from-mem0",
-    "---Memory API---",
-    "memory-operations",
-    "---Dashboard---",
-    "dashboard",
-    "usage-and-credits",
-    "webhooks",
-    "billing"
-  ]
+	"root": true,
+	"title": "FishMem Cloud",
+	"description": "Managed memory, source RAG, operations, and workspace controls.",
+	"pages": [
+		"index",
+		"quickstart",
+		"authentication",
+		"platform-vs-open-source",
+		"migrate-from-mem0",
+		"migrate-from-zep",
+		"production-checklist",
+		"security",
+		"---Platform concepts---",
+		"filters-and-scope",
+		"operations-and-events",
+		"documents",
+		"exports-and-portability",
+		"organizations-and-tenancy",
+		"---Memory API---",
+		"memory-operations",
+		"---Dashboard---",
+		"dashboard",
+		"usage-and-credits",
+		"webhooks",
+		"billing"
+	]
 }

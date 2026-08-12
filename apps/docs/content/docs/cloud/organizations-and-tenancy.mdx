@@ -1,0 +1,41 @@
+---
+title: Organizations and tenancy
+description: Understand Cloud organizations, workspaces, membership, and project data boundaries.
+---
+
+FishMem Cloud separates human collaboration from API data scope.
+
+```text
+account -> organization membership -> workspace/project -> API key -> resources
+```
+
+## Organizations
+
+An organization has explicit members and roles. Owners can create organizations
+and invite members through email. Invitations contain a single-use acceptance
+link and require a configured production email provider; FishMem does not log
+production invitation links.
+
+## Workspaces and projects
+
+A workspace is the billing and authorization owner for projects and resources.
+Memory rows, document assets, operations, usage, and API keys carry the owning
+workspace/project identity. A project API key does not grant dashboard session
+access.
+
+## Personal workspaces
+
+New Cloud accounts receive a personal workspace. Organization workspaces are
+separate collaboration boundaries. Activating an organization changes which
+workspaces the dashboard can select; it does not rewrite memory scope fields.
+
+## Deletion
+
+Account deletion removes personal workspaces. When an organization owner is
+deleted, owned organizations and their dependent membership/workspace state are
+removed through database cascades rather than orphaned.
+
+<Callout type="info">
+Organization roles govern the Cloud control-plane. `user_id`, `agent_id`, and
+`run_id` still govern memory ownership inside an authorized project.
+</Callout>

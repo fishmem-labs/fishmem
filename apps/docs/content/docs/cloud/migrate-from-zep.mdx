@@ -1,0 +1,92 @@
+---
+title: Migrate from Zep or Graphiti
+description: Move graph-oriented agent memory into FishMem without flattening provenance or history.
+---
+
+Zep and Graphiti integrations often combine conversation episodes, extracted
+facts, entities, graph edges, and an assembled context block. FishMem exposes a
+different contract: scoped memory records, source-preserving documents,
+entities and associations, temporal history, and application-owned prompt
+assembly. Treat this as a data and behavior migration, not a client rename.
+
+## Inventory the live integration
+
+Record the exact SDK and service versions, then list what your application
+actually reads and writes:
+
+- users, threads, sessions, or groups used as ownership boundaries;
+- messages or episodes submitted for extraction;
+- facts, entities, edges, and temporal attributes returned to the app;
+- context strings, reranking, filters, limits, and latency assumptions;
+- deletion, correction, export, and account-erasure paths.
+
+Do not infer the deployed behavior from a current quickstart. Preserve a
+redacted sample of real request/response traces as the migration acceptance set.
+
+## Concept mapping
+
+| Source concept | FishMem target | Migration decision |
+| --- | --- | --- |
+| user | project plus `user_id` | Keep the external user identifier; use the project as the application fence. |
+| thread or session | `run_id` or source metadata | Use `run_id` only when the source boundary has the same lifecycle. |
+| message or episode | replay input, memory source, or Document | A transcript is evidence; do not automatically turn every message into a durable memory. |
+| extracted fact | Memory | Write `infer:false` when the source already produced the final record. |
+| entity and edge | entity/association projection or metadata | Preserve the source export; rebuild only relationships the target application needs. |
+| temporal fact | Memory event time and validity interval | Verify current and historical questions separately. |
+| context block | application prompt assembly | Search returns records and evidence; the application decides prompt order and token budget. |
+
+FishMem does not implement the Zep or Graphiti SDKs, graph query language, or
+context response envelope. It does not claim drop-in compatibility.
+
+## Choose the authoritative import
+
+Prefer an official export or a source-system API read over copying a rendered
+context string. Retain the exported artifact and its creation time. For each
+imported record, attach enough metadata to find the source again:
+
+```ts
+await fishmem.memories.add(
+  {
+    content: "Alex moved to Berlin in July 2026.",
+    user_id: "alex",
+    infer: false,
+    event_date: "2026-07-01T00:00:00.000Z",
+    metadata: {
+      migrated_from: "graph-memory",
+      migration_batch: "zep-cutover-01",
+      source_kind: "fact-export",
+    },
+  },
+  { idempotencyKey: "zep-cutover-01:fact:alex-location" },
+);
+```
+
+Do not place provider credentials or complete source-system tokens in metadata.
+
+## Replay and compare
+
+Run the import in an isolated FishMem project and grade both stored state and
+downstream behavior:
+
+1. Compare counts by user and source kind; inspect rejected and duplicate rows.
+2. Test current facts, historical facts, corrections, contradictions, and
+   deletion.
+3. Compare the evidence returned for representative production questions.
+4. Assemble the prompt with the target application's real token budget.
+5. Measure error rate, tail latency, and empty or degraded retrieval.
+
+If the source system supplied a preassembled context block, keep it only as a
+comparison artifact. A successful FishMem migration is not byte-identical
+context; it is acceptance-set recall that meets the application's decision
+criteria and remains inspectable.
+
+## Cut over with rollback
+
+Dual-write only if the application can give both writes a stable identity and
+observe partial failure. Otherwise, pause writes for a bounded export/import
+window. Move one cohort or workspace first, preserve the previous read path,
+and keep the source export until deletion, recovery, and live recall have all
+passed.
+
+See [Migration rollout](/cookbooks/migration-rollout) for the general release
+plan and [Temporal profile](/cookbooks/temporal-profile) for changing facts.

@@ -28,10 +28,16 @@ silently falling back to raw storage.
 | `run_id` | string | one scope required | Run scope |
 | `metadata` | object | no | Arbitrary key-value metadata |
 | `infer` | boolean | no | Extract facts (default `true`); `false` stores input records verbatim |
+| `event_date` | ISO 8601 string | no | Event time assigned directly to verbatim input, or used as the inference fallback |
 
 The complete JSON body is limited to 250,000 UTF-8 bytes and at most 500
 messages. Long text and files belong in the [Document API](/api-reference/documents),
 which preserves an original and builds RAG projections.
+
+Use `event_date` only when the source establishes when the fact occurred or
+became true. It starts the validity interval for a verbatim record. An inferred
+fact can supply a more specific extracted date; FishMem does not fabricate one
+when neither the request nor the source provides it.
 
 ## Request
 

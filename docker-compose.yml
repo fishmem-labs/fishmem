@@ -1,20 +1,20 @@
 # Self-hosting stack for the FishMem OSS edition.
 #
 #   docker compose up -d web task-worker docs  # complete app + extraction + docs
-#   docker compose up -d postgres   # just the database (for the library / dashboard)
+#   docker compose up -d postgres   # just pgvector (for the embedded library)
 #
 # The Cloudflare-backed Cloud/EE edition deploys separately (wrangler) and does
 # not use this file. See DEPLOY.md.
 
 services:
   # Postgres with the pgvector extension — the database for self-hosted fishmem
-  # (the library's PgVectorStore + Postgres graph store, and the dashboard when
-  # DATABASE_URL is set). Vectors and the relational graph live here together.
+  # (the library's PgVectorStore + Postgres graph store). The control-plane
+  # dashboard currently uses the verified libSQL path below.
   postgres:
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: fishmem
-      POSTGRES_PASSWORD: fishmem
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: fishmem
     ports:
       - "5432:5432"
@@ -35,7 +35,8 @@ services:
       - "8080:80"
 
   # OSS dashboard on Node + libSQL (embedded SQLite in a volume — the verified
-  # self-host path). The container runs `drizzle-kit push` then serves the app.
+  # self-host path). The container applies committed SQL migrations, then serves
+  # the built application through a production Node HTTP server.
   web:
     image: fishmem-web:local
     build:
@@ -48,8 +49,9 @@ services:
       FISHMEM_ASSET_DIR: /data/assets
       FISHMEM_EXTRACTOR_URL: http://extractor:5001
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      CRON_SECRET: ${CRON_SECRET:-change-me-task-secret}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-change-me-min-32-characters-long}
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      FISHMEM_SETUP_TOKEN: ${FISHMEM_SETUP_TOKEN:?Set FISHMEM_SETUP_TOKEN in .env}
       BETTER_AUTH_URL: http://localhost:3000
       NEXT_PUBLIC_SITE_URL: http://localhost:3000
     ports:
@@ -77,7 +79,7 @@ services:
       FISHMEM_TASK_WORKER_BASE_URL: http://web:3000
       FISHMEM_TASK_POLL_MS: 2000
       FISHMEM_MAINTENANCE_MS: 86400000
-      CRON_SECRET: ${CRON_SECRET:-change-me-task-secret}
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
     depends_on:
       - web
 

@@ -1,0 +1,38 @@
+---
+title: Integration contract
+description: Place recall and durable writes correctly in any agent framework.
+---
+
+Every framework integration should preserve the same loop:
+
+```text
+authenticate -> derive scope -> recall -> assemble prompt -> act
+             -> verify outcome -> write durable conclusion -> retain receipt
+```
+
+## Recall before the relevant decision
+
+Search with the current task or user message, not an unrelated generic query.
+Keep memories in a labeled prompt section and retain result IDs when feedback or
+debugging will matter.
+
+## Write after evidence exists
+
+Do not store a proposed tool action as a completed outcome. Write after the
+transaction succeeds or after a user correction becomes authoritative. Use a
+deterministic idempotency key from the application event.
+
+## Separate resources
+
+- recent turns stay in short-term framework state;
+- durable conclusions use Memory;
+- manuals and long sources use Documents;
+- asynchronous inferred writes retain an Event receipt.
+
+## Keep authorization outside the model
+
+Derive project credentials and structural scope from the authenticated server
+request. Never let model output choose another tenant's `user_id` or API key.
+
+Apply this contract even when a framework offers its own checkpoint store:
+execution checkpoints and durable semantic memory solve different problems.

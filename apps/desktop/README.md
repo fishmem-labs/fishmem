@@ -59,6 +59,18 @@ notarization, validation, and manifest generation without rebuilding:
 pnpm --filter @fishmem/desktop release:mac:finalize
 ```
 
+For a packaged development build, run the same local add/search/update/history
+and delete lifecycle without signing credentials:
+
+```bash
+node apps/desktop/scripts/release-mac.mjs --smoke-app \
+  apps/desktop/release/mac-arm64/FishMem.app
+```
+
+Formal release still requires a clean committed checkout and a real Intel Mac
+smoke for the Universal build; an Apple-silicon architecture check cannot prove
+the Intel ONNX runtime executes correctly.
+
 The release command deliberately contains no organization-specific signing
 identity, team, or keychain profile. Maintainers provide them through the
 environment so forks can use their own Apple account without editing source:

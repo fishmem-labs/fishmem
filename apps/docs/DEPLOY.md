@@ -9,9 +9,15 @@ Cloudflare **assets-only Worker** (`fishmem-docs`). It installs independently
 
 ```bash
 cd apps/docs
-pnpm install        # first time only
-pnpm deploy         # next build + wrangler deploy
+pnpm install --frozen-lockfile
+pnpm run deploy     # clean-source gate + build + wrangler deploy
 ```
+
+The deploy command requires a clean Git worktree, verifies the critical Cloud,
+migration, cookbook, and integration pages in the static export, and attaches
+the source commit to the Cloudflare deployment. Use the normal build or Docker
+container smoke tests while developing; only a reviewed commit can replace the
+public docs site.
 
 `pnpm preview` runs the same build under `wrangler dev` locally.
 `pnpm dev` runs the Fumadocs dev server (fast, Turbopack).

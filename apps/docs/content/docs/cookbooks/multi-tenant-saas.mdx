@@ -1,0 +1,42 @@
+---
+title: Multi-tenant SaaS memory
+description: Derive project and user scope safely in a server-side agent product.
+---
+
+This pattern keeps authorization outside model-controlled input.
+
+## Request boundary
+
+1. Authenticate the application user.
+2. Resolve their organization/workspace membership.
+3. Select one FishMem project key on the server.
+4. Derive `user_id` from the authenticated subject.
+5. Treat model-proposed scope or API keys as untrusted text.
+
+```ts
+async function recallForRequest(request: Request, query: string) {
+  const session = await requireSession(request);
+  const workspace = await requireWorkspaceMembership(session.user.id);
+  const fishmem = clientForWorkspace(workspace.id);
+
+  return fishmem.memories.search({
+    query,
+    user_id: session.user.id,
+    agent_id: "support-agent",
+    top_k: 6,
+  });
+}
+```
+
+## Write policy
+
+Write verified outcomes after the tool or business transaction succeeds. Attach
+the application request/ticket ID as metadata, and use a deterministic
+idempotency key derived from that event. Do not store an optimistic plan as if
+it already happened.
+
+## Tenant deletion
+
+Before launch, test project deletion and structural entity deletion with real
+Documents, events, usage rows, and vectors. Verify downstream state, not only
+the primary table count.

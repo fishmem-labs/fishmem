@@ -8,6 +8,10 @@ export const BRAND_DOMAIN = "fishmem.com";
 export const APP_NAME = BRAND_NAME;
 export const APP_DESCRIPTION =
   "The memory platform for AI agents — refined or verbatim writes, hybrid graph + vector recall, and explicit tenant boundaries.";
+export const PRIVACY_DESCRIPTION =
+  "Privacy and data-boundary notice for self-hosted FishMem deployments.";
+export const TERMS_DESCRIPTION =
+  "Open-source license and operator responsibilities for self-hosted FishMem.";
 export const SITE_URL =
   import.meta.env.VITE_SITE_URL?.replace(/\/+$/, "") ||
   (import.meta.env.DEV

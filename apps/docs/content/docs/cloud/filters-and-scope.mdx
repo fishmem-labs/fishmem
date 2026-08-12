@@ -1,0 +1,53 @@
+---
+title: Scope and filters
+description: Keep tenants isolated and make retrieval constraints explicit.
+---
+
+Every memory or document operation belongs to a project workspace. Within that
+workspace, structural scope describes whose state the record belongs to.
+
+## Structural scopes
+
+| Field | Typical owner |
+| --- | --- |
+| `user_id` | One authenticated end user or account |
+| `agent_id` | One assistant persona, workflow, or service role |
+| `run_id` | One session, job, or bounded execution |
+
+Use the same scope on write and recall. Server applications should derive scope
+from authenticated context; do not accept an arbitrary browser-supplied user ID
+as authorization.
+
+## Filters
+
+Filters narrow candidates after the owning project and structural scope are
+resolved. The grammar supports nested `and`, `or`, and `not` groups over
+documented memory and metadata fields.
+
+```ts
+const results = await fishmem.memories.search({
+  query: "What release constraint applies?",
+  agent_id: "release-agent",
+  filters: {
+    and: [
+      { field: "metadata.environment", operator: "eq", value: "production" },
+      { field: "importance", operator: "gte", value: 0.7 },
+    ],
+  },
+});
+```
+
+Filters do not create a second authorization boundary. They are application
+query constraints inside an already-authorized workspace.
+
+## Entity operations
+
+The Entities resource aggregates structural user, agent, and run owners. It can
+list counts, inspect one owner, or idempotently delete the entire owner scope.
+Named graph entities extracted inside memory content are a different concept.
+
+<Cards>
+  <Card title="Filter grammar" href="/api-reference/filters" description="Fields, operators, nesting, and validation errors." />
+  <Card title="Entities" href="/api-reference/entities" description="List, get, and delete structural owners." />
+  <Card title="Scoping concept" href="/open-source/concepts/scoping" description="Choose scope boundaries before writing data." />
+</Cards>

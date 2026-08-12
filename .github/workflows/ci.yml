@@ -15,12 +15,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.32.0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Production dependency audit
+        run: pnpm audit --prod --audit-level high
+      - name: Release version consistency
+        run: pnpm check:versions
       # CI validates the publishable library (packages/fishmem) across all
       # supported Node versions. The apps/ (Next.js docs + web) deploy through
       # their own pipelines, so they are not built in this library matrix.
@@ -54,7 +58,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.32.0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
@@ -70,6 +74,56 @@ jobs:
         run: pnpm --filter @fishmem/web typecheck
       - name: Web production build
         run: pnpm --filter @fishmem/web build
+      - name: Self-hosted Web and docs container builds
+        if: matrix.node-version == 22
+        run: |
+          docker build -f apps/web/Dockerfile -t fishmem-web:ci .
+          docker build -f apps/docs/Dockerfile -t fishmem-docs:ci .
+      - name: Self-hosted container runtime smoke
+        if: matrix.node-version == 22
+        run: |
+          web_container=""
+          docs_container=""
+          cleanup() {
+            if [ -n "$web_container" ]; then docker rm -f "$web_container" >/dev/null 2>&1 || true; fi
+            if [ -n "$docs_container" ]; then docker rm -f "$docs_container" >/dev/null 2>&1 || true; fi
+          }
+          trap cleanup EXIT
+
+          web_container="$(docker run -d -p 127.0.0.1::3000 --tmpfs /data \
+            -e FISHMEM_RUNTIME=node \
+            -e FISHMEM_DB=libsql \
+            -e DATABASE_URL=file:/data/fishmem.db \
+            -e FISHMEM_ASSET_DIR=/data/assets \
+            -e CRON_SECRET=ci-smoke-cron \
+            -e BETTER_AUTH_SECRET=ci-smoke-auth-secret-at-least-32-bytes \
+            -e FISHMEM_SETUP_TOKEN=ci-smoke-setup \
+            -e BETTER_AUTH_URL=http://127.0.0.1 \
+            -e NEXT_PUBLIC_SITE_URL=http://127.0.0.1 \
+            fishmem-web:ci)"
+          web_port="$(docker port "$web_container" 3000/tcp | sed 's/.*://')"
+          if ! curl --retry 30 --retry-all-errors --retry-delay 1 -fsS \
+            "http://127.0.0.1:$web_port/" >/dev/null; then
+            docker logs "$web_container"
+            exit 1
+          fi
+          response_code="$(curl -sS -o /tmp/fishmem-api-smoke-response -w '%{http_code}' \
+            "http://127.0.0.1:$web_port/v1/memories")"
+          test "$response_code" = 401
+          docker exec "$web_container" node scripts/migrate-libsql.mjs \
+            | tee /tmp/fishmem-second-migration
+          if grep -q '^Applied ' /tmp/fishmem-second-migration; then
+            echo 'Second migration run was not idempotent'
+            exit 1
+          fi
+
+          docs_container="$(docker run -d -p 127.0.0.1::80 fishmem-docs:ci)"
+          docs_port="$(docker port "$docs_container" 80/tcp | sed 's/.*://')"
+          if ! curl --retry 30 --retry-all-errors --retry-delay 1 -fsSL \
+            "http://127.0.0.1:$docs_port/cloud/security/" >/dev/null; then
+            docker logs "$docs_container"
+            exit 1
+          fi
 
   product-contracts:
     runs-on: ubuntu-latest
@@ -77,7 +131,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.32.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -117,8 +171,7 @@ jobs:
           ts_pack_dir="$(mktemp -d)"
           ts_install_dir="$(mktemp -d)"
           pnpm --dir packages/sdk pack --pack-destination "$ts_pack_dir"
-          npm install --prefix "$ts_install_dir" \
-            "$ts_pack_dir/fishmem-sdk-0.1.0.tgz"
+          npm install --prefix "$ts_install_dir" "$ts_pack_dir"/fishmem-sdk-*.tgz
           cd "$ts_install_dir"
           node --input-type=module -e \
             "import { FishMem } from '@fishmem/sdk'; import { FishMemDesktop } from '@fishmem/sdk/desktop'; const api = new FishMem({ apiKey: 'test' }); const desktop = new FishMemDesktop({ command: '/bin/false' }); if (!api.documents || !desktop.documents) process.exit(1)"
@@ -134,8 +187,7 @@ jobs:
           python -m pip wheel --no-deps ./packages/python-sdk \
             --wheel-dir "$py_pack_dir"
           python -m venv "$py_install_dir"
-          "$py_install_dir/bin/pip" install \
-            "$py_pack_dir"/fishmem-0.1.0-py3-none-any.whl
+          "$py_install_dir/bin/pip" install "$py_pack_dir"/fishmem-*.whl
           "$py_install_dir/bin/python" -c \
             "from fishmem import FishMem, FishMemDesktop; api = FishMem(api_key='test'); desktop = FishMemDesktop(command='/bin/false'); assert api.documents and desktop.documents; api.close()"
       - name: Desktop local-only contract
@@ -178,7 +230,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.32.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -193,7 +245,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.32.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -211,7 +263,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.32.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22

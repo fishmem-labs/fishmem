@@ -1,0 +1,31 @@
+---
+title: MCP tools
+description: Expose FishMem recall and writes through a narrow Model Context Protocol boundary.
+---
+
+An MCP server can expose FishMem to several agent clients, but the tool boundary
+must not turn authorization over to the model.
+
+## Narrow tool set
+
+Start with:
+
+- `recall_memory(query, limit)`;
+- `remember_decision(content, source, idempotency_key)`;
+- `search_documents(query, source_key)`;
+- `get_document_content(document_id)`.
+
+Bind the project credential and structural user/agent scope in the MCP server's
+authenticated session. Do not accept a raw FishMem API key, workspace ID, or
+arbitrary `user_id` as a model tool argument.
+
+## Make destructive operations deliberate
+
+Update, entity deletion, project deletion, and restore should require an
+operator-facing confirmation path rather than a broadly available model tool.
+Return FishMem request/event IDs in structured tool output so failures remain
+traceable.
+
+For local coding agents, prefer the bundled Desktop skill and authenticated CLI
+bridge; it already provides a narrower local transport without exposing an HTTP
+service.

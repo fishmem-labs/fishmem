@@ -36,10 +36,42 @@ Bring up a ready Postgres+pgvector with the bundled compose file:
 
 ```bash
 docker compose up -d postgres
-# DATABASE_URL=postgres://fishmem:fishmem@localhost:5432/fishmem
+# Set POSTGRES_PASSWORD in .env, then use the same value in DATABASE_URL.
 ```
 
 libSQL/SQLite and Qdrant are equally supported — see the [README](./README.md#-how-it-works) providers table.
+
+---
+
+## Registry releases (maintainers)
+
+The npm workflow builds, tests, packs, installs, and inspects both public
+tarballs before its protected publish job receives an OIDC identity. Configure
+an npm Trusted Publisher separately for `fishmem` and `@fishmem/sdk` with the
+`fishmem-labs/fishmem` repository, `publish-npm.yml` workflow, `npm`
+environment, and stage-publish permission. The workflow pins Node 22.14 and npm
+11.15.0, submits both existing packages to npm's staging area, and leaves them
+non-public until a maintainer reviews and approves both with 2FA. This prevents
+one package becoming public if staging the other fails.
+
+The Python workflow tests the source tree, builds both distributions, and runs
+Twine validation before its isolated OIDC publish job. Configure the `fishmem`
+PyPI Trusted Publisher for this repository, `publish-python.yml`, and the
+`pypi` environment. Require a maintainer approval on both GitHub environments.
+
+After the matching version change is merged and CI is green, publish only from
+the versioned tag expected by each workflow:
+
+```bash
+git tag npm-v0.2.0
+git tag python-v0.2.0
+```
+
+The npm tag stages both packages; approve both staged entries on npm only after
+inspection. The Python tag publishes only after its protected `pypi`
+environment approval. These tags are release triggers, not instructions to
+push them without review. Both workflows also support a protected manual run
+from `main`.
 
 ---
 
@@ -66,25 +98,24 @@ The control plane (TanStack Start + Better Auth + the FishMem API). It is
 - **OSS on Cloudflare** → D1 (database), Vectorize (vectors), R2, Queues, and a
   Docling Container. Copy `apps/web/wrangler.jsonc`, create resources in your
   own account, fill the placeholder database ID and service names, then deploy
-  with `pnpm --filter @fishmem/web deploy`. FishMem-operated production,
+  with `pnpm --filter @fishmem/web run deploy`. FishMem-operated production,
   staging, demo, billing, and CMS configuration is intentionally kept outside
   this repository.
 - **FishMem Cloud** → imports the same route tree and packages from its private
   application, then adds the marketing, billing, organization, and CMS
   surfaces. OSS does not depend on those modules.
-- **OSS self-host** → Node: a relational database (libSQL/SQLite or Postgres) +
-  the fishmem Postgres/SQLite stores. Selected by env.
+- **OSS self-host control-plane** → Node + libSQL/SQLite (the verified path).
+  The embedded engine can independently use Postgres/pgvector or Qdrant.
 
 ### Self-host runtime selection
 
-Set `FISHMEM_DB` (and `DATABASE_URL` for Postgres). The app detects the runtime
-and wires the right adapters:
+Set `FISHMEM_DB`. The app detects the runtime and wires the verified adapters:
 
 | `FISHMEM_DB` | App DB (drizzle) | fishmem stores |
 |---|---|---|
 | `d1` (default on Cloudflare) | `drizzle-orm/d1` | D1 graph + Vectorize |
 | `libsql` | `drizzle-orm/libsql` | SQLite graph + SQLite vectors |
-| `postgres` | `drizzle-orm/node-postgres` | Postgres graph + pgvector |
+| `postgres` | Not released for the control-plane | Engine support only |
 
 On Cloudflare, R2 holds direct-text originals, raw uploaded files, extracted
 Markdown, and lossless JSON artifacts. D1 owns immutable descriptors, durable
@@ -100,13 +131,14 @@ known-ID reads and deletes are batched in groups of 1,000.
 **Node + libSQL is implemented and verified** (Phase A, `docs/OPEN-CORE.md`):
 the `lib/platform.ts` seam selects the backend by env; `vite build` + `vite
 preview` boot on Node with no Cloudflare (`/v1/memories` no-key → 401, homepage
-→ login redirect), and `pnpm --filter @fishmem/web db:push` creates the app
-tables on libSQL. The Cloudflare path is unchanged (default).
+→ login redirect), and `pnpm --filter @fishmem/web db:migrate:libsql` applies
+the committed app-table migrations on libSQL. The Cloudflare path is unchanged
+(default).
 
 ```bash
 # Node self-host, zero external DB server (embedded SQLite):
 cp apps/web/.env.example apps/web/.env      # set OPENAI_API_KEY, secrets
-FISHMEM_DB=libsql pnpm --filter @fishmem/web db:push   # app tables
+FISHMEM_DB=libsql pnpm --filter @fishmem/web db:migrate:libsql
 FISHMEM_RUNTIME=node FISHMEM_DB=libsql pnpm --filter @fishmem/web build
 FISHMEM_RUNTIME=node FISHMEM_DB=libsql pnpm --filter @fishmem/web start
 # or: docker compose up -d web

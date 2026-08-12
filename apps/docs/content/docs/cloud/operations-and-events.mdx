@@ -1,0 +1,50 @@
+---
+title: Operations and events
+description: Run inferred memory writes and document extraction as durable, observable work.
+---
+
+FishMem makes slow or provider-backed mutations explicit. An HTTP connection is
+not the authority for whether inference or extraction succeeded; a persisted
+operation/event is.
+
+## Memory inference
+
+An inferred `POST /v1/memories` request:
+
+1. validates scope and the idempotency key;
+2. claims one durable command identity;
+3. reserves the applicable Cloud credits;
+4. creates a pending event and returns HTTP `202`;
+5. runs extraction in a worker;
+6. commits refined canonical records or a terminal error;
+7. settles or refunds the reservation exactly once.
+
+Use `memories.addAsync(...)` when your application wants the receipt
+immediately. Use `memories.addAndWait(...)` for scripts that can poll until the
+same event reaches a terminal state.
+
+## Event contract
+
+`GET /v1/events/{event_id}` exposes public lifecycle state, attempts, timing,
+terminal error, and the committed memory result. It does not echo the raw
+conversation or internal provider payload.
+
+Safe client behavior:
+
+- persist the returned `event_id` with your own request record;
+- use bounded polling or a background job;
+- stop on a terminal state;
+- replay the original request only with the same idempotency key and payload;
+- treat a key reused with a different payload as an application bug.
+
+## Document operations
+
+File extraction uses the Operations resource rather than the Memory Event
+resource. The source-asset row and operation row own retry and cancellation;
+Queues and Containers only wake work.
+
+<Cards>
+  <Card title="Event API" href="/api-reference/events" description="Exact inference event shapes and terminal states." />
+  <Card title="Operations API" href="/api-reference/operations" description="Retry, cancel, list, and inspect durable work." />
+  <Card title="Add memory" href="/cloud/memory-operations/add" description="Synchronous verbatim and asynchronous inferred writes." />
+</Cards>

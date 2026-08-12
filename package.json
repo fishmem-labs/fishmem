@@ -1,48 +1,66 @@
 {
-  "name": "fishmem-monorepo",
-  "private": true,
-  "type": "module",
-  "license": "Apache-2.0",
-  "scripts": {
-    "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "test:integration": "pnpm --filter fishmem test:integration",
-    "lint": "biome check .",
-    "format": "biome check --write .",
-    "bench:locomo": "tsx benchmarks/locomo/run.ts",
-    "bench:longmemeval": "tsx benchmarks/longmemeval/run.ts",
-    "bench:beam": "tsx benchmarks/beam/run.ts",
-    "bench:membench": "tsx benchmarks/recall/membench.ts",
-    "bench:convomem": "tsx benchmarks/recall/convomem.ts",
-    "bench:inference": "tsx benchmarks/inference-quality/run.ts",
-    "bench:inference:gate": "tsx benchmarks/inference-quality/gate.ts",
-    "bench:report": "tsx benchmarks/eval/report.ts",
-    "bench:gate": "tsx benchmarks/eval/release-gate.ts",
-    "bench:resume": "tsx benchmarks/resume-run.ts",
-    "bench:test": "pnpm --filter fishmem exec vitest run --config ../../benchmarks/vitest.config.ts",
-    "bench:typecheck": "pnpm --filter fishmem exec tsc -p ../../benchmarks/tsconfig.json"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.5.0",
-    "@types/node": "^22.19.20",
-    "gpt-tokenizer": "3.4.0",
-    "mem0ai": "3.1.2",
-    "tsx": "^4.22.4",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.9"
-  },
-  "engines": {
-    "node": ">=20"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "bun",
-      "electron",
-      "electron-winstaller",
-      "esbuild",
-      "onnxruntime-node"
-    ]
-  }
+	"name": "fishmem-monorepo",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@10.32.0",
+	"license": "Apache-2.0",
+	"scripts": {
+		"build": "pnpm -r build",
+		"typecheck": "pnpm -r typecheck",
+		"test": "pnpm -r test",
+		"test:integration": "pnpm --filter fishmem test:integration",
+		"lint": "biome check .",
+		"format": "biome check --write .",
+		"bench:locomo": "tsx benchmarks/locomo/run.ts",
+		"bench:longmemeval": "tsx benchmarks/longmemeval/run.ts",
+		"bench:beam": "tsx benchmarks/beam/run.ts",
+		"bench:membench": "tsx benchmarks/recall/membench.ts",
+		"bench:convomem": "tsx benchmarks/recall/convomem.ts",
+		"bench:inference": "tsx benchmarks/inference-quality/run.ts",
+		"bench:inference:gate": "tsx benchmarks/inference-quality/gate.ts",
+		"bench:report": "tsx benchmarks/eval/report.ts",
+		"bench:gate": "tsx benchmarks/eval/release-gate.ts",
+		"bench:resume": "tsx benchmarks/resume-run.ts",
+		"bench:test": "pnpm --filter fishmem exec vitest run --config ../../benchmarks/vitest.config.ts",
+		"bench:typecheck": "pnpm --filter fishmem exec tsc -p ../../benchmarks/tsconfig.json",
+		"check:versions": "node scripts/check-versions.mjs"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.0",
+		"@types/node": "^22.19.20",
+		"gpt-tokenizer": "3.4.0",
+		"mem0ai": "3.1.2",
+		"tsx": "^4.22.4",
+		"typescript": "^5.7.2",
+		"vitest": "3.2.7"
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"pnpm": {
+		"overrides": {
+			"@better-auth/utils": "0.4.2",
+			"@esbuild-kit/core-utils>esbuild": "0.25.12",
+			"@huggingface/transformers>sharp": "0.35.3",
+			"adm-zip": "0.6.0",
+			"esbuild@>=0.27.3 <0.28.1": "0.28.1",
+			"js-yaml": "4.3.1",
+			"nanoid@3": "3.3.18",
+			"postcss": "8.5.26",
+			"protobufjs@7": "7.6.5"
+		},
+		"peerDependencyRules": {
+			"allowedVersions": {
+				"mem0ai>@cloudflare/workers-types": "5"
+			}
+		},
+		"onlyBuiltDependencies": [
+			"better-sqlite3",
+			"bun",
+			"electron",
+			"electron-winstaller",
+			"esbuild",
+			"onnxruntime-node"
+		]
+	}
 }

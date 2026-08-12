@@ -354,6 +354,7 @@ export const AddMemoryCommandSchema = z
     content: NonBlankTextSchema.optional(),
     messages: z.array(MessageSchema).min(1).max(MAX_MEMORY_MESSAGES).optional(),
     infer: z.boolean().default(true),
+    event_date: z.string().datetime().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .refine((command) => command.content || command.messages, {

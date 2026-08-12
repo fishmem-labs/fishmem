@@ -1,0 +1,32 @@
+---
+title: Production memory operations
+description: Connect request IDs, events, retries, usage, and recovery into one operator loop.
+---
+
+## Persist correlation
+
+Keep FishMem `request_id`, `event_id`, operation ID, and your application job or
+ticket ID together. Never log API keys, raw authorization headers, magic links,
+invitation URLs, or full conversation payloads.
+
+## Separate expected states from incidents
+
+Pending inference and propagating vectors are expected asynchronous states.
+Stuck leases, repeated terminal provider failures, reconciliation drift, or a
+source family that cannot delete are incidents.
+
+## Retry at the owning layer
+
+- HTTP clients replay only idempotent commands.
+- Event workers resume the persisted memory task.
+- Document operations retry the operation row; a Queue message is only a wakeup.
+- Provider failures use bounded attempts and a terminal state.
+
+## Recovery drill
+
+Export a representative namespace, restore it into staging, rebuild
+projections, and run recall/document checks. For Node self-hosting, back up the
+libSQL database and asset directory as one retention unit.
+
+Use the [Cloud production checklist](/cloud/production-checklist) as the final
+release gate.

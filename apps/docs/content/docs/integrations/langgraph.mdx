@@ -1,0 +1,42 @@
+---
+title: LangGraph
+description: Add scoped FishMem recall and durable writes to a graph workflow.
+---
+
+[LangGraph](https://docs.langchain.com/oss/javascript/langgraph/overview)
+checkpoints graph execution. FishMem complements that state with durable,
+cross-run conclusions and source RAG.
+
+## Graph placement
+
+Add a recall node before the node that needs long-term context. Add a write node
+only after the graph has a verified outcome or correction.
+
+```ts
+async function recallNode(state: AgentState) {
+  const { results } = await fishmem.memories.search({
+    query: state.latestUserMessage,
+    user_id: state.authenticatedUserId,
+    agent_id: "support-graph",
+    top_k: 6,
+  });
+  return { recalledMemories: results };
+}
+
+async function rememberNode(state: AgentState) {
+  if (!state.verifiedOutcome) return {};
+  const event = await fishmem.memories.addAsync(
+    {
+      content: state.verifiedOutcome,
+      user_id: state.authenticatedUserId,
+      agent_id: "support-graph",
+    },
+    { idempotencyKey: `case:${state.caseId}:outcome` },
+  );
+  return { memoryEventId: event.event_id };
+}
+```
+
+Do not put an API key or arbitrary scope in graph state that the model can
+modify. Inject the FishMem client and authenticated identity from the server
+runtime.

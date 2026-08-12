@@ -24,6 +24,7 @@ What the cloud adds on top of the open-source engine:
   <Card title="Authentication" href="/cloud/authentication" description="Create an API key and call the API securely." />
   <Card title="Memory operations" href="/cloud/memory-operations/add" description="The full add / search / update / delete loop." />
   <Card title="Migrate from mem0" href="/cloud/migrate-from-mem0" description="Map mem0 operations to FishMem deliberately." />
+  <Card title="Migrate from Zep or Graphiti" href="/cloud/migrate-from-zep" description="Preserve graph evidence, time, and rollback." />
 </Cards>
 
 ## Platform
@@ -37,7 +38,10 @@ What the cloud adds on top of the open-source engine:
 
 ## Same engine, no lock-in
 
-The cloud is not a proprietary fork. If you outgrow the hosted plan — or want to
-keep your data on your own infrastructure — you can run the
-[open-source engine](/open-source) yourself and keep the same API surface. See
-[Platform vs. open source](/cloud/platform-vs-open-source) for the trade-offs.
+The cloud pins a published revision of the open engine instead of maintaining a
+second memory implementation. If you outgrow the hosted plan — or want to keep
+data on your own infrastructure — you can export the namespace and run the
+[open-source engine](/open-source) yourself. Hosted authentication, billing,
+organizations, queues, and managed file extraction are separate Cloud concerns,
+so verify the target deployment contract rather than assuming every control
+plane endpoint transfers unchanged. See [Platform vs. open source](/cloud/platform-vs-open-source).

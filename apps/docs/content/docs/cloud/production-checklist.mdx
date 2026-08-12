@@ -1,0 +1,43 @@
+---
+title: Production checklist
+description: Validate contracts, secrets, operations, recovery, and recall before launching FishMem.
+---
+
+Use this checklist against the deployment that will receive production traffic.
+A local fixture or successful TCP connection is not production evidence.
+
+## Identity and scope
+
+- [ ] Dashboard sign-in and account deletion work with the configured email or OAuth provider.
+- [ ] Organization invitations are delivered without logging acceptance links.
+- [ ] API keys remain server-side, are project-scoped, and can be revoked.
+- [ ] `user_id`, `agent_id`, and `run_id` derive from authenticated application state.
+
+## Memory loop
+
+- [ ] Verbatim `infer:false` add/search/get/update/history/delete passes.
+- [ ] Inferred add returns one durable event and safe replay returns the same command.
+- [ ] Terminal provider failure leaves no partial canonical record and refunds reserved usage.
+- [ ] Representative filters, temporal correction, and search traces pass your acceptance set.
+
+## Documents
+
+- [ ] A real supported file completes create/upload/extract/index/search/content/delete.
+- [ ] Byte-length and checksum mismatch fail closed.
+- [ ] Retry, cancellation, timeout, and dead-letter behavior are observable.
+- [ ] Source assets, extracted artifacts, D1 rows, and vectors delete as one source family.
+
+## Recovery and release
+
+- [ ] Namespace export restores successfully in staging and projections rebuild.
+- [ ] Cloud build uses the pinned open-core revision and a clean Cloud commit.
+- [ ] Dependency audit, tests, type checks, lint, Worker dry-run, and staging smoke pass.
+- [ ] Security headers are present on HTML, API, redirect, and rate-limit responses.
+- [ ] Deployment secrets are present, distinct, and rotated after any suspected exposure.
+
+## Operations
+
+- [ ] Logs and traces are queryable without raw conversations, credentials, or invitation URLs.
+- [ ] Request IDs connect application errors to hosted request/operation state.
+- [ ] Usage and billing settlement reconcile across success, retry, and terminal failure.
+- [ ] Rollback owner, incident contact, and release observation window are assigned.

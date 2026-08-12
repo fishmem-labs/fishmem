@@ -20,6 +20,6 @@ RUN pnpm --filter docs build
 # ── runtime stage ────────────────────────────────────────────────────────────
 FROM nginx:alpine AS runtime
 # SPA-ish fallback + sensible caching for a static docs site.
-RUN printf 'server {\n  listen 80;\n  root /usr/share/nginx/html;\n  location / { try_files $uri $uri.html $uri/ /404.html; }\n}\n' > /etc/nginx/conf.d/default.conf
+RUN printf 'server {\n  listen 80;\n  absolute_redirect off;\n  root /usr/share/nginx/html;\n  location ~ ^(.+)/$ { return 308 $1; }\n  location / { try_files $uri.html $uri/index.html $uri /404.html; }\n}\n' > /etc/nginx/conf.d/default.conf
 COPY --from=builder /repo/apps/docs/out /usr/share/nginx/html
 EXPOSE 80

@@ -1,0 +1,30 @@
+---
+title: Changing user profile
+description: Model current preferences while preserving when earlier facts were valid.
+---
+
+Suppose a user lived in Lisbon and later moved to Berlin.
+
+## Store evidence with time
+
+When the user states the effective date, include it as `event_date`. If the
+source only proves current state, do not invent historical precision.
+
+## Supersede deliberately
+
+An update can invalidate the Lisbon record, close its `valid_to`, and link it
+to the Berlin record. Current recall favors active state; historical queries
+can still inspect the earlier interval.
+
+## Keep the profile derived
+
+A synthesized profile is convenient prompt context, but it is not the
+authority. Rebuild it from canonical records and preserve links back to those
+records so a correction does not require editing two independent stores.
+
+## Acceptance cases
+
+- "Where does the user live now?" returns Berlin.
+- "Where did the user live before Berlin?" can return Lisbon.
+- an as-of query before the move resolves the earlier state;
+- deleting the user scope removes both active and historical records.

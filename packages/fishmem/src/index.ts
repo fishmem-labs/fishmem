@@ -1,9 +1,9 @@
 /**
  * fishmem — an open-source, TypeScript memory layer for AI agents.
  *
- * mem0-compatible API, spacebot-style hybrid recall engine: graph memory in a
- * relational `associations` table, embeddings + search/recall in a pluggable
- * vector store, fused with Reciprocal Rank Fusion.
+ * Source-preserving memory engine with graph state in a relational
+ * `associations` table, embeddings plus search/recall in a pluggable vector
+ * store, and explicit migration adapters at the application boundary.
  */
 
 export {

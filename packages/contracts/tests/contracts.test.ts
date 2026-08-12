@@ -43,8 +43,16 @@ import {
 describe("canonical API contracts", () => {
   it("accepts canonical add/search commands", () => {
     expect(
-      AddMemoryCommandSchema.parse({ content: "fact", user_id: "user" }),
-    ).toMatchObject({ content: "fact", infer: true });
+      AddMemoryCommandSchema.parse({
+        content: "fact",
+        user_id: "user",
+        event_date: "2026-07-01T00:00:00.000Z",
+      }),
+    ).toMatchObject({
+      content: "fact",
+      infer: true,
+      event_date: "2026-07-01T00:00:00.000Z",
+    });
     expect(
       SearchMemoryCommandSchema.parse({ query: "fact", user_id: "user" }),
     ).toMatchObject({ trace: false });
@@ -89,6 +97,13 @@ describe("canonical API contracts", () => {
 
   it("rejects missing scope and malformed idempotency keys", () => {
     expect(() => AddMemoryCommandSchema.parse({ content: "fact" })).toThrow();
+    expect(() =>
+      AddMemoryCommandSchema.parse({
+        content: "fact",
+        user_id: "user",
+        event_date: "last July",
+      }),
+    ).toThrow();
     expect(() => SearchMemoryCommandSchema.parse({ query: "fact" })).toThrow();
     expect(() =>
       SearchMemoryCommandSchema.parse({

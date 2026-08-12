@@ -1,69 +1,69 @@
 {
-  "name": "@fishmem/sdk",
-  "version": "0.1.0",
-  "description": "Universal TypeScript SDK for FishMem Cloud and self-hosted FishMem.",
-  "author": "FishMem",
-  "type": "module",
-  "license": "Apache-2.0",
-  "sideEffects": false,
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs",
-      "default": "./dist/index.js"
-    },
-    "./desktop": {
-      "types": "./dist/desktop.d.ts",
-      "import": "./dist/desktop.js",
-      "require": "./dist/desktop.cjs",
-      "default": "./dist/desktop.js"
-    }
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
-  "scripts": {
-    "build": "tsup",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "prepack": "pnpm build && node scripts/package-license.mjs prepare",
-    "postpack": "node scripts/package-license.mjs cleanup",
-    "prepublishOnly": "pnpm typecheck && pnpm test"
-  },
-  "keywords": [
-    "fishmem",
-    "memory",
-    "ai",
-    "agents",
-    "cloudflare-workers",
-    "deno",
-    "bun",
-    "vercel"
-  ],
-  "engines": {
-    "node": ">=20"
-  },
-  "homepage": "https://docs.fishmem.com/sdk",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/fishmem-labs/fishmem.git",
-    "directory": "packages/sdk"
-  },
-  "bugs": {
-    "url": "https://github.com/fishmem-labs/fishmem/issues"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "devDependencies": {
-    "tsup": "^8.3.5",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.9"
-  }
+	"name": "@fishmem/sdk",
+	"version": "0.2.0",
+	"description": "Universal TypeScript SDK for FishMem Cloud and self-hosted FishMem.",
+	"author": "FishMem",
+	"type": "module",
+	"license": "Apache-2.0",
+	"sideEffects": false,
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs",
+			"default": "./dist/index.js"
+		},
+		"./desktop": {
+			"types": "./dist/desktop.d.ts",
+			"import": "./dist/desktop.js",
+			"require": "./dist/desktop.cjs",
+			"default": "./dist/desktop.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"build": "tsup",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"prepack": "pnpm build && node scripts/package-license.mjs prepare",
+		"postpack": "node scripts/package-license.mjs cleanup",
+		"prepublishOnly": "pnpm typecheck && pnpm test"
+	},
+	"keywords": [
+		"fishmem",
+		"memory",
+		"ai",
+		"agents",
+		"cloudflare-workers",
+		"deno",
+		"bun",
+		"vercel"
+	],
+	"engines": {
+		"node": ">=20"
+	},
+	"homepage": "https://docs.fishmem.com/sdk",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/fishmem-labs/fishmem.git",
+		"directory": "packages/sdk"
+	},
+	"bugs": {
+		"url": "https://github.com/fishmem-labs/fishmem/issues"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"devDependencies": {
+		"tsup": "^8.3.5",
+		"typescript": "^5.7.2",
+		"vitest": "3.2.7"
+	}
 }

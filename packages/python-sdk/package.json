@@ -1,10 +1,10 @@
 {
-  "name": "@fishmem/python-sdk",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "build": "uv build",
-    "typecheck": "python3 -m compileall -q src tests",
-    "test": "python3 -m unittest discover -s tests -v"
-  }
+	"name": "@fishmem/python-sdk",
+	"version": "0.2.0",
+	"private": true,
+	"scripts": {
+		"build": "uv build",
+		"typecheck": "python3 -m compileall -q src tests",
+		"test": "python3 -m unittest discover -s tests -v"
+	}
 }

@@ -1,10 +1,11 @@
 # FishMem — self-hostable control-plane (`@fishmem/web`)
 
 The open-source web app that wraps the [`fishmem`](../../packages/fishmem) engine
-with a dashboard and a mem0-compatible REST API: projects, API keys, a memory
-browser, a source-RAG browser, a playground, request/usage views, and webhooks. It is the same app
-that powers the managed [FishMem Cloud](https://fishmem.com) — run it yourself on
-Node (self-host / Docker), Vercel, or your own Cloudflare account.
+with a documented REST API and dashboard: projects, API keys, a memory browser,
+a source-RAG browser, a playground, request/usage views, and webhooks. It is the
+open application foundation used by [FishMem Cloud](https://fishmem.com), whose
+hosted overlay adds organizations, metering, billing, and managed operations.
+Run this application yourself on Node, Docker, or your own Cloudflare account.
 
 **Docs:** [Self-hosted dashboard guide](https://docs.fishmem.com/open-source/self-hosted-dashboard)
 · [Engine](../../packages/fishmem) · [API reference](https://docs.fishmem.com/api-reference)
@@ -76,7 +77,7 @@ pnpm --filter fishmem build          # build the engine once
 
 # Node self-host (embedded SQLite — the default OSS path):
 cp apps/web/.env.example apps/web/.env                  # set OPENAI_API_KEY + BETTER_AUTH_SECRET
-FISHMEM_DB=libsql pnpm --filter @fishmem/web db:push    # create the app tables
+FISHMEM_DB=libsql pnpm --filter @fishmem/web db:migrate:libsql
 FISHMEM_RUNTIME=node FISHMEM_DB=libsql pnpm --filter @fishmem/web dev   # → http://localhost:3000
 
 # Cloudflare instead (requires D1 and Vectorize bindings):

@@ -1,0 +1,30 @@
+---
+title: Staged memory migration
+description: Move an existing memory workload with replay evidence and rollback.
+---
+
+## Inventory
+
+Capture every production operation, client version, field, scope, filter,
+default, and timeout. Export the source system before transforming data.
+
+## Map
+
+Write a table for source call → FishMem call → semantic difference → acceptance
+test. Decide which imported values are already-distilled `infer:false` records;
+do not rerun inference simply because the new system supports it.
+
+## Replay
+
+Import one bounded cohort into a staging project with deterministic idempotency
+keys and migration provenance in metadata. Compare stored state, history,
+search ranking, terminal events, and downstream answers.
+
+## Cut over
+
+Move one workspace/cohort at a time. Keep the previous read path available
+during an observation window. Stop and roll back on data-isolation, correction,
+deletion, or terminal-event inconsistencies—not only on elevated HTTP errors.
+
+For source-specific mapping, see [Migrate from mem0](/cloud/migrate-from-mem0)
+or [Migrate from Zep or Graphiti](/cloud/migrate-from-zep).

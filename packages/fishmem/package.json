@@ -1,104 +1,104 @@
 {
-  "name": "fishmem",
-  "version": "0.1.0",
-  "description": "Local-first TypeScript memory engine for AI agents with distilled records, source-preserving RAG, hybrid retrieval, and SQLite, Postgres, or Cloudflare storage.",
-  "type": "module",
-  "license": "Apache-2.0",
-  "keywords": [
-    "memory",
-    "ai",
-    "agents",
-    "llm",
-    "rag",
-    "vector",
-    "graph",
-    "embeddings",
-    "postgres",
-    "sqlite",
-    "cloudflare",
-    "d1"
-  ],
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    }
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE",
-    "CHANGELOG.md"
-  ],
-  "scripts": {
-    "build": "tsup",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest",
-    "prepack": "node scripts/package-files.mjs prepare",
-    "postpack": "node scripts/package-files.mjs cleanup",
-    "prepublishOnly": "pnpm build"
-  },
-  "dependencies": {
-    "drizzle-orm": "^0.36.4"
-  },
-  "peerDependencies": {
-    "@anthropic-ai/sdk": ">=0.30.0",
-    "@cloudflare/workers-types": ">=4.0.0",
-    "@libsql/client": ">=0.14.0",
-    "@qdrant/js-client-rest": ">=1.11.0",
-    "openai": ">=4.0.0",
-    "pg": ">=8.11.0"
-  },
-  "peerDependenciesMeta": {
-    "@anthropic-ai/sdk": {
-      "optional": true
-    },
-    "@cloudflare/workers-types": {
-      "optional": true
-    },
-    "@libsql/client": {
-      "optional": true
-    },
-    "@qdrant/js-client-rest": {
-      "optional": true
-    },
-    "openai": {
-      "optional": true
-    },
-    "pg": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@libsql/client": "^0.14.0",
-    "@qdrant/js-client-rest": "^1.18.0",
-    "@types/node": "^22.10.2",
-    "@types/pg": "^8.11.10",
-    "@vitest/coverage-v8": "^2.1.9",
-    "miniflare": "4.20260128.0",
-    "pg": "^8.13.1",
-    "tsup": "^8.3.5",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
-  },
-  "engines": {
-    "node": ">=20"
-  },
-  "homepage": "https://fishmem.com",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/fishmem-labs/fishmem.git",
-    "directory": "packages/fishmem"
-  },
-  "bugs": {
-    "url": "https://github.com/fishmem-labs/fishmem/issues"
-  },
-  "sideEffects": false
+	"name": "fishmem",
+	"version": "0.2.0",
+	"description": "Local-first TypeScript memory engine for AI agents with distilled records, source-preserving RAG, hybrid retrieval, and SQLite, Postgres, or Cloudflare storage.",
+	"type": "module",
+	"license": "Apache-2.0",
+	"keywords": [
+		"memory",
+		"ai",
+		"agents",
+		"llm",
+		"rag",
+		"vector",
+		"graph",
+		"embeddings",
+		"postgres",
+		"sqlite",
+		"cloudflare",
+		"d1"
+	],
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE",
+		"CHANGELOG.md"
+	],
+	"scripts": {
+		"build": "tsup",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"test:integration": "vitest run --config vitest.integration.config.ts",
+		"test:coverage": "vitest run --coverage",
+		"test:watch": "vitest",
+		"prepack": "node scripts/package-files.mjs prepare",
+		"postpack": "node scripts/package-files.mjs cleanup",
+		"prepublishOnly": "pnpm build"
+	},
+	"dependencies": {
+		"drizzle-orm": "0.45.2"
+	},
+	"peerDependencies": {
+		"@anthropic-ai/sdk": ">=0.30.0",
+		"@cloudflare/workers-types": ">=4.0.0",
+		"@libsql/client": ">=0.14.0",
+		"@qdrant/js-client-rest": ">=1.11.0",
+		"openai": ">=4.0.0",
+		"pg": ">=8.11.0"
+	},
+	"peerDependenciesMeta": {
+		"@anthropic-ai/sdk": {
+			"optional": true
+		},
+		"@cloudflare/workers-types": {
+			"optional": true
+		},
+		"@libsql/client": {
+			"optional": true
+		},
+		"@qdrant/js-client-rest": {
+			"optional": true
+		},
+		"openai": {
+			"optional": true
+		},
+		"pg": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@libsql/client": "^0.14.0",
+		"@qdrant/js-client-rest": "^1.18.0",
+		"@types/node": "^22.10.2",
+		"@types/pg": "^8.11.10",
+		"@vitest/coverage-v8": "3.2.7",
+		"miniflare": "4.20260128.0",
+		"pg": "^8.13.1",
+		"tsup": "^8.3.5",
+		"typescript": "^5.7.2",
+		"vitest": "3.2.7"
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"homepage": "https://fishmem.com",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/fishmem-labs/fishmem.git",
+		"directory": "packages/fishmem"
+	},
+	"bugs": {
+		"url": "https://github.com/fishmem-labs/fishmem/issues"
+	},
+	"sideEffects": false
 }

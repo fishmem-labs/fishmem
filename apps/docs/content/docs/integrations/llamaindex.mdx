@@ -1,0 +1,26 @@
+---
+title: LlamaIndex
+description: Combine source indexing with durable user and agent memory without duplicating authority.
+---
+
+[LlamaIndex](https://developers.llamaindex.ai/typescript/framework/) provides
+document and retrieval abstractions. Decide which system owns each source
+instead of indexing the same authority twice.
+
+## Recommended boundary
+
+- If LlamaIndex owns the source corpus, store only its stable source reference
+  in FishMem memory metadata.
+- If FishMem owns the source, use the Documents resource for exact content,
+  chunks, and citations.
+- Use FishMem Memory for user preferences, outcomes, and temporal state—not as
+  another copy of document passages.
+
+## Prompt assembly
+
+Run document retrieval and memory recall independently, label their outputs,
+and keep provenance for both. This prevents a derived user fact from appearing
+as if it were a quoted document, or a document excerpt from becoming a profile
+fact.
+
+Write back only after the downstream response or tool outcome is verified.

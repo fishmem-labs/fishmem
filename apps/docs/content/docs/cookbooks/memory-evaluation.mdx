@@ -1,0 +1,34 @@
+---
+title: Evaluate a memory loop
+description: Build a production-shaped acceptance set for writes, recall, and downstream answers.
+---
+
+## 1. Sample representative traces
+
+Select redacted conversations and source documents that cover stable
+preferences, corrections, temporal changes, ambiguous queries, missing facts,
+and tenant boundaries. Keep development and held-out release sets separate.
+
+## 2. Grade four layers
+
+| Layer | Question |
+| --- | --- |
+| Write | Did the correct durable records commit, with no raw fallback? |
+| State | Did update, invalidation, history, and scope behave correctly? |
+| Recall | Were the necessary records selected with acceptable noise? |
+| Answer | Did the downstream agent complete the task from allowed context? |
+
+## 3. Freeze configuration
+
+Record code commit, model/provider versions, prompts, filters, storage adapter,
+top-k, score floors, judge rubric, and retry policy. Save item-level outputs and
+search traces so a changed aggregate score can be diagnosed.
+
+## 4. Add operational gates
+
+Measure provider calls, input/output tokens, p50/tail latency, failure rate,
+event completion, and index visibility. A higher recall score can still be a
+bad release if it requires impractical context or fails unpredictably.
+
+Use FishMem's public benchmark harnesses as examples—not as a substitute for
+your acceptance set.

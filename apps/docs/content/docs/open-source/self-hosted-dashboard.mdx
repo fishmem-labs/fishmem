@@ -44,12 +44,13 @@ The bundled Compose stack is the shortest complete self-host path.
 ```bash
 git clone https://github.com/fishmem-labs/fishmem
 cd fishmem
-cp apps/web/.env.example .env
+cp .env.example .env
 ```
 
-Set at least `OPENAI_API_KEY`, `BETTER_AUTH_SECRET`, `FISHMEM_SETUP_TOKEN`, and
-`CRON_SECRET` in the root `.env`, then start the web process and durable task
-poller:
+Set `OPENAI_API_KEY`, `BETTER_AUTH_SECRET`, `FISHMEM_SETUP_TOKEN`, and
+`CRON_SECRET` to distinct non-placeholder values in the root `.env`. Compose
+fails closed when the three application secrets are absent. Then start the web
+process and durable task poller:
 
 ```bash
 docker compose up -d web task-worker
@@ -275,11 +276,10 @@ submit/status/result endpoints. The D1 task row—not the Queue or Container
 instance—owns retries and terminal status.
 
 <Callout type="info">
-Self-hosting the control-plane gives you the same engine, dashboard, and API as
-[FishMem Cloud](/cloud). The difference is operations: the managed cloud handles
-billing, scaling, and updates for you and offers an SLA. Self-hosting means you
-run the Cloudflare resources, apply migrations on upgrade, and meter usage
-yourself.
+Self-hosting and [FishMem Cloud](/cloud) share the same memory engine and public
+memory contract. Cloud additionally operates billing, scaling, updates, and
+hosted organization features. Self-hosting means you operate resources, apply
+migrations on upgrade, and monitor usage yourself.
 </Callout>
 
 ## Next steps

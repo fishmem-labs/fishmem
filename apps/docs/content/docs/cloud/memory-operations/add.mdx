@@ -38,10 +38,17 @@ curl https://fishmem.com/v1/memories \
 | --- | --- |
 | `content` | One self-contained memory |
 | `messages` | A role-tagged conversation to extract, or multiple verbatim records when `infer=false` |
+| `event_date` | Optional ISO 8601 time when the fact occurred or became true |
 
 Send one form, not both. Applications should normally summarize a durable
 conclusion before writing rather than automatically storing every transcript
 turn.
+
+`event_date` is useful for trusted imports and explicitly dated facts. With
+`infer:false`, FishMem assigns it directly to the verbatim record and starts the
+record's validity interval there. With inference enabled, it is a fallback when
+extraction does not find a more specific event time. Do not invent a date when
+the source does not establish one.
 
 ## Inference
 

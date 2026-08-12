@@ -7,10 +7,21 @@ Notable changes to the FishMem engine, hosted cloud, SDKs, and documentation.
 Dates are in UTC. For the engine's full commit history, see
 [github.com/fishmem-labs/fishmem](https://github.com/fishmem-labs/fishmem).
 
-<Callout type="info">
-  FishMem is launching. Treat early entries as the initial public release rather
-  than a long-running changelog.
-</Callout>
+## 2026-08 — FishMem 0.2.0
+
+- **Desktop recovery:** export a portable namespace backup and restore the
+  complete local library with format validation and automatic rollback.
+- **Desktop release evidence:** the packaged macOS app now waits for local
+  embeddings and exercises add, search, get, update, history, and delete through
+  the embedded CLI before an artifact is accepted.
+- **Release provenance:** Desktop manifests record the source commit; hosted
+  deployments pin the open-core revision and record the Cloud source revision.
+- **Security hardening:** patched dependency lines, fail-closed self-host
+  secrets, Cloud security headers, required Worker secrets, and removal of
+  unused macOS privacy/transport exceptions.
+- **Documentation:** expanded guides for operations, source RAG, scope and
+  filters, organizations, portability, security, production rollout,
+  integrations, and evaluation.
 
 ## 2026-08 — Python SDK 0.1.0
 
@@ -49,9 +60,9 @@ Dates are in UTC. For the engine's full commit history, see
 - **`fishmem` engine** open-sourced under Apache-2.0 at
   [github.com/fishmem-labs/fishmem](https://github.com/fishmem-labs/fishmem) —
   hybrid graph + vector recall with bi-temporal facts.
-- **Benchmarks** published on a shared, open harness against mem0 OSS (TS):
-  62.2% vs 54.5% overall recall, with the largest gap on temporal questions
-  (69.8% vs 28.3%). Methodology and judge are open-sourced.
+- **Benchmark harnesses** published with frozen configuration and item-level
+  reports. Treat those results as reproducible project evidence, not a guarantee
+  for a different provider, dataset, or production workload.
 - **Documentation** site launched at [docs.fishmem.com](https://docs.fishmem.com)
   covering the cloud, the open-source engine, cookbooks, integrations, agent
   plugins, and the full API reference.

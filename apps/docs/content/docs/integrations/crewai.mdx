@@ -1,0 +1,39 @@
+---
+title: CrewAI
+description: Give a multi-agent crew shared evidence without mixing agent identity and user scope.
+---
+
+[CrewAI](https://docs.crewai.com/) can coordinate several roles around one
+task. Keep three identities distinct:
+
+- the authenticated customer or account (`user_id`);
+- the durable crew/role identity (`agent_id`);
+- the current kickoff/execution (`run_id`).
+
+Before kickoff, search user and role scope for the current objective and load
+Documents for source-backed context. After kickoff, write only verified
+decisions or outcomes; intermediate role chatter belongs in execution state.
+
+```python
+context = client.memories.search({
+    "query": objective,
+    "user_id": authenticated_user_id,
+    "agent_id": "research-crew",
+    "top_k": 6,
+})
+
+# Run the crew with a labeled summary of context["results"].
+
+if verified_outcome:
+    receipt = client.memories.add_async(
+        {
+            "content": verified_outcome,
+            "user_id": authenticated_user_id,
+            "agent_id": "research-crew",
+        },
+        idempotency_key=f"crew:{execution_id}:outcome",
+    )
+```
+
+Persist the returned event ID with the crew execution rather than blocking an
+interactive response on inference completion.

@@ -1,13 +1,18 @@
 {
-  "root": true,
-  "title": "Cookbooks",
-  "description": "End-to-end recipes for building memory-backed agents.",
-  "pages": [
-    "index",
-    "document-rag",
-    "support-agent",
-    "coding-agent",
-    "personal-assistant",
-    "companion"
-  ]
+	"root": true,
+	"title": "Cookbooks",
+	"description": "End-to-end recipes for building memory-backed agents.",
+	"pages": [
+		"index",
+		"document-rag",
+		"multi-tenant-saas",
+		"memory-evaluation",
+		"migration-rollout",
+		"temporal-profile",
+		"production-operations",
+		"support-agent",
+		"coding-agent",
+		"personal-assistant",
+		"companion"
+	]
 }

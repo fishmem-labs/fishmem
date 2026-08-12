@@ -1,0 +1,45 @@
+---
+title: Exports and portability
+description: Export authoritative namespace state and rebuild derived projections.
+---
+
+FishMem namespace snapshots are a versioned portability contract, not a raw
+database dump.
+
+## Snapshot contents
+
+A snapshot retains canonical:
+
+- memories and their history;
+- structural and named entities plus associations;
+- episodes and source Documents;
+- document heads and deterministic chunks;
+- durable operations and journal events.
+
+Vector and sidecar projections are marked `rebuild-required`. Their contents
+can depend on a deployment adapter or model, so exporting them as authority
+would make the snapshot less portable.
+
+## Import safety
+
+Import validates the snapshot format, version, namespace ownership, dates, and
+references. A normal import requires an empty target namespace and an
+idempotency key. This prevents a partial merge from silently rewriting existing
+state.
+
+Desktop restore adds a replacement workflow around the same format: validate,
+capture the current snapshot, purge, import, and automatically restore the
+previous snapshot if import fails.
+
+## Operational use
+
+- export before a deployment migration or destructive maintenance;
+- retain the application release and embedding configuration with the backup;
+- restore into staging first;
+- rebuild projections and run representative recall checks;
+- verify Documents and history, not only the visible memory count.
+
+<Cards>
+  <Card title="Export/import API" href="/api-reference/export-import" description="Exact commands, idempotency, and validation behavior." />
+  <Card title="Desktop SDK" href="/sdk/desktop" description="Local backup, restore, and machine bridge." />
+</Cards>
