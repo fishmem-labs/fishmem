@@ -51,6 +51,24 @@ export const DEFAULT_IMPORTANCE: Record<MemoryType, number> = {
 };
 
 /** A single memory record — the node in the memory graph. */
+export interface BeliefProjectionHint {
+  version: 1;
+  origin: "inferred";
+  applicability: import("./core/belief-reconciler.js").StoredApplicabilityContext;
+  /** Semantic assertion value frozen by the one-pass extractor. */
+  claimValue?: string;
+  evidenceKey: string;
+  contextId: string;
+  weight: number;
+}
+
+/** Internal, JSON-safe inputs required to rebuild optional projections without
+ * another LLM call. Kept separate from user metadata and stripped from hosted
+ * REST memory/snapshot wire objects. */
+export interface MemoryProjectionHints {
+  belief?: BeliefProjectionHint;
+}
+
 export interface Memory {
   /** UUID. */
   id: string;
@@ -72,6 +90,8 @@ export interface Memory {
   source?: string;
   /** Arbitrary structured metadata stored alongside the memory (mem0 parity). */
   metadata?: Record<string, unknown>;
+  /** Frozen, implementation-owned projection inputs. */
+  projectionHints?: MemoryProjectionHints;
 
   createdAt: Date;
   updatedAt: Date;

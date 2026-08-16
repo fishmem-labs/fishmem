@@ -42,7 +42,7 @@ Key 决定项目边界并在数据层限制所有资源。它必须留在服务�
 | 记忆或文档搜索 | 1 |
 | 直接文档写入 | 每个预计分块 1 |
 | 文件提取 | 每开始 5 MB 50，再加每个预计分块 1 |
-| 读取、列表、历史 | 免费 |
+| 读取、列表、历史、受治理信念视图 | 免费 |
 | 实体读取/移除、文档读取/删除 | 免费 |
 | 更新、删除、批量更新/删除 | 免费 |
 
@@ -61,7 +61,7 @@ Key 决定项目边界并在数据层限制所有资源。它必须留在服务�
 | 单条读取/更新/删除 | `GET/PUT/DELETE /v1/memories/{id}` |
 | 作用域删除 | `DELETE /v1/memories` |
 | 历史/反馈 | `/v1/memories/{id}/history`、`/feedback` |
-| 状态/画像 | `/v1/state`、`/v1/profile` |
+| 状态/信念/画像 | `/v1/state`、[`/v1/beliefs`](/zh/api-reference/beliefs)、`/v1/profile` |
 | 操作 | `/v1/operations[/{id}]` |
 | 导出/导入 | `POST /v1/exports`、`POST /v1/imports` |
 | OpenAPI | `GET /v1/openapi.json` |

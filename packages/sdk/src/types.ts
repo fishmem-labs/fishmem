@@ -4,6 +4,21 @@ export type MemoryScope = {
 	run_id?: string;
 };
 
+export type ApplicabilityKind =
+	| "global"
+	| "project"
+	| "task"
+	| "conversation"
+	| "channel"
+	| "custom";
+
+export type ApplicabilityContext = {
+	kind: ApplicabilityKind;
+	key?: string;
+	valid_from?: string;
+	valid_to?: string;
+};
+
 /** Structural memory owner; distinct from a named entity in the memory graph. */
 export type ScopeEntityType = "user" | "agent" | "run";
 
@@ -579,6 +594,73 @@ export type StateSlot = {
 	valid_to: string | null;
 	superseded_by: string | null;
 	source_ids: string[];
+};
+
+export type BeliefViewMode = "default" | "conflict" | "audit";
+
+export type BeliefQuery = MemoryScope & {
+	subject: string;
+	attribute: string;
+	view?: BeliefViewMode;
+	applicability_kind?: ApplicabilityKind;
+	applicability_key?: string;
+	at?: string;
+	all_applicability?: boolean;
+};
+
+export type BeliefEvidence = {
+	id: string;
+	source_id: string;
+	evidence_key: string;
+	context_id: string;
+	applicability: ApplicabilityContext;
+	observed_at: string;
+	valid_from: string;
+	valid_to: string | null;
+	weight: number;
+	active: boolean;
+};
+
+export type BeliefCandidate = {
+	id: string;
+	subject: string;
+	attribute: string;
+	value: string;
+	applicability: ApplicabilityContext;
+	status: "supported" | "contested" | "superseded";
+	score: number;
+	support: number;
+	evidence_count: number;
+	context_count: number;
+	source_ids: string[];
+	first_observed_at: string;
+	last_observed_at: string;
+	superseded_by: string | null;
+	reason_codes: string[];
+	evidence?: BeliefEvidence[];
+};
+
+export type BeliefView = {
+	projection_status: "ready" | "disabled";
+	mode: BeliefViewMode;
+	subject: string;
+	attribute: string;
+	applicability: ApplicabilityContext;
+	winner: BeliefCandidate | null;
+	candidates: BeliefCandidate[];
+	unresolved: boolean;
+	reason_codes: string[];
+	shadow: {
+		outcome:
+			| "agreement"
+			| "disagreement"
+			| "state_only"
+			| "belief_only"
+			| "unresolved"
+			| "empty";
+		state: StateSlot | null;
+		winner_id: string | null;
+	};
 };
 
 export type ProfileQuery = MemoryScope & {

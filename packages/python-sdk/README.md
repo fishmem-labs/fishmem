@@ -59,6 +59,23 @@ Event receipt immediately, `events.wait(...)` polls it, and
 already-distilled `infer=False` add remains synchronous. Both sync and async
 clients expose `events.list`, `events.get`, and `events.wait`.
 
+Hosted/self-hosted HTTP clients can inspect the opt-in governed shadow
+projection without changing state or recall:
+
+```python
+view = fishmem.beliefs.get(
+    {
+        "user_id": "alex",
+        "subject": "Alex",
+        "attribute": "answer_style",
+        "view": "audit",
+    }
+)
+```
+
+The async form is `await fishmem.beliefs.get(...)`. This resource is not part
+of the local Desktop CLI surface.
+
 `memories.batch_update(...)` and `memories.batch_delete(...)` queue up to 1,000
 selected mutations and return an operation with ordered per-item results. Both
 require `idempotency_key`; the same methods work through `FishMemDesktop` in

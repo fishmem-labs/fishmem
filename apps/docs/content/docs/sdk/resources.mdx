@@ -1,6 +1,6 @@
 ---
-title: State, profile, and operations
-description: Use health, derived state, profile, operations, export, and import resources.
+title: State, beliefs, profile, and operations
+description: Use health, derived state, governed beliefs, profile, operations, export, and import resources.
 ---
 
 ## Health
@@ -36,6 +36,23 @@ const timeline = await fishmem.state.history({
 
 `current` is `StateSlot | null`; `timeline` is oldest first. Every slot exposes
 `source_ids` pointing to canonical records.
+
+## Governed beliefs
+
+```ts
+const view = await fishmem.beliefs.get({
+  user_id: "ada",
+  subject: "Ada",
+  attribute: "editor_theme",
+  view: "audit",
+});
+```
+
+`beliefs.get()` reads the opt-in shadow projection; it does not change state or
+ordinary recall. `default` exposes only a supported winner, `conflict` also
+shows active competitors, and `audit` includes evidence provenance and inactive
+rows. `projection_status: "disabled"` is expected when rollout controls are
+off.
 
 ## Profile
 
@@ -126,4 +143,5 @@ const importOperation = await fishmem.imports.create(
 
 Export/import idempotency options are required by the TypeScript type system.
 
+For the full belief lifecycle, see [Governed belief views](/api-reference/beliefs).
 For source RAG, use the dedicated [Document methods](/sdk/documents) resource.

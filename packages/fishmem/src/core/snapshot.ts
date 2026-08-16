@@ -8,7 +8,9 @@ import type {
   Episode,
   HistoryEntry,
   Memory,
+  MemoryProjectionHints,
 } from "../types.js";
+import { APPLICABILITY_KINDS } from "./belief-reconciler.js";
 import type { MemoryJournalEvent, MemoryOperation } from "./journal.js";
 
 export const SNAPSHOT_FORMAT = "fishmem.namespace-snapshot" as const;
@@ -72,6 +74,8 @@ export interface NamespaceSnapshotV1 {
   projections: {
     sidecar: "rebuild-required";
     vectors: "rebuild-required";
+    /** Additive in v1 so snapshots produced before this projection still load. */
+    beliefs?: "rebuild-required";
   };
   data: {
     memories: SnapshotMemory[];
@@ -103,6 +107,7 @@ export function createNamespaceSnapshot(
     projections: {
       sidecar: "rebuild-required",
       vectors: "rebuild-required",
+      beliefs: "rebuild-required",
     },
     data: {
       memories: data.memories
@@ -259,6 +264,105 @@ export function parseNamespaceSnapshot(
   };
   const optionalDate = (input: unknown, field: string) =>
     input === undefined ? undefined : date(input, field);
+  const projectionHints = (
+    input: unknown,
+    field: string,
+  ): MemoryProjectionHints | undefined => {
+    if (input === undefined) return undefined;
+    const hints = record(input, field);
+    if (hints.belief === undefined) return undefined;
+    const belief = record(hints.belief, `${field}.belief`);
+    if (belief.version !== 1 || belief.origin !== "inferred") {
+      throw new TypeError(
+        `${field}.belief has an unsupported version or origin`,
+      );
+    }
+    const applicability = record(
+      belief.applicability,
+      `${field}.belief.applicability`,
+    );
+    if (
+      typeof applicability.kind !== "string" ||
+      !APPLICABILITY_KINDS.includes(applicability.kind as never)
+    ) {
+      throw new TypeError(`${field}.belief.applicability.kind is invalid`);
+    }
+    const key =
+      applicability.key === undefined
+        ? undefined
+        : id(applicability.key, `${field}.belief.applicability.key`);
+    if (applicability.kind === "global" && key) {
+      throw new TypeError(
+        `${field}.belief global applicability must not have a key`,
+      );
+    }
+    if (applicability.kind !== "global" && !key) {
+      throw new TypeError(
+        `${field}.belief ${applicability.kind} applicability requires a key`,
+      );
+    }
+    const applicabilityValidFrom = applicability.validFrom as unknown;
+    const applicabilityValidTo = applicability.validTo as unknown;
+    if (applicabilityValidFrom !== undefined) {
+      date(applicabilityValidFrom, `${field}.belief.applicability.validFrom`);
+    }
+    if (applicabilityValidTo !== undefined) {
+      date(applicabilityValidTo, `${field}.belief.applicability.validTo`);
+    }
+    if (
+      typeof applicabilityValidFrom === "string" &&
+      typeof applicabilityValidTo === "string" &&
+      Date.parse(applicabilityValidTo) <= Date.parse(applicabilityValidFrom)
+    ) {
+      throw new TypeError(
+        `${field}.belief applicability.validTo must be after validFrom`,
+      );
+    }
+    const evidenceKey = id(belief.evidenceKey, `${field}.belief.evidenceKey`);
+    const contextId = id(belief.contextId, `${field}.belief.contextId`);
+    if (
+      typeof belief.weight !== "number" ||
+      !Number.isFinite(belief.weight) ||
+      belief.weight <= 0 ||
+      belief.weight > 1
+    ) {
+      throw new TypeError(`${field}.belief.weight must be within (0, 1]`);
+    }
+    const claimValue =
+      belief.claimValue === undefined
+        ? undefined
+        : id(belief.claimValue, `${field}.belief.claimValue`);
+    const retargetedKey =
+      applicability.kind === "project" && key === sourceNamespaceId
+        ? targetNamespaceId
+        : key;
+    const retargetedContextId =
+      applicability.kind === "project" &&
+      key === sourceNamespaceId &&
+      contextId === sourceNamespaceId
+        ? targetNamespaceId
+        : contextId;
+    return {
+      belief: {
+        version: 1,
+        origin: "inferred",
+        applicability: {
+          kind: applicability.kind as (typeof APPLICABILITY_KINDS)[number],
+          ...(retargetedKey ? { key: retargetedKey } : {}),
+          ...(typeof applicabilityValidFrom === "string"
+            ? { validFrom: applicabilityValidFrom }
+            : {}),
+          ...(typeof applicabilityValidTo === "string"
+            ? { validTo: applicabilityValidTo }
+            : {}),
+        },
+        ...(claimValue ? { claimValue } : {}),
+        evidenceKey,
+        contextId: retargetedContextId,
+        weight: belief.weight,
+      },
+    };
+  };
   const memoryIds = new Set(
     data.memories.map((row, index) =>
       id(record(row, `memory[${index}]`).id, `memory[${index}].id`),
@@ -374,6 +478,10 @@ export function parseNamespaceSnapshot(
       }
       return {
         ...memory,
+        projectionHints: projectionHints(
+          memory.projectionHints,
+          `memory[${index}].projectionHints`,
+        ),
         createdAt: date(memory.createdAt, "memory.createdAt"),
         updatedAt: date(memory.updatedAt, "memory.updatedAt"),
         lastAccessedAt: date(memory.lastAccessedAt, "memory.lastAccessedAt"),

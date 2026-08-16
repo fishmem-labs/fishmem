@@ -21,12 +21,22 @@ commit canonical records + journal
         │
         ├──► lexical projection
         ├──► semantic vector projection
-        └──► optional derived state
+        ├──► optional derived state
+        └──► optional governed belief evidence
 ```
 
 Canonical records commit before optional derived work. Vector and derived
 projections may run inline or deferred, but they cannot rewrite canonical
 memory. An inferred add never also archives a raw canonical copy.
+
+The shadow rollout leaves the existing state path unchanged so paired results
+remain comparable: state may still supersede immediately, while inferred
+preferences are independently replayed into an opt-in evidence projection.
+There they compete within an applicability context and become `supported` only
+after policy thresholds are met. The belief result does not yet govern state or
+recall. Conflicts remain visible; they do not silently choose the newest
+statement or fall back to a global value while contextual evidence is
+unresolved.
 
 The operation journal tracks projection status so operators can distinguish a
 fully indexed write from a stored write that still needs repair or retry.
@@ -102,7 +112,14 @@ than silently substituting unrelated behavior.
 | Keyword index | No | Yes |
 | Vector index | No | Yes |
 | Derived state sidecar | No | Yes |
+| Governed belief evidence | No | Yes |
 | Source chunks and retrieval vectors | No | Yes |
+
+The belief layer is a context-governance projection, not another memory store.
+Its relational evidence rows keep canonical source IDs, independent evidence
+keys, context IDs, weights, and validity windows. Update, invalidation, delete,
+purge, and portable restore invalidate or rebuild it. The default recall path
+does not consume the projection.
 
 ## Desktop
 

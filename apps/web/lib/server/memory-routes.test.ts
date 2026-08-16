@@ -22,6 +22,7 @@ import {
   getScopeEntity,
   listScopeEntities,
 } from "./memory-api";
+import { sanitizePublicSnapshot } from "./public-snapshot";
 
 function dependencies() {
   const memory = {
@@ -57,6 +58,46 @@ function dependencies() {
       userId: "ada",
       createdAt: new Date("2026-07-13T00:00:00.000Z"),
       updatedAt: new Date("2026-07-13T00:00:00.000Z"),
+    }),
+    getBeliefView: vi.fn().mockResolvedValue({
+      projectionStatus: "ready",
+      mode: "audit",
+      subject: "Ada",
+      attribute: "editor_theme",
+      applicability: { kind: "project", key: "ws_1" },
+      winner: {
+        id: "belief_1",
+        subject: "Ada",
+        attribute: "editor_theme",
+        value: "dark",
+        applicability: { kind: "project", key: "ws_1" },
+        status: "supported",
+        score: 3,
+        support: 1,
+        evidenceCount: 3,
+        contextCount: 3,
+        sourceIds: ["mem_1"],
+        firstObservedAt: new Date("2026-07-01T00:00:00.000Z"),
+        lastObservedAt: new Date("2026-07-03T00:00:00.000Z"),
+        reasonCodes: ["policy_thresholds_met"],
+        evidence: [
+          {
+            id: "belief_ev_1",
+            sourceId: "mem_1",
+            evidenceKey: "add_1",
+            contextId: "run_1",
+            applicability: { kind: "project", key: "ws_1" },
+            observedAt: new Date("2026-07-01T00:00:00.000Z"),
+            validFrom: new Date("2026-07-01T00:00:00.000Z"),
+            weight: 1,
+            active: true,
+          },
+        ],
+      },
+      candidates: [],
+      unresolved: false,
+      reasonCodes: ["contextual_override"],
+      shadow: { outcome: "belief_only", winnerId: "belief_1" },
     }),
     getFeedback: vi.fn().mockResolvedValue(null),
     setFeedback: vi.fn().mockResolvedValue({
@@ -1003,6 +1044,33 @@ describe("authenticated public memory routes", () => {
     });
   });
 
+  it("strips implementation-owned belief hints at the public snapshot boundary", () => {
+    const sanitized = sanitizePublicSnapshot({
+      format: "fishmem.namespace-snapshot",
+      version: 1,
+      data: {
+        memories: [
+          {
+            id: "mem_1",
+            content: "Ada prefers tea",
+            projectionHints: {
+              belief: {
+                evidenceKey: "forged",
+                contextId: "forged",
+                weight: 1,
+              },
+            },
+          },
+        ],
+      },
+    }) as { data: { memories: Array<Record<string, unknown>> } };
+
+    expect(sanitized.data.memories[0]).toEqual({
+      id: "mem_1",
+      content: "Ada prefers tea",
+    });
+  });
+
   it("rejects an invalid idempotency key before writing", async () => {
     const { memory, runtime } = dependencies();
     const response = await addMemories(
@@ -1107,6 +1175,44 @@ describe("authenticated public memory routes", () => {
     );
     expect(notifyTask).toHaveBeenCalledWith("task_infer");
     expect(engine.forNamespace).not.toHaveBeenCalled();
+  });
+
+  it("serves the governed belief audit shape through the dashboard adapter", async () => {
+    const { engine, memory } = dependencies();
+    const request = new Request(
+      "https://fishmem.test/api/app/memories/beliefs?workspace=ws_1&user_id=ada&subject=Ada&attribute=editor_theme&view=audit",
+    );
+    const response = await appMemoriesHandler(
+      request,
+      ["memories", "beliefs"],
+      new URL(request.url),
+      {} as never,
+      { workspaces: [{ documentId: "ws_1" }] },
+      async () => engine as never,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        projection_status: "ready",
+        winner: {
+          id: "belief_1",
+          evidence: [
+            {
+              source_id: "mem_1",
+              applicability: { kind: "project", key: "ws_1" },
+              active: true,
+            },
+          ],
+        },
+        shadow: { outcome: "belief_only", winner_id: "belief_1" },
+      },
+    });
+    expect(memory.getBeliefView).toHaveBeenCalledWith(
+      "Ada",
+      "editor_theme",
+      expect.objectContaining({ userId: "ada", mode: "audit" }),
+    );
   });
 
   it("serves dashboard scope entities from the canonical application", async () => {

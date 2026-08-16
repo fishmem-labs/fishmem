@@ -1,0 +1,103 @@
+---
+title: 受治理的信念视图
+description: 在不改写规范记忆的前提下，检查自动推断偏好的 supported、contested 与 superseded 状态。
+---
+
+`GET /v1/beliefs` 读取一个可选、可重建的 shadow 投影。它用于需要先积累证据再采信的自动推断偏好或工作规则，不替代显式状态，不改写规范记录，也不影响普通搜索结果。
+
+## 查询参数
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `user_id`、`agent_id` 或 `run_id` | string | 至少一个已认证记忆作用域 |
+| `subject` | string | 主题，例如 `Ada` |
+| `attribute` | string | 稳定属性键，例如 `editor_theme` |
+| `view` | `default`、`conflict`、`audit` | 默认 `conflict` |
+| `applicability_kind` | `global`、`project`、`task`、`conversation`、`channel`、`custom` | 可选语义适用场景 |
+| `applicability_key` | string | 除 global 外都必填 |
+| `at` | ISO 时间 | 在指定时间判断证据与适用窗口 |
+| `all_applicability` | boolean | 仅 audit 可用，跨全部适用场景审计 |
+
+```bash
+curl -G https://fishmem.com/v1/beliefs \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  --data-urlencode "user_id=ada" \
+  --data-urlencode "subject=Ada" \
+  --data-urlencode "attribute=editor_theme" \
+  --data-urlencode "view=audit"
+```
+
+## 响应
+
+```json
+{
+  "data": {
+    "projection_status": "ready",
+    "mode": "audit",
+    "subject": "Ada",
+    "attribute": "editor_theme",
+    "applicability": { "kind": "project", "key": "workspace_123" },
+    "winner": {
+      "id": "belief_...",
+      "subject": "Ada",
+      "attribute": "editor_theme",
+      "value": "dark mode",
+      "applicability": { "kind": "project", "key": "workspace_123" },
+      "status": "supported",
+      "score": 3,
+      "support": 1,
+      "evidence_count": 3,
+      "context_count": 3,
+      "source_ids": ["mem_1", "mem_2", "mem_3"],
+      "first_observed_at": "2026-08-01T00:00:00.000Z",
+      "last_observed_at": "2026-08-15T00:00:00.000Z",
+      "superseded_by": null,
+      "reason_codes": ["policy_thresholds_met"],
+      "evidence": [
+        {
+          "id": "belief_ev_...",
+          "source_id": "mem_1",
+          "evidence_key": "add:...",
+          "context_id": "run_1",
+          "applicability": {
+            "kind": "project",
+            "key": "workspace_123"
+          },
+          "observed_at": "2026-08-01T00:00:00.000Z",
+          "valid_from": "2026-08-01T00:00:00.000Z",
+          "valid_to": null,
+          "weight": 1,
+          "active": true
+        }
+      ]
+    },
+    "candidates": [],
+    "unresolved": false,
+    "reason_codes": ["contextual_override"],
+    "shadow": {
+      "outcome": "agreement",
+      "state": null,
+      "winner_id": "belief_..."
+    }
+  }
+}
+```
+
+`winner` 是达到治理阈值的候选；`candidates` 保留竞争项；`source_ids` 指回规范记录；audit 视图还会返回每条 evidence 的独立键、上下文、有效时间、权重与 active 状态。`shadow.outcome` 说明结果与显式 state 是一致、冲突、仅一侧存在，还是仍未决。
+
+`projection_status: "disabled"` 是正常状态，表示 rollout 尚未启用、命名空间不在 allowlist，或运行时 kill switch 已开启。
+
+## 生命周期与安全边界
+
+- `default` 只返回 supported winner，隐藏未决候选。
+- `conflict` 返回活跃竞争项，但不展开 evidence 行。
+- `audit` 返回失效证据、来源与机器可读 reason codes。
+- 同一 evidence key 的回声只计一次；一个 key 同时声称两个活跃值时会被隔离，并发写入也一样。
+- 同一 applicability kind/key 的证据只要有效时间窗重叠就会进入同一竞争簇，不会因窗口不同产生多个平行 winner。
+- 当前场景已有未决冲突时，不允许用 global 候选静默兜底；只有当前场景没有活跃证据或证据已过期，才允许 global fallback。
+- 公开写入不能指定 evidence key、权重或 applicability。这些值由已认证作用域与一次提取中冻结的计划生成，模型不能靠伪造 metadata 制造“独立证据”。
+- 显式 update、invalidate、delete 与命名空间 purge 会清理或失效 shadow 投影。可信引擎快照保留重建 hint；公开 REST export/import 会清洗这些实现内部字段，客户端不能借导入伪造 evidence identity、权重或 applicability。
+
+默认策略要求 3 个独立 evidence key、3 个不同 context、至少 0.6 的加权支持度，以及领先第二名 1 个权重点。这只是可配置的策略默认值，不是普适定律。在自己的 paired evaluation 通过前，应保持 shadow-only。
+
+启用方式见[开源配置](/zh/open-source/configuration)。

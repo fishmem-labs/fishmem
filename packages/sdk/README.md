@@ -90,6 +90,7 @@ The client also exposes:
 - `entities.list`, `entities.listAll`, `entities.get`, and idempotent
   `entities.delete` for structural user, agent, and run scopes;
 - `state.get` and `state.history`;
+- `beliefs.get` for the opt-in governed shadow projection;
 - `profile.get`;
 - `operations.list`, `operations.get`, and `operations.wait`;
 - `events.list`, `events.get`, and `events.wait` for privacy-safe memory

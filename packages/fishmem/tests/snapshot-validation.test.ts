@@ -36,6 +36,17 @@ function richSnapshot(): NamespaceSnapshotV1 {
           accessCount: 1,
           forgotten: false,
           tier: "graph",
+          projectionHints: {
+            belief: {
+              version: 1,
+              origin: "inferred",
+              applicability: { kind: "project", key: "source" },
+              claimValue: "likes tea",
+              evidenceKey: "add-1",
+              contextId: "conversation-1",
+              weight: 0.8,
+            },
+          },
           episodeId: "episode-1",
           supersededBy: "memory-2",
         },
@@ -174,6 +185,15 @@ describe("namespace snapshot validation", () => {
       eventDate: new Date(ISO),
       validFrom: new Date(ISO),
       validTo: new Date(ISO),
+      projectionHints: {
+        belief: {
+          applicability: { kind: "project", key: "target" },
+          claimValue: "likes tea",
+          evidenceKey: "add-1",
+          contextId: "conversation-1",
+          weight: 0.8,
+        },
+      },
     });
     expect(parsed.documents[0]?.namespaceId).toBe("target");
     expect(parsed.documentHeads[0]?.namespaceId).toBe("target");
@@ -354,5 +374,32 @@ describe("namespace snapshot validation", () => {
         testCase.message,
       );
     }
+  });
+
+  it("validates implementation-owned belief projection hints", () => {
+    const invalidKind = richSnapshot();
+    (
+      invalidKind.data.memories[0]!.projectionHints!.belief!.applicability as {
+        kind: string;
+      }
+    ).kind = "forged";
+    expect(() => parseNamespaceSnapshot(invalidKind, "target")).toThrow(
+      "applicability.kind is invalid",
+    );
+
+    const invalidWeight = richSnapshot();
+    invalidWeight.data.memories[0]!.projectionHints!.belief!.weight = 2;
+    expect(() => parseNamespaceSnapshot(invalidWeight, "target")).toThrow(
+      "weight must be within (0, 1]",
+    );
+
+    const globalWithKey = richSnapshot();
+    globalWithKey.data.memories[0]!.projectionHints!.belief!.applicability = {
+      kind: "global",
+      key: "forged",
+    };
+    expect(() => parseNamespaceSnapshot(globalWithKey, "target")).toThrow(
+      "global applicability must not have a key",
+    );
   });
 });

@@ -9,7 +9,16 @@ FishMem 维护两套 HTTP SDK 与一套语言无关的 Desktop CLI 契约：
 - 同步与异步 Python：`fishmem`；
 - 两种 SDK 都可包装 `fishmem call` 本地桥接。
 
-TypeScript HTTP 客户端只使用标准 Web API：`fetch`、`Headers`、`URL` 与 `AbortSignal`，无需平台适配器即可运行于 Node.js、Bun、Deno、Cloudflare Workers 和 Vercel。Desktop 子路径是 Node 专用，因为它调用本地 CLI。
+TypeScript HTTP 客户端只使用标准 Web API：`fetch`、`Headers`、`URL` 与 `AbortSignal`，无需平台适配器即可运行于：
+
+- Node.js 20 及以上版本
+- Bun
+- Deno
+- Cloudflare Workers
+- Vercel Functions 与 Edge Functions
+- 其他兼容 WinterCG 的 Serverless Runtime
+
+Desktop 子路径是 Node 专用，因为它调用本地 CLI。
 
 ```bash
 npm install @fishmem/sdk
@@ -20,11 +29,26 @@ pip install fishmem
 import { FishMem } from "@fishmem/sdk";
 
 const fishmem = new FishMem({ apiKey: process.env.FISHMEM_API_KEY! });
+
+const { results } = await fishmem.memories.search({
+  query: "这位用户偏好怎样的回答？",
+  user_id: "alex",
+  top_k: 5,
+});
 ```
+
+同一 SDK 同时支持 FishMem Cloud 与自托管的 `apps/web`；自托管时设置 `baseUrl`。
+
+长文本和文件使用独立的 `fishmem.documents` 资源。直接文本摄取是同步的；PDF、Office、EPUB、邮件、图片与文本文件上传会进入持久化提取队列。原始文件保持为规范来源，提取后的 Markdown、分块与向量都是可重建的检索投影。
 
 <Cards>
   <Card title="快速开始" href="/zh/sdk/quickstart" description="写入并召回第一条记忆。" />
-  <Card title="客户端配置" href="/zh/sdk/client" description="身份、URL、Fetch、响应头与取消。" />
-  <Card title="记忆方法" href="/zh/sdk/memories" description="完整记忆生命周期。" />
+  <Card title="异步推断事件" href="/zh/api-reference/events" description="排队执行提取，并轮询持久化、隐私安全的结果。" />
   <Card title="Python SDK" href="/zh/sdk/python" description="同步、异步与 Desktop 客户端。" />
+  <Card title="Desktop SDK" href="/zh/sdk/desktop" description="通过 fishmem CLI 连接正在运行的本地应用。" />
+  <Card title="作用域实体" href="/zh/sdk/entities" description="浏览并删除 user、agent 与 run 等结构化记忆所有者。" />
+  <Card title="文档方法" href="/zh/sdk/documents" description="同步摄取文本或异步提取文件，再检索可引用证据。" />
+  <Card title="Runtime 指南" href="/zh/sdk/runtimes" description="Node、Bun、Deno、Cloudflare 与 Vercel 示例。" />
+  <Card title="全部资源" href="/zh/sdk/resources" description="State、受治理信念、Profile、Operation、导出与导入。" />
+  <Card title="错误与幂等" href="/zh/sdk/errors-and-idempotency" description="构建安全的生产请求处理。" />
 </Cards>

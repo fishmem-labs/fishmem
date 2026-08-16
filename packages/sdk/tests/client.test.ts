@@ -730,6 +730,15 @@ describe("FishMem universal client", () => {
 				if (url.pathname === "/v1/state") {
 					return json({ data: null });
 				}
+				if (url.pathname === "/v1/beliefs") {
+					return json({
+						data: {
+							projection_status: "ready",
+							winner: null,
+							candidates: [],
+						},
+					});
+				}
 				if (url.pathname === "/v1/profile") {
 					return json({ data: "## Preferences" });
 				}
@@ -787,6 +796,14 @@ describe("FishMem universal client", () => {
 				attribute: "drink",
 			}),
 		).resolves.toEqual([]);
+		await expect(
+			client.beliefs.get({
+				user_id: "ada",
+				subject: "Ada",
+				attribute: "drink",
+				view: "audit",
+			}),
+		).resolves.toMatchObject({ projection_status: "ready", candidates: [] });
 		await expect(client.profile.get({ user_id: "ada" })).resolves.toBe(
 			"## Preferences",
 		);

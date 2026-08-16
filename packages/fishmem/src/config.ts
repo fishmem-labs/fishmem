@@ -1,3 +1,7 @@
+import type {
+  BeliefPolicy,
+  BeliefReconciler,
+} from "./core/belief-reconciler.js";
 import type { DocumentOriginalStore } from "./core/document-originals.js";
 import type { MaintenanceConfig } from "./core/maintenance.js";
 import type { SearchConfig } from "./core/search.js";
@@ -62,6 +66,7 @@ export type MemoryWarningCode =
   | "auto_associate_failed"
   | "typed_graph_failed"
   | "derivation_failed"
+  | "belief_reconciliation_failed"
   | "memory_vector_delete_failed"
   | "memory_vector_delete_by_filter_failed"
   | "document_vector_cleanup_failed"
@@ -153,6 +158,24 @@ export interface MemoryConfig {
      * Workers pass `ctx.waitUntil`.
      */
     hook?: (promise: Promise<unknown>) => void;
+    /**
+     * Opt-in shadow projection for inferred preferences / learned rules.
+     * It never changes canonical records or default recall. Evidence must pass
+     * the configured competition policy before a supported winner exists.
+     */
+    beliefs?: {
+      enabled?: boolean;
+      /** Persistent adapter in production; defaults to in-memory. */
+      reconciler?: BeliefReconciler;
+      /** Ignored when a preconfigured reconciler is supplied. */
+      policy?: Partial<BeliefPolicy>;
+      /** Eligible inferred record types. Default: preference only. */
+      memoryTypes?: MemoryType[];
+      /** Optional structural namespace rollout allowlist. */
+      namespaceAllowlist?: string[];
+      /** Return true to stop observation and reads at runtime. */
+      killSwitch?: () => boolean;
+    };
   };
   /** Overrides for hybrid-search defaults. */
   search?: Partial<SearchConfig>;

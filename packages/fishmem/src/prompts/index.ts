@@ -127,6 +127,16 @@ Respond with a single JSON object. Each fact is an object with:
 export const FACT_EXTRACTION_SYSTEM = `${LEGACY_FACT_EXTRACTION_POLICY}
 ${FACT_EXTRACTION_OUTPUT}`;
 
+/** Opt-in extension used only for governed-belief namespaces. Keeping it
+ * separate preserves the production extraction prompt byte-for-byte when the
+ * shadow projection is disabled or outside its rollout allowlist. */
+export const BELIEF_FACT_EXTRACTION_SYSTEM = `${FACT_EXTRACTION_SYSTEM}
+
+For this request, every fact object must also include "value": the concise
+semantic value asserted for subject+attribute. Preserve polarity and meaning
+while omitting redundant subject words (for example "Berlin", "likes tea",
+or "dislikes coffee"). Paraphrases of the same claim must use the same value.`;
+
 /**
  * Opt-in candidate for the selective-inference A/B gate. It uses the same
  * output schema and one-call write path as the production prompt.

@@ -16,6 +16,12 @@ describe("public API contract", () => {
     expect(api.buildExtractionMessages).toBeTypeOf("function");
     expect(api.FACT_EXTRACTION_SYSTEM).toContain("FISHMEM_TASK: extract");
     expect(api.FACT_EXTRACTION_SYSTEM).toContain("extract EVERY distinct fact");
+    expect(api.FACT_EXTRACTION_SYSTEM).not.toContain(
+      'must also include "value"',
+    );
+    expect(api.BELIEF_FACT_EXTRACTION_SYSTEM).toContain(
+      'must also include "value"',
+    );
     expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
       "The user's memory controls have highest priority",
     );

@@ -1,6 +1,6 @@
 ---
-title: 状态、画像与操作
-description: 使用健康、派生状态、画像、操作、导出与导入资源。
+title: 状态、信念、画像与操作
+description: 使用健康、派生状态、受治理信念、画像、操作、导出与导入资源。
 ---
 
 ## 健康状态
@@ -21,6 +21,19 @@ const profile = await fishmem.profile.get({ user_id: "ada", query: "communicatio
 ```
 
 状态时间线从旧到新，每个 slot 的 `source_ids` 指向规范记录。画像无 `query` 时返回字符串或 null，有查询时返回排序后的 section。它们都是有来源、可重建的派生视图。
+
+## 受治理的信念
+
+```ts
+const view = await fishmem.beliefs.get({
+  user_id: "ada",
+  subject: "Ada",
+  attribute: "editor_theme",
+  view: "audit",
+});
+```
+
+`beliefs.get()` 只读取可选 shadow 投影，不改写 state，也不影响普通召回。`default` 只暴露 supported winner；`conflict` 还显示活跃竞争项；`audit` 增加证据来源和已失效证据。rollout 未开启时返回 `projection_status:"disabled"` 是正常结果。
 
 ## 操作与事件
 
@@ -53,4 +66,4 @@ const imported = await fishmem.imports.create(
 );
 ```
 
-类型系统要求导出与导入提供幂等键。来源 RAG 使用专用[文档方法](/zh/sdk/documents)。
+类型系统要求导出与导入提供幂等键。完整生命周期见[受治理的信念视图](/zh/api-reference/beliefs)；来源 RAG 使用专用[文档方法](/zh/sdk/documents)。

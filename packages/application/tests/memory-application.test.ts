@@ -29,6 +29,18 @@ function fixture() {
 			createdAt: new Date("2026-01-02T00:00:00.000Z"),
 		}),
 		clearFeedback: vi.fn().mockResolvedValue(true),
+		getBeliefView: vi.fn().mockResolvedValue({
+			projectionStatus: "ready",
+			mode: "conflict",
+			subject: "Ada",
+			attribute: "theme",
+			applicability: { kind: "project", key: "fishmem" },
+			winner: null,
+			candidates: [],
+			unresolved: true,
+			reasonCodes: ["insufficient_evidence"],
+			shadow: { outcome: "unresolved", state: null },
+		}),
 		update: vi.fn(),
 	};
 	const engine = { forNamespace: vi.fn().mockReturnValue(memory) };
@@ -70,6 +82,44 @@ describe("MemoryApplication", () => {
 				userId: "alex",
 			}),
 		);
+	});
+
+	it("sanitizes belief-write metadata while mapping governed audit queries", async () => {
+		const { app, memory } = fixture();
+		await app.add("workspace", {
+			content: "Ada prefers dark mode",
+			user_id: "ada",
+			applicability: { kind: "project", key: "fishmem" },
+			evidence_key: "ticket-42",
+			evidence_context_id: "support-thread-7",
+			evidence_weight: 0.8,
+		});
+		const addOptions = memory.add.mock.calls[0]![1];
+		expect(addOptions).toMatchObject({ userId: "ada" });
+		expect(addOptions).not.toHaveProperty("applicability");
+		expect(addOptions).not.toHaveProperty("evidenceKey");
+		expect(addOptions).not.toHaveProperty("evidenceContextId");
+		expect(addOptions).not.toHaveProperty("evidenceWeight");
+
+		await expect(
+			app.getBeliefView("workspace", {
+				user_id: "ada",
+				subject: "Ada",
+				attribute: "theme",
+				view: "audit",
+				applicability_kind: "project",
+				applicability_key: "fishmem",
+				all_applicability: "true",
+			}),
+		).resolves.toMatchObject({ projectionStatus: "ready" });
+		expect(memory.getBeliefView).toHaveBeenCalledWith("Ada", "theme", {
+			userId: "ada",
+			agentId: undefined,
+			runId: undefined,
+			mode: "audit",
+			applicability: { kind: "project", key: "fishmem" },
+			allApplicability: true,
+		});
 	});
 
 	it("rejects stale optimistic versions before mutation", async () => {

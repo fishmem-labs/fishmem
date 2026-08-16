@@ -28,6 +28,7 @@ import { Route as V1OpenapiDotjsonRouteImport } from './routes/v1/openapi[.]json
 import { Route as V1ImportsRouteImport } from './routes/v1/imports'
 import { Route as V1HealthRouteImport } from './routes/v1/health'
 import { Route as V1ExportsRouteImport } from './routes/v1/exports'
+import { Route as V1BeliefsRouteImport } from './routes/v1/beliefs'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as DashboardWebhooksRouteImport } from './routes/dashboard.webhooks'
 import { Route as DashboardSourcesRouteImport } from './routes/dashboard.sources'
@@ -164,6 +165,11 @@ const V1HealthRoute = V1HealthRouteImport.update({
 const V1ExportsRoute = V1ExportsRouteImport.update({
   id: '/v1/exports',
   path: '/v1/exports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1BeliefsRoute = V1BeliefsRouteImport.update({
+  id: '/v1/beliefs',
+  path: '/v1/beliefs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InviteTokenRoute = InviteTokenRouteImport.update({
@@ -405,6 +411,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/sources': typeof DashboardSourcesRoute
   '/dashboard/webhooks': typeof DashboardWebhooksRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/v1/beliefs': typeof V1BeliefsRoute
   '/v1/exports': typeof V1ExportsRoute
   '/v1/health': typeof V1HealthRoute
   '/v1/imports': typeof V1ImportsRoute
@@ -467,6 +474,7 @@ export interface FileRoutesByTo {
   '/dashboard/sources': typeof DashboardSourcesRoute
   '/dashboard/webhooks': typeof DashboardWebhooksRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/v1/beliefs': typeof V1BeliefsRoute
   '/v1/exports': typeof V1ExportsRoute
   '/v1/health': typeof V1HealthRoute
   '/v1/imports': typeof V1ImportsRoute
@@ -531,6 +539,7 @@ export interface FileRoutesById {
   '/dashboard/sources': typeof DashboardSourcesRoute
   '/dashboard/webhooks': typeof DashboardWebhooksRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/v1/beliefs': typeof V1BeliefsRoute
   '/v1/exports': typeof V1ExportsRoute
   '/v1/health': typeof V1HealthRoute
   '/v1/imports': typeof V1ImportsRoute
@@ -596,6 +605,7 @@ export interface FileRouteTypes {
     | '/dashboard/sources'
     | '/dashboard/webhooks'
     | '/invite/$token'
+    | '/v1/beliefs'
     | '/v1/exports'
     | '/v1/health'
     | '/v1/imports'
@@ -658,6 +668,7 @@ export interface FileRouteTypes {
     | '/dashboard/sources'
     | '/dashboard/webhooks'
     | '/invite/$token'
+    | '/v1/beliefs'
     | '/v1/exports'
     | '/v1/health'
     | '/v1/imports'
@@ -721,6 +732,7 @@ export interface FileRouteTypes {
     | '/dashboard/sources'
     | '/dashboard/webhooks'
     | '/invite/$token'
+    | '/v1/beliefs'
     | '/v1/exports'
     | '/v1/health'
     | '/v1/imports'
@@ -774,6 +786,7 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRoute
   InviteTokenRoute: typeof InviteTokenRoute
+  V1BeliefsRoute: typeof V1BeliefsRoute
   V1ExportsRoute: typeof V1ExportsRoute
   V1HealthRoute: typeof V1HealthRoute
   V1ImportsRoute: typeof V1ImportsRoute
@@ -937,6 +950,13 @@ declare module '@tanstack/react-router' {
       path: '/v1/exports'
       fullPath: '/v1/exports'
       preLoaderRoute: typeof V1ExportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/beliefs': {
+      id: '/v1/beliefs'
+      path: '/v1/beliefs'
+      fullPath: '/v1/beliefs'
+      preLoaderRoute: typeof V1BeliefsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invite/$token': {
@@ -1347,6 +1367,7 @@ const rootRouteChildren: RootRouteChildren = {
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   TermsRoute: TermsRoute,
   InviteTokenRoute: InviteTokenRoute,
+  V1BeliefsRoute: V1BeliefsRoute,
   V1ExportsRoute: V1ExportsRoute,
   V1HealthRoute: V1HealthRoute,
   V1ImportsRoute: V1ImportsRoute,

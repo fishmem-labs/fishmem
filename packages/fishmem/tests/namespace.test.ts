@@ -86,6 +86,7 @@ describe("Memory.forNamespace", () => {
       projections: {
         sidecar: "rebuild-required",
         vectors: "rebuild-required",
+        beliefs: "rebuild-required",
       },
     });
     expect(snapshot.data.memories).toHaveLength(1);
@@ -560,6 +561,7 @@ describe("Memory.forNamespace", () => {
     await expect(alpha.rebuildProjections()).resolves.toEqual({
       vectors: 1,
       sidecar: "not_configured",
+      beliefs: "not_configured",
     });
     expect(
       (await vectorStore.list({ namespaceId: "alpha" }, 10)).map((v) => v.id),
@@ -611,6 +613,7 @@ describe("Memory.forNamespace", () => {
     await expect(alpha.rebuildProjections()).resolves.toEqual({
       vectors: 1,
       sidecar: "not_configured",
+      beliefs: "not_configured",
     });
     expect(await vectorStore.get(id)).toMatchObject({
       id,

@@ -816,6 +816,16 @@ class State:
         ).get("data", [])
 
 
+class Beliefs:
+    def __init__(self, transport: _SyncTransport) -> None:
+        self._transport = transport
+
+    def get(self, query: Mapping[str, Any]) -> JsonObject:
+        return self._transport.request(
+            "GET", "/v1/beliefs", params=dict(query)
+        ).get("data", {})
+
+
 class Profile:
     def __init__(self, transport: _SyncTransport) -> None:
         self._transport = transport
@@ -880,6 +890,7 @@ class FishMem:
         self.memories = Memories(self._transport)
         self.operations = Operations(self._transport)
         self.state = State(self._transport)
+        self.beliefs = Beliefs(self._transport)
         self.profile = Profile(self._transport)
         self.exports = Exports(self._transport)
         self.imports = Imports(self._transport)
@@ -1413,6 +1424,17 @@ class AsyncState:
         return response.get("data", [])
 
 
+class AsyncBeliefs:
+    def __init__(self, transport: _AsyncTransport) -> None:
+        self._transport = transport
+
+    async def get(self, query: Mapping[str, Any]) -> JsonObject:
+        response = await self._transport.request(
+            "GET", "/v1/beliefs", params=dict(query)
+        )
+        return response.get("data", {})
+
+
 class AsyncProfile:
     def __init__(self, transport: _AsyncTransport) -> None:
         self._transport = transport
@@ -1478,6 +1500,7 @@ class AsyncFishMem:
         self.memories = AsyncMemories(self._transport)
         self.operations = AsyncOperations(self._transport)
         self.state = AsyncState(self._transport)
+        self.beliefs = AsyncBeliefs(self._transport)
         self.profile = AsyncProfile(self._transport)
         self.exports = AsyncExports(self._transport)
         self.imports = AsyncImports(self._transport)

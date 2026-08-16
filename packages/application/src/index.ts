@@ -1,5 +1,6 @@
 import {
 	AddMemoryCommandSchema,
+	BeliefQuerySchema,
 	DocumentListInputSchema,
 	DocumentSearchInputSchema,
 	IdempotencyKeySchema,
@@ -724,6 +725,29 @@ export class MemoryApplication {
 			command.subject,
 			command.attribute,
 			scope(command),
+		);
+	}
+
+	async getBeliefView(namespaceId: string, query: unknown) {
+		const command = BeliefQuerySchema.parse(query);
+		const applicability = command.applicability_kind
+			? {
+					kind: command.applicability_kind,
+					...(command.applicability_key
+						? { key: command.applicability_key }
+						: {}),
+				}
+			: undefined;
+		return this.namespace(namespaceId).getBeliefView(
+			command.subject,
+			command.attribute,
+			{
+				...scope(command),
+				mode: command.view,
+				...(applicability ? { applicability } : {}),
+				...(command.at ? { at: new Date(command.at) } : {}),
+				...(command.all_applicability ? { allApplicability: true } : {}),
+			},
 		);
 	}
 

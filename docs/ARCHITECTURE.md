@@ -2,7 +2,7 @@
 
 > Status: authoritative
 >
-> Last updated: 2026-07-31
+> Last updated: 2026-08-16
 
 This document owns FishMem's current memory semantics and module boundaries.
 Historical raw-base experiments remain in benchmark reports and
@@ -44,9 +44,9 @@ Rules:
 1. There is no dual raw-plus-derived canonical write.
 2. `infer=true` is fail-closed. Invalid extraction output or provider failure
    writes nothing and never falls back to raw input.
-3. One inferred add makes one extraction call. State and typed-graph
-   projection consume the same frozen extraction plan; they do not call the
-   LLM again.
+3. One inferred add makes one extraction call. State, typed-graph, and
+   governed-belief projections consume the same frozen extraction plan; they
+   do not call the LLM again.
 4. Exact duplicate facts inside one extraction batch are removed before
    writing.
 5. `infer=false` uses trimming only to reject blank content. Stored content is
@@ -142,12 +142,41 @@ below is a projection:
 | Vector/FTS | Candidate retrieval | Persist warning/repair state; never invent success |
 | Entity/association graph | Relationship and multi-hop signals | Rebuild from canonical records |
 | State sidecar | Current/as-of/history slot queries | Cite canonical `source_ids` |
+| Governed belief evidence | Contested/supported inferred-preference views | Shadow-only; quarantine conflicting evidence and rebuild from frozen hints |
 | Profile | Progressive-disclosure context | Refresh explicitly/deferred; keep previous valid view on failure |
 | Document chunks and indexes | Citation-ready source retrieval | Rebuild from canonical source versions |
 
 Projection code cannot mutate canonical record content. A new retrieval signal
 must replace or measurably outperform an existing stage; FishMem does not
 accumulate parallel retrieval stacks indefinitely.
+
+### Explicit state versus learned beliefs
+
+FishMem deliberately uses two different lifecycles:
+
+- an explicit correction or dated state event continues through canonical
+  `update`/`invalidate` and the state sidecar's immediate supersession rules;
+- an automatically inferred `preference` may enter the optional
+  `BeliefReconciler`, where it stays contested until independent evidence and
+  context thresholds are met.
+
+The reconciler stores relational evidence rows, not a second graph snapshot.
+Authenticated owner scope is separate from semantic applicability. In a
+namespaced user flow, run IDs identify independent observation contexts while
+the long-term owner remains the namespace plus user. Default applicability is
+the structural project; one run cannot promote a project preference by
+repeating itself. Echoes with the same evidence key count once, a key claiming
+two active values is quarantined even under concurrent writes, and active
+contextual conflict blocks a global fallback.
+
+The one-pass extractor freezes a semantic claim value so paraphrases can
+support the same candidate. Every view retains canonical source IDs. Default
+mode exposes only a supported winner; conflict mode exposes active competing
+candidates; audit mode also exposes inactive evidence and reason codes. This
+projection remains opt-in, allowlistable, kill-switchable, and excluded from
+ordinary search/recall. Canonical mutations remove or invalidate their evidence
+rows, and `rebuildBeliefs()` reconstructs them from implementation-owned,
+JSON-safe projection hints with zero LLM calls.
 
 Pointer-oriented vector backends such as Cloudflare Vectorize store structural
 keys plus a projection-content hash, not a second copy of canonical memory or
@@ -182,7 +211,7 @@ flowchart LR
   CORE --> JOURNAL["Operation + event journal"]
   CORE --> RECORDS["Canonical records"]
   CORE --> INDEX["Recall projections"]
-  CORE --> VIEWS["State/profile views"]
+  CORE --> VIEWS["State/belief/profile views"]
 
   CLOUD["Cloud hosted policy"] -. "usage/auth/billing seam" .-> HTTP
 ```
@@ -247,7 +276,7 @@ The open-source service is a complete production application surface:
 
 - Bearer API keys with expiry and explicit permissions;
 - structural project namespace binding;
-- memory/state/profile/operation/export/import API;
+- memory/state/belief/profile/operation/export/import API;
 - TypeScript and Python SDKs;
 - operator dashboard, request evidence, warnings, provider usage, webhooks,
   backup, and repair workflows;
@@ -333,6 +362,11 @@ include:
 7. A benchmark manifest matching the shipped default semantics. Historical
    verbatim/RAG results remain historical until rerun.
 
+Governed beliefs additionally require zero namespace/applicability leakage,
+concurrent evidence-conflict quarantine, source-complete audit output,
+zero-LLM rebuild, and a paired target-slice evaluation before they may affect
+default recall.
+
 ## Known gates still open
 
 - The asynchronous file path is implemented, but sustained remote Cloudflare
@@ -348,5 +382,9 @@ include:
   migrations apply to a fresh local database. A credentialed remote deployment
   smoke must still prove D1, Vectorize metadata indexes, R2, rate limiting, and
   the scheduled task trigger together.
+- Governed beliefs are implemented as an opt-in shadow projection. Their
+  SQLite persistence/reopen path is covered locally, but real Postgres and D1
+  lifecycle tests plus paired LongMemEval/BEAM/LoCoMo evidence are still open;
+  the feature therefore must not influence default recall yet.
 
 These are explicit production gates, not compatibility workarounds.

@@ -29,6 +29,7 @@ export const memories = pgTable(
     runId: text("run_id"),
     source: text("source"),
     metadata: jsonb("metadata"),
+    projectionHints: jsonb("projection_hints"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
@@ -334,6 +335,61 @@ export const stateSlots = pgTable(
   }),
 );
 
+/** Postgres mirror of the rebuildable governed-belief evidence projection. */
+export const beliefEvidence = pgTable(
+  "fishmem_belief_evidence",
+  {
+    id: text("id").primaryKey(),
+    namespaceId: text("namespace_id"),
+    userId: text("user_id"),
+    agentId: text("agent_id"),
+    runId: text("run_id"),
+    subject: text("subject").notNull(),
+    attribute: text("attribute").notNull(),
+    subjectKey: text("subject_key").notNull(),
+    attributeKey: text("attribute_key").notNull(),
+    value: text("value").notNull(),
+    valueKey: text("value_key").notNull(),
+    sourceId: text("source_id").notNull(),
+    evidenceKey: text("evidence_key").notNull(),
+    contextId: text("context_id").notNull(),
+    applicabilityKind: text("applicability_kind").notNull(),
+    applicabilityKey: text("applicability_key"),
+    applicabilityValidFrom: timestamp("applicability_valid_from", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    applicabilityValidTo: timestamp("applicability_valid_to", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    clusterKey: text("cluster_key").notNull(),
+    candidateKey: text("candidate_key").notNull(),
+    observedAt: timestamp("observed_at", {
+      withTimezone: true,
+      mode: "date",
+    }).notNull(),
+    validFrom: timestamp("valid_from", {
+      withTimezone: true,
+      mode: "date",
+    }).notNull(),
+    validTo: timestamp("valid_to", { withTimezone: true, mode: "date" }),
+    weight: doublePrecision("weight").notNull().default(1),
+  },
+  (t) => ({
+    slotIdx: index("fishmem_belief_slot_idx").on(
+      t.namespaceId,
+      t.userId,
+      t.agentId,
+      t.runId,
+      t.subjectKey,
+      t.attributeKey,
+    ),
+    sourceIdx: index("fishmem_belief_source_idx").on(t.sourceId),
+    clusterIdx: index("fishmem_belief_cluster_idx").on(t.clusterKey),
+  }),
+);
+
 export const pgSchema = {
   memories,
   associations,
@@ -347,4 +403,5 @@ export const pgSchema = {
   documentHeads,
   documentChunks,
   stateSlots,
+  beliefEvidence,
 };

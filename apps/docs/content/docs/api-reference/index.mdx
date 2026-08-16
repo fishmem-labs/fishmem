@@ -92,7 +92,7 @@ permission, validation, conflict, and hosted-credit behavior.
 | Direct document ingest | 1 per projected chunk |
 | File extraction | 50 per started 5 MB, plus 1 per projected chunk |
 | Document search | 1 |
-| List, Get, History | Free |
+| List, Get, History, governed belief view | Free |
 | Scope entity list, get, and remove | Free |
 | Document list, metadata, original content, delete | Free |
 | Update, Delete, Delete all, Batch update/delete | Free |
@@ -116,6 +116,7 @@ permission, validation, conflict, and hosted-credit behavior.
 | [Delete memories by scope](/api-reference/delete-all) | `DELETE /v1/memories` | Delete all memories in a scope |
 | [Memory history](/api-reference/history) | `GET /v1/memories/{id}/history` | Audit trail for a memory |
 | [State](/api-reference/state) | `GET /v1/state` and `/v1/state/history` | Query current or historical derived state |
+| [Governed beliefs](/api-reference/beliefs) | `GET /v1/beliefs` | Audit supported, contested, and superseded inferred beliefs |
 | [Profile](/api-reference/profile) | `GET /v1/profile` | Read a profile or relevant profile sections |
 | [Operations](/api-reference/operations) | `GET /v1/operations[/{id}]`, `POST /v1/operations/{id}/retry` | Inspect and redrive durable asynchronous work |
 | [Export and import](/api-reference/export-import) | `POST /v1/exports` and `/v1/imports` | Queue portable snapshot operations |

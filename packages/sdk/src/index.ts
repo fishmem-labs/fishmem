@@ -6,7 +6,14 @@ export type {
   BatchDeleteMemoriesInput,
   BatchUpdateMemoriesInput,
   BeliefChain,
+  BeliefCandidate,
+  BeliefEvidence,
   BeliefEntry,
+  BeliefQuery,
+  BeliefView,
+  BeliefViewMode,
+  ApplicabilityContext,
+  ApplicabilityKind,
   CompleteDocumentUploadResult,
   ClearMemoryFeedbackResponse,
   CreateDocumentUploadInput,
@@ -73,6 +80,8 @@ import type {
   AddMemoryInput,
   AddMemoriesResult,
   AsyncMemoryReceipt,
+  BeliefQuery,
+  BeliefView,
   BatchDeleteMemoriesInput,
   BatchUpdateMemoriesInput,
   CompleteDocumentUploadResult,
@@ -228,6 +237,7 @@ export class FishMem {
   readonly memories: MemoriesResource;
   readonly operations: OperationsResource;
   readonly state: StateResource;
+  readonly beliefs: BeliefsResource;
   readonly profile: ProfileResource;
   readonly exports: ExportsResource;
   readonly imports: ImportsResource;
@@ -242,6 +252,7 @@ export class FishMem {
     this.memories = new MemoriesResource(this.api);
     this.operations = new OperationsResource(this.api);
     this.state = new StateResource(this.api);
+    this.beliefs = new BeliefsResource(this.api);
     this.profile = new ProfileResource(this.api);
     this.exports = new ExportsResource(this.api);
     this.imports = new ImportsResource(this.api);
@@ -740,6 +751,19 @@ export class StateResource {
   ) {
     return this.api
       .request<{ data: StateSlot[] }>("GET", "/v1/state/history", {
+        query: input,
+        ...options,
+      })
+      .then((response) => response.data);
+  }
+}
+
+export class BeliefsResource {
+  constructor(private readonly api: FishMemTransport) {}
+
+  get(input: BeliefQuery, options: RequestOptions = {}) {
+    return this.api
+      .request<{ data: BeliefView }>("GET", "/v1/beliefs", {
         query: input,
         ...options,
       })

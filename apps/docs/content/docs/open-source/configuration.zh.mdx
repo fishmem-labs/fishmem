@@ -79,6 +79,42 @@ const memory = await Memory.create({
 
 `infer` 是单次写入的规范存储选择，不是全局派生开关：`infer:true` 需要 LLM、调用一次提取且只保存提炼记录；`infer:false` 不调用 LLM，并按原文保存 `content` 或每条非空消息。`derivation` 只控制可重建的状态/画像投影，不会产生第二个写入者。
 
+## 受治理的信念投影（可选）
+
+该投影只适合“需要积累独立证据才能采信”的自动推断偏好或工作规则。显式 state 仍然即时 supersede，普通记忆搜索不受影响。
+
+```ts
+import { createSqliteBeliefReconciler, Memory } from "fishmem";
+
+const beliefReconciler = await createSqliteBeliefReconciler({
+  url: "file:fishmem.db",
+});
+
+const memory = await Memory.create({
+  derivation: {
+    enabled: true,
+    beliefs: {
+      enabled: true,
+      reconciler: beliefReconciler,
+      memoryTypes: ["preference"],
+      namespaceAllowlist: ["workspace_123"],
+      killSwitch: () => process.env.BELIEF_PROJECTION_DISABLED === "1",
+    },
+  },
+});
+```
+
+默认策略要求 3 个独立 evidence key、3 个不同 context、至少 `0.6` 的加权支持度，以及领先第二名 `1`。证据以带规范来源 ID 的关系行保存，可以零 LLM 重建。公开 REST 写入不能设置 evidence key、权重或 applicability。
+
+内置 Web 运行时默认关闭。小范围 rollout 必须同时设置以下两个变量；allowlist 缺失或为空时不会启用任何命名空间：
+
+```bash
+FISHMEM_BELIEF_RECONCILIATION_ENABLED=1
+FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST=workspace_123,workspace_456
+```
+
+设置 `FISHMEM_BELIEF_RECONCILIATION_DISABLED=1` 可动态熔断。在 paired evaluation 通过前保持 shadow-only，并通过 [`GET /v1/beliefs`](/zh/api-reference/beliefs) 审计结果。
+
 ## 延迟向量投影
 
 ```ts

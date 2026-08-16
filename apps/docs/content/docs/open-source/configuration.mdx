@@ -116,6 +116,51 @@ switch:
 The `derivation` configuration controls rebuildable state/profile projection
 work over those canonical records. It does not create a second writer.
 
+## Governed belief projection (opt-in)
+
+Use the belief projection only for inferred preferences or learned rules that
+should accumulate independent evidence before becoming trusted. Explicit state
+continues to supersede immediately; ordinary memory search is unchanged.
+
+```ts
+import { createSqliteBeliefReconciler, Memory } from "fishmem";
+
+const beliefReconciler = await createSqliteBeliefReconciler({
+  url: "file:fishmem.db",
+});
+
+const memory = await Memory.create({
+  // providers...
+  derivation: {
+    enabled: true,
+    beliefs: {
+      enabled: true,
+      reconciler: beliefReconciler,
+      memoryTypes: ["preference"],
+      namespaceAllowlist: ["workspace_123"],
+      killSwitch: () => process.env.BELIEF_PROJECTION_DISABLED === "1",
+    },
+  },
+});
+```
+
+The default policy requires three independent evidence keys from three
+contexts, at least `0.6` weighted support, and a lead of `1`. Evidence is stored
+as relational rows with canonical source IDs and can be rebuilt without an LLM.
+Public REST writes cannot set evidence keys, weights, or applicability.
+
+The bundled web runtime remains off by default. Both variables are required for
+a bounded rollout; an empty or missing allowlist enables no namespace:
+
+```bash
+FISHMEM_BELIEF_RECONCILIATION_ENABLED=1
+FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST=workspace_123,workspace_456
+```
+
+Set `FISHMEM_BELIEF_RECONCILIATION_DISABLED=1` for the dynamic kill switch.
+Keep the projection shadow-only until paired evaluation passes, then inspect it
+through [`GET /v1/beliefs`](/api-reference/beliefs).
+
 ## Deferred vector projection
 
 ```ts

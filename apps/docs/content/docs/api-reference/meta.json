@@ -21,6 +21,7 @@
     "history",
     "feedback",
     "state",
+    "beliefs",
     "profile",
     "operations",
     "export-import",

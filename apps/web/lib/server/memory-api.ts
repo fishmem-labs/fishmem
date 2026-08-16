@@ -14,6 +14,7 @@
  *   DELETE /v1/memories/:id        delete one
  *   GET    /v1/memories/:id/history change log
  *   GET/POST/DELETE /v1/memories/:id/feedback quality signal
+ *   GET    /v1/beliefs             governed inferred-belief shadow view
  *
  * Tenancy: every request binds `Memory.forNamespace(workspace.documentId)`.
  * Namespace is a first-class field across raw, vector, graph, and derived
@@ -25,6 +26,7 @@ import {
   DeleteAllLimitError,
   ensureSqliteSchemaColumns,
   Memory,
+  type BeliefViewResult,
   type OperationSummary,
   parseNamespaceSnapshot,
   SQLITE_DDL,
@@ -62,6 +64,7 @@ import {
   apiTokenAuthFailure,
   memoryDerivationConfig,
 } from "@/lib/server/runtime-contracts";
+import { sanitizePublicSnapshot } from "@/lib/server/public-snapshot";
 import {
   enqueueOperationTask,
   enqueueProfileDerivation,
@@ -402,7 +405,7 @@ export async function getMemoryEngine(): Promise<Memory> {
       // Cloudflare runs the D1 DDL up front; the Node SQLite/Postgres stores
       // create their own tables.
       if (IS_CLOUDFLARE) await ensureMemoryTables(env.D1);
-      const { graphStore, stateSidecar, vectorStore } =
+      const { graphStore, stateSidecar, beliefReconciler, vectorStore } =
         await createMemoryStores(env);
       const documentOriginalStore = IS_CLOUDFLARE
         ? new R2DocumentOriginalStore(env.R2)
@@ -424,7 +427,11 @@ export async function getMemoryEngine(): Promise<Memory> {
               console.error("Failed to persist FishMem warning", error);
             });
         },
-        ...memoryDerivationConfig(cfg.derivationEnabled, stateSidecar),
+        ...memoryDerivationConfig(
+          cfg.derivationEnabled,
+          stateSidecar,
+          beliefReconciler,
+        ),
       });
     })();
     memorySingleton.catch(() => {
@@ -562,6 +569,78 @@ function shapeStateSlot(slot: {
     valid_to: slot.validTo?.toISOString() ?? null,
     superseded_by: slot.supersededBy ?? null,
     source_ids: slot.sources,
+  };
+}
+
+function shapeApplicability(
+  applicability: BeliefViewResult["applicability"],
+) {
+  return {
+    kind: applicability.kind,
+    ...(applicability.key ? { key: applicability.key } : {}),
+    ...(applicability.validFrom
+      ? { valid_from: applicability.validFrom.toISOString() }
+      : {}),
+    ...(applicability.validTo
+      ? { valid_to: applicability.validTo.toISOString() }
+      : {}),
+  };
+}
+
+function shapeBeliefCandidate(
+  candidate: NonNullable<BeliefViewResult["winner"]>,
+) {
+  return {
+    id: candidate.id,
+    subject: candidate.subject,
+    attribute: candidate.attribute,
+    value: candidate.value,
+    applicability: shapeApplicability(candidate.applicability),
+    status: candidate.status,
+    score: candidate.score,
+    support: candidate.support,
+    evidence_count: candidate.evidenceCount,
+    context_count: candidate.contextCount,
+    source_ids: candidate.sourceIds,
+    first_observed_at: candidate.firstObservedAt.toISOString(),
+    last_observed_at: candidate.lastObservedAt.toISOString(),
+    superseded_by: candidate.supersededBy ?? null,
+    reason_codes: candidate.reasonCodes,
+    ...(candidate.evidence
+      ? {
+          evidence: candidate.evidence.map((evidence) => ({
+            id: evidence.id,
+            source_id: evidence.sourceId,
+            evidence_key: evidence.evidenceKey,
+            context_id: evidence.contextId,
+            applicability: shapeApplicability(evidence.applicability),
+            observed_at: evidence.observedAt.toISOString(),
+            valid_from: evidence.validFrom.toISOString(),
+            valid_to: evidence.validTo?.toISOString() ?? null,
+            weight: evidence.weight,
+            active: evidence.active,
+          })),
+        }
+      : {}),
+  };
+}
+
+function shapeBeliefView(view: BeliefViewResult) {
+  return {
+    projection_status: view.projectionStatus,
+    mode: view.mode,
+    subject: view.subject,
+    attribute: view.attribute,
+    applicability: shapeApplicability(view.applicability),
+    winner: view.winner ? shapeBeliefCandidate(view.winner) : null,
+    candidates: view.candidates.map(shapeBeliefCandidate),
+    unresolved: view.unresolved,
+    reason_codes: view.reasonCodes,
+    shadow: {
+      outcome: view.shadow.outcome,
+      state: view.shadow.state ? shapeStateSlot(view.shadow.state) : null,
+      winner_id: view.shadow.winnerId ?? null,
+    },
   };
 }
 
@@ -2422,7 +2501,9 @@ export async function exportWorkspaceSnapshot(
   workspaceId: string,
   engineFactory: typeof getMemoryEngine = getMemoryEngine,
 ) {
-  return (await engineFactory()).forNamespace(workspaceId).exportSnapshot();
+  return sanitizePublicSnapshot(
+    await (await engineFactory()).forNamespace(workspaceId).exportSnapshot(),
+  );
 }
 
 export type DashboardMemoryInferenceAuthorization = {
@@ -2497,12 +2578,13 @@ export async function appMemoriesHandler(
           400,
         );
       }
-      parseNamespaceSnapshot(body.snapshot, workspaceId);
+      const snapshot = sanitizePublicSnapshot(body.snapshot);
+      parseNamespaceSnapshot(snapshot, workspaceId);
       const task = await enqueueOperationTask(db, {
         workspaceId,
         operationId: `import:${key}`,
         kind: "import",
-        payload: { snapshot: body.snapshot },
+        payload: { snapshot },
       });
       await dispatchPendingMemoryTasks(db, async () => engine);
       return json({ data: shapeOperationTask(task) }, { status: 202 });
@@ -2540,6 +2622,17 @@ export async function appMemoriesHandler(
         data: await application.getStateHistory(
           workspaceId,
           queryRecord(request),
+        ),
+      });
+    }
+
+    if (method === "GET" && sub === "beliefs") {
+      return json({
+        data: shapeBeliefView(
+          await application.getBeliefView(
+            workspaceId,
+            queryRecord(request),
+          ),
         ),
       });
     }
@@ -3321,12 +3414,13 @@ export async function createMemoryImport(request: Request) {
         400,
       );
     }
-    parseNamespaceSnapshot(body.snapshot, auth.apiToken.workspaceId);
+    const snapshot = sanitizePublicSnapshot(body.snapshot);
+    parseNamespaceSnapshot(snapshot, auth.apiToken.workspaceId);
     const task = await enqueueOperationTask(auth.db, {
       workspaceId: auth.apiToken.workspaceId,
       operationId: `import:${key}`,
       kind: "import",
-      payload: { snapshot: body.snapshot },
+      payload: { snapshot },
     });
     await dispatchPendingMemoryTasks(auth.db, getMemoryEngine);
     return json(shapeOperationTask(task), { status: 202 });
@@ -3360,6 +3454,21 @@ export async function getMemoryStateHistory(request: Request) {
       queryRecord(request),
     );
     return json({ data: history.map(shapeStateSlot) });
+  } catch (error) {
+    return memoryErrorResponse(error);
+  }
+}
+
+export async function getMemoryBeliefs(request: Request) {
+  const auth = await authenticateMemoryApi(request);
+  if ("error" in auth) return auth.error;
+  try {
+    const application = new MemoryApplication(await getMemoryEngine());
+    const view = await application.getBeliefView(
+      auth.apiToken.workspaceId,
+      queryRecord(request),
+    );
+    return json({ data: shapeBeliefView(view) });
   } catch (error) {
     return memoryErrorResponse(error);
   }

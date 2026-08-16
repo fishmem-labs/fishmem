@@ -39,7 +39,20 @@ async with AsyncFishMem(api_key="fm_...") as fishmem:
     )
 ```
 
-`AsyncFishMem` 暴露与 `FishMem` 相同的 health、documents、entities、memories、events、state、profile、operations、exports 与 imports 资源。
+`AsyncFishMem` 暴露与 `FishMem` 相同的 health、documents、entities、memories、events、state、beliefs、profile、operations、exports 与 imports 资源。
+
+```python
+view = fishmem.beliefs.get(
+    {
+        "user_id": "alex",
+        "subject": "Alex",
+        "attribute": "answer_style",
+        "view": "audit",
+    }
+)
+```
+
+异步客户端使用 `await fishmem.beliefs.get(...)`。投影未启用时会返回 disabled 数据状态，不会伪装成传输错误。
 
 ## 分页与批量任务
 

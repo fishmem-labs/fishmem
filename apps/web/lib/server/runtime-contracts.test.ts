@@ -32,11 +32,85 @@ describe("apiTokenAuthFailure", () => {
 describe("memoryDerivationConfig", () => {
   it("keeps raw storage fixed and only enables the derivation overlay", () => {
     const sidecar = {} as never;
-    expect(memoryDerivationConfig(false)).toEqual({});
-    expect(memoryDerivationConfig(true, sidecar)).toEqual({
-      derivation: { enabled: true, schedule: "inline", sidecar },
-    });
-    expect(memoryDerivationConfig(true, sidecar)).not.toHaveProperty("mode");
+    const previous = process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED;
+    delete process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED;
+    try {
+      expect(memoryDerivationConfig(false)).toEqual({});
+      const config = memoryDerivationConfig(true, sidecar);
+      expect(config).toEqual({
+        derivation: { enabled: true, schedule: "inline", sidecar },
+      });
+      expect(config).not.toHaveProperty("mode");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED;
+      } else {
+        process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED = previous;
+      }
+    }
+  });
+
+  it("requires explicit rollout enablement and exposes allowlist plus kill switch", () => {
+    const previousEnabled =
+      process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED;
+    const previousAllowlist =
+      process.env.FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST;
+    const previousDisabled =
+      process.env.FISHMEM_BELIEF_RECONCILIATION_DISABLED;
+    process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED = "1";
+    process.env.FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST = " ws_a, ws_b ";
+    delete process.env.FISHMEM_BELIEF_RECONCILIATION_DISABLED;
+    try {
+      const config = memoryDerivationConfig(true);
+      expect(config.derivation?.beliefs).toMatchObject({
+        enabled: true,
+        namespaceAllowlist: ["ws_a", "ws_b"],
+      });
+      expect(config.derivation?.beliefs?.killSwitch?.()).toBe(false);
+      process.env.FISHMEM_BELIEF_RECONCILIATION_DISABLED = "1";
+      expect(config.derivation?.beliefs?.killSwitch?.()).toBe(true);
+    } finally {
+      if (previousEnabled === undefined) {
+        delete process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED;
+      } else {
+        process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED = previousEnabled;
+      }
+      if (previousAllowlist === undefined) {
+        delete process.env.FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST;
+      } else {
+        process.env.FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST = previousAllowlist;
+      }
+      if (previousDisabled === undefined) {
+        delete process.env.FISHMEM_BELIEF_RECONCILIATION_DISABLED;
+      } else {
+        process.env.FISHMEM_BELIEF_RECONCILIATION_DISABLED = previousDisabled;
+      }
+    }
+  });
+
+  it("fails closed when rollout is enabled without a namespace allowlist", () => {
+    const previousEnabled =
+      process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED;
+    const previousAllowlist =
+      process.env.FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST;
+    process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED = "1";
+    delete process.env.FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST;
+    try {
+      expect(
+        memoryDerivationConfig(true).derivation?.beliefs?.namespaceAllowlist,
+      ).toEqual([]);
+    } finally {
+      if (previousEnabled === undefined) {
+        delete process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED;
+      } else {
+        process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED = previousEnabled;
+      }
+      if (previousAllowlist === undefined) {
+        delete process.env.FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST;
+      } else {
+        process.env.FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST = previousAllowlist;
+      }
+    }
   });
 });
 
@@ -199,6 +273,57 @@ describe("memory journal migration", () => {
         args: ["op_3", "beta", ...values.slice(2)],
       }),
     ).resolves.toBeDefined();
+    client.close();
+  });
+});
+
+describe("governed belief projection migration", () => {
+  const migration = readFileSync(
+    fileURLToPath(
+      new URL(
+        "../../migrations/0023_belief_reconciliation.sql",
+        import.meta.url,
+      ),
+    ),
+    "utf8",
+  );
+
+  it("adds only rebuild inputs to canonical rows and creates relational evidence indexes", async () => {
+    const client = createClient({ url: "file::memory:" });
+    await client.execute(
+      'create table "fishmem_memories" ("id" text primary key not null)',
+    );
+    await client.executeMultiple(migration);
+
+    const memoryColumns = await client.execute(
+      "pragma table_info(fishmem_memories)",
+    );
+    expect(memoryColumns.rows.map((row) => row.name)).toContain(
+      "projection_hints",
+    );
+    const evidenceColumns = await client.execute(
+      "pragma table_info(fishmem_belief_evidence)",
+    );
+    expect(evidenceColumns.rows.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        "source_id",
+        "evidence_key",
+        "context_id",
+        "applicability_kind",
+        "cluster_key",
+        "candidate_key",
+      ]),
+    );
+    const indexes = await client.execute(
+      "pragma index_list(fishmem_belief_evidence)",
+    );
+    expect(indexes.rows.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        "fishmem_belief_slot_idx",
+        "fishmem_belief_source_idx",
+        "fishmem_belief_cluster_idx",
+      ]),
+    );
     client.close();
   });
 });

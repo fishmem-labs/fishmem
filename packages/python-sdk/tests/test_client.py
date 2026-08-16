@@ -321,6 +321,16 @@ class FishMemClientTest(unittest.TestCase):
                 return response({"data": None})
             if path == "/v1/state/history":
                 return response({"data": []})
+            if path == "/v1/beliefs":
+                return response(
+                    {
+                        "data": {
+                            "projection_status": "ready",
+                            "winner": None,
+                            "candidates": [],
+                        }
+                    }
+                )
             if path == "/v1/profile":
                 return response({"data": "## Profile"})
             if path == "/v1/health":
@@ -471,6 +481,17 @@ class FishMemClientTest(unittest.TestCase):
                     }
                 ),
                 [],
+            )
+            self.assertEqual(
+                client.beliefs.get(
+                    {
+                        "user_id": "ada",
+                        "subject": "Ada",
+                        "attribute": "drink",
+                        "view": "audit",
+                    }
+                )["projection_status"],
+                "ready",
             )
             self.assertEqual(
                 client.profile.get({"user_id": "ada"}), "## Profile"
@@ -801,6 +822,16 @@ class AsyncFishMemClientTest(unittest.IsolatedAsyncioTestCase):
                     },
                     202,
                 )
+            if request.url.path == "/v1/beliefs":
+                return response(
+                    {
+                        "data": {
+                            "projection_status": "ready",
+                            "winner": None,
+                            "candidates": [],
+                        }
+                    }
+                )
             return response({"results": [], "next_cursor": None})
 
         async with AsyncFishMem(
@@ -820,11 +851,19 @@ class AsyncFishMemClientTest(unittest.IsolatedAsyncioTestCase):
                 await client.documents.delete_upload("asset_1")
             )
             retry = await client.operations.retry("op_1")
+            beliefs = await client.beliefs.get(
+                {
+                    "user_id": "ada",
+                    "subject": "Ada",
+                    "attribute": "drink",
+                }
+            )
         self.assertEqual(page, {"results": [], "next_cursor": None})
         self.assertEqual(documents, {"results": []})
         self.assertEqual(health, {"status": "ok"})
         self.assertEqual(batch["kind"], "batch_update")
         self.assertEqual(retry["status"], "pending")
+        self.assertEqual(beliefs["projection_status"], "ready")
 
     async def test_async_document_upload_uses_the_same_asset_contract(
         self,

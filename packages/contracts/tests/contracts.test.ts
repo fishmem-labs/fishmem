@@ -3,9 +3,12 @@ import {
   AddMemoryCommandSchema,
   AddMemoryResponseSchema,
   ApiErrorSchema,
+  ApplicabilityContextSchema,
   AsyncMemoryReceiptSchema,
   BatchDeleteMemoriesCommandSchema,
   BatchUpdateMemoriesCommandSchema,
+  BeliefQuerySchema,
+  BeliefResponseSchema,
   ClearMemoryFeedbackResponseSchema,
   DeleteDocumentResponseSchema,
   DeleteMemoriesResponseSchema,
@@ -75,6 +78,48 @@ describe("canonical API contracts", () => {
       search_strategy: "precision",
       filters: { environment: "production", active: true },
     });
+  });
+
+  it("sanitizes untrusted belief-write metadata and validates query controls", () => {
+    const sanitized = AddMemoryCommandSchema.parse({
+      content: "Ada prefers dark mode",
+      user_id: "ada",
+      applicability: { kind: "global" },
+      evidence_key: "forged-independent-source",
+      evidence_context_id: "forged-context",
+      evidence_weight: 1,
+    });
+    expect(sanitized).not.toHaveProperty("applicability");
+    expect(sanitized).not.toHaveProperty("evidence_key");
+    expect(sanitized).not.toHaveProperty("evidence_context_id");
+    expect(sanitized).not.toHaveProperty("evidence_weight");
+    expect(ApplicabilityContextSchema.parse({ kind: "global" })).toEqual({
+      kind: "global",
+    });
+    expect(() =>
+      ApplicabilityContextSchema.parse({ kind: "global", key: "invalid" }),
+    ).toThrow("must not include a key");
+    expect(() => ApplicabilityContextSchema.parse({ kind: "project" })).toThrow(
+      "requires a key",
+    );
+
+    expect(
+      BeliefQuerySchema.parse({
+        user_id: "ada",
+        subject: "Ada",
+        attribute: "theme",
+        view: "audit",
+        all_applicability: "true",
+      }),
+    ).toMatchObject({ view: "audit", all_applicability: true });
+    expect(() =>
+      BeliefQuerySchema.parse({
+        user_id: "ada",
+        subject: "Ada",
+        attribute: "theme",
+        all_applicability: "true",
+      }),
+    ).toThrow("only for audit view");
   });
 
   it("preserves verbatim raw content while rejecting blank input", () => {
@@ -302,6 +347,7 @@ describe("canonical API contracts", () => {
         "/v1/operations/{id}",
         "/v1/operations/{id}/retry",
         "/v1/state",
+        "/v1/beliefs",
         "/v1/profile",
       ]),
     );
@@ -345,6 +391,7 @@ describe("canonical API contracts", () => {
         "getMemoryFeedback",
         "getMemoryHistory",
         "getHealth",
+        "getBeliefView",
         "getOperation",
         "getScopeEntity",
         "getProfile",
@@ -552,6 +599,42 @@ describe("canonical API contracts", () => {
     ).toBeTruthy();
     expect(StateResponseSchema.parse({ data: state })).toBeTruthy();
     expect(StateHistoryResponseSchema.parse({ data: [state] })).toBeTruthy();
+    expect(
+      BeliefResponseSchema.parse({
+        data: {
+          projection_status: "ready",
+          mode: "conflict",
+          subject: "Ada",
+          attribute: "drink",
+          applicability: { kind: "project", key: "fishmem" },
+          winner: {
+            id: "belief_tea",
+            subject: "Ada",
+            attribute: "drink",
+            value: "tea",
+            applicability: { kind: "project", key: "fishmem" },
+            status: "supported",
+            score: 3,
+            support: 0.75,
+            evidence_count: 3,
+            context_count: 3,
+            source_ids: ["mem_1", "mem_2", "mem_3"],
+            first_observed_at: now,
+            last_observed_at: now,
+            superseded_by: null,
+            reason_codes: ["minimum_evidence_met"],
+          },
+          candidates: [],
+          unresolved: false,
+          reason_codes: ["supported_winner"],
+          shadow: {
+            outcome: "agreement",
+            state,
+            winner_id: "belief_tea",
+          },
+        },
+      }),
+    ).toBeTruthy();
     expect(ProfileResponseSchema.parse({ data: null })).toBeTruthy();
     const document = {
       id: "doc_1",

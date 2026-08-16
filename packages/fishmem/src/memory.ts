@@ -6,6 +6,15 @@ import {
   resolveProviders,
 } from "./config.js";
 import {
+  type ApplicabilityContext,
+  type BeliefProjectionView,
+  BeliefReconciler,
+  type BeliefViewMode,
+  normalizeApplicability,
+  restoreApplicability,
+  storeApplicability,
+} from "./core/belief-reconciler.js";
+import {
   DocumentCorpus,
   type DocumentDeleteResult,
   type DocumentIngestInput,
@@ -45,6 +54,7 @@ import type { Embedder } from "./embeddings/base.js";
 import type { GraphStore } from "./graph/base.js";
 import type { LLM } from "./llms/base.js";
 import {
+  BELIEF_FACT_EXTRACTION_SYSTEM,
   buildExtractionMessages,
   EPISODE_GIST_SYSTEM,
   messagesToTranscript,
@@ -63,6 +73,7 @@ import {
   type MemoryFeedbackRating,
   type MemoryFilterExpression,
   type MemoryFilters,
+  type MemoryProjectionHints,
   type Memory as MemoryRecord,
   type MemorySearchResult,
   type MemoryType,
@@ -192,6 +203,16 @@ export interface AddOptions extends Scope {
    * time assigned directly to a verbatim (`infer: false`) record.
    */
   eventDate?: Date;
+  /** Semantic applicability of inferred preferences/rules. It never widens
+   * authenticated owner scope. Omitted values resolve conservatively to the
+   * current conversation/project rather than global. */
+  applicability?: ApplicabilityContext;
+  /** Echoes of one underlying source share this key and count once. */
+  evidenceKey?: string;
+  /** Independent task/conversation identity used by the promotion gate. */
+  evidenceContextId?: string;
+  /** Optional evidence weight in (0, 1]. Default 1. */
+  evidenceWeight?: number;
 }
 
 export interface SearchOptions extends Scope {
@@ -254,6 +275,8 @@ interface MutationOutcome<T> {
 /** A fact extracted by the LLM, with time and structure annotations. */
 interface ExtractedFact {
   text: string;
+  /** Semantic assertion value used only by governed belief competition. */
+  beliefValue: string | null;
   eventDate: Date | null;
   /** Named entities the fact mentions. */
   entities: string[];
@@ -272,6 +295,7 @@ interface ExtractedFact {
 /** JSON-safe canonical record frozen into an idempotent add operation. */
 interface PreparedAddRecord {
   content: string;
+  beliefValue: string | null;
   eventDate: string | null;
   entities: string[];
   subject: string | null;
@@ -305,6 +329,31 @@ export interface BeliefChain {
     /** True for the entry with no validTo (still believed). */
     current: boolean;
   }>;
+}
+
+export type BeliefShadowOutcome =
+  | "agreement"
+  | "disagreement"
+  | "state_only"
+  | "belief_only"
+  | "unresolved"
+  | "empty";
+
+export interface BeliefShadowDiff {
+  outcome: BeliefShadowOutcome;
+  state?: StateSlot;
+  winnerId?: string;
+}
+
+export interface BeliefViewResult extends BeliefProjectionView {
+  shadow: BeliefShadowDiff;
+}
+
+export interface BeliefQueryOptions extends Scope {
+  mode?: BeliefViewMode;
+  applicability?: ApplicabilityContext;
+  at?: Date;
+  allApplicability?: boolean;
 }
 
 /**
@@ -347,6 +396,15 @@ export class Memory {
   private readonly derivationEnabled: boolean;
   /** Derived-structure sidecar (state slots) — populated when derivation is on. */
   readonly sidecar: StateSidecar;
+  /** Governed evidence projection. It is read-only with respect to canonical
+   * records and remains shadow-only until an external rollout gate promotes it. */
+  readonly beliefReconciler: BeliefReconciler;
+  private readonly beliefProjection: {
+    configured: boolean;
+    memoryTypes: ReadonlySet<MemoryType>;
+    namespaceAllowlist?: ReadonlySet<string>;
+    killSwitch?: () => boolean;
+  };
   private readonly derivationSchedule: "inline" | "deferred";
   private readonly derivationHook?: (promise: Promise<unknown>) => void;
   private readonly vectorProjectionSchedule: "inline" | "deferred";
@@ -441,6 +499,40 @@ export class Memory {
     const derivation = config.derivation;
     this.derivationEnabled = derivation?.enabled ?? false;
     this.sidecar = derivation?.sidecar ?? new InMemoryStateSidecar();
+    const beliefConfig = derivation?.beliefs;
+    if (beliefConfig?.enabled && !this.derivationEnabled) {
+      throw new TypeError(
+        "belief reconciliation requires derivation.enabled so it can consume the frozen extraction plan",
+      );
+    }
+    if (beliefConfig?.reconciler && beliefConfig.policy) {
+      throw new TypeError(
+        "configure belief policy on the supplied reconciler, not in both places",
+      );
+    }
+    const beliefMemoryTypes = beliefConfig?.memoryTypes ?? ["preference"];
+    if (
+      beliefMemoryTypes.length === 0 ||
+      beliefMemoryTypes.some((type) => !MEMORY_TYPES.includes(type))
+    ) {
+      throw new TypeError("belief reconciliation memoryTypes are invalid");
+    }
+    const namespaceAllowlist = beliefConfig?.namespaceAllowlist
+      ?.map((value) => value.trim())
+      .filter(Boolean);
+    this.beliefProjection = {
+      configured: beliefConfig?.enabled ?? false,
+      memoryTypes: new Set(beliefMemoryTypes),
+      ...(namespaceAllowlist
+        ? { namespaceAllowlist: new Set(namespaceAllowlist) }
+        : {}),
+      ...(beliefConfig?.killSwitch
+        ? { killSwitch: beliefConfig.killSwitch }
+        : {}),
+    };
+    this.beliefReconciler =
+      beliefConfig?.reconciler ??
+      new BeliefReconciler({ policy: beliefConfig?.policy });
     this.derivationSchedule = derivation?.schedule ?? "inline";
     this.derivationHook = derivation?.hook;
     this.vectorProjectionSchedule =
@@ -518,6 +610,74 @@ export class Memory {
         "Canonical rows were removed or hidden, but known vector index entries could not be deleted.",
         error,
         { memoryIds: ids, ...context },
+      );
+      return false;
+    }
+  }
+
+  private async removeBeliefEvidence(
+    sourceId: string,
+    operation: string,
+  ): Promise<boolean> {
+    if (!this.beliefProjection.configured) return true;
+    try {
+      await this.beliefReconciler.removeSource(sourceId);
+      return true;
+    } catch (error) {
+      this.warn(
+        "belief_reconciliation_failed",
+        "Governed belief evidence cleanup failed; the rebuildable projection needs repair.",
+        error,
+        { sourceId, operation },
+      );
+      return false;
+    }
+  }
+
+  private async removeBeliefEvidenceMany(
+    sourceIds: string[],
+    operation: string,
+  ): Promise<boolean> {
+    let ready = true;
+    for (const sourceId of sourceIds) {
+      ready = (await this.removeBeliefEvidence(sourceId, operation)) && ready;
+    }
+    return ready;
+  }
+
+  private async invalidateBeliefEvidence(
+    sourceId: string,
+    validTo: Date,
+  ): Promise<boolean> {
+    if (!this.beliefProjection.configured) return true;
+    try {
+      await this.beliefReconciler.invalidateSource(sourceId, validTo);
+      return true;
+    } catch (error) {
+      this.warn(
+        "belief_reconciliation_failed",
+        "Governed belief evidence invalidation failed; the rebuildable projection needs repair.",
+        error,
+        { sourceId, validTo: validTo.toISOString() },
+      );
+      return false;
+    }
+  }
+
+  private async clearBeliefEvidence(
+    scope: Scope | undefined,
+    operation: string,
+  ): Promise<boolean> {
+    if (!this.beliefProjection.configured) return true;
+    try {
+      await this.beliefReconciler.clear(scope);
+      return true;
+    } catch (error) {
+      this.warn(
+        "belief_reconciliation_failed",
+        "Governed belief evidence reset failed; the rebuildable projection needs repair.",
+        error,
+        { operation, ...(scope ? { ...scope } : {}) },
       );
       return false;
     }
@@ -768,6 +928,7 @@ export class Memory {
     const derive = this.derivationEnabled && infer;
     const records =
       plan?.records ?? (await this.prepareAddRecords(messages, options, scope));
+    const beliefBatchId = plan?.memoryIds[0] ?? uuid();
 
     const results: AddResultItem[] = [];
     const entityIdsBySource = new Map<string, string[]>();
@@ -785,6 +946,14 @@ export class Memory {
           subject: prepared.subject,
           attribute: prepared.attribute,
           memoryType: prepared.memoryType,
+          projectionHints: this.prepareBeliefProjectionHints(
+            prepared.memoryType,
+            prepared.beliefValue ?? prepared.content,
+            options,
+            scope,
+            beliefBatchId,
+            infer,
+          ),
         },
         plannedId ? { id: plannedId, createdAt: plan.createdAt } : undefined,
       );
@@ -821,7 +990,7 @@ export class Memory {
       const sources = results.map((r) => r.id);
       const facts = preparedRecordsToFacts(records);
       if (this.derivationSchedule === "inline") {
-        const derivedReady = await this.projectExtractedFacts(
+        const derivedReady = await this.projectDerivedFacts(
           facts,
           options,
           scope,
@@ -830,7 +999,7 @@ export class Memory {
         );
         if (projection) projection.derivedReady = derivedReady;
       } else {
-        const p = this.projectExtractedFacts(
+        const p = this.projectDerivedFacts(
           facts,
           options,
           scope,
@@ -861,6 +1030,7 @@ export class Memory {
         .map((message) => ({
           // Keep the input byte-for-byte; trim is only the emptiness check.
           content: message.content,
+          beliefValue: null,
           eventDate: options.eventDate?.toISOString() ?? null,
           entities: [],
           subject: null,
@@ -881,6 +1051,7 @@ export class Memory {
       seen.add(fact.text);
       records.push({
         content: fact.text,
+        beliefValue: fact.beliefValue,
         eventDate: (fact.eventDate ?? options.eventDate)?.toISOString() ?? null,
         entities: [...new Set(fact.entities.map((name) => name.trim()))].filter(
           Boolean,
@@ -901,6 +1072,7 @@ export class Memory {
     memoryId: string;
     request: Record<string, unknown>;
     command: Record<string, unknown>;
+    projectsBeliefs?: boolean;
     perform: (operation: MemoryOperation) => Promise<MutationOutcome<T>>;
   }): Promise<T> {
     const now = new Date();
@@ -915,7 +1087,10 @@ export class Memory {
       status: "pending",
       rawStatus: "pending",
       vectorStatus: "pending",
-      derivedStatus: "not_requested",
+      derivedStatus:
+        spec.projectsBeliefs && this.beliefProjection.configured
+          ? "pending"
+          : "not_requested",
       leaseExpiresAt: new Date(now.getTime() + OPERATION_LEASE_MS),
       attempts: 1,
       createdAt: now,
@@ -1256,6 +1431,7 @@ export class Memory {
         namespaceId,
         idempotencyKey: options.idempotencyKey,
         kind: "update",
+        projectsBeliefs: true,
         memoryId,
         request: { memoryId, patch },
         command: {
@@ -1285,8 +1461,15 @@ export class Memory {
           if (storedPatch.memoryType !== undefined) {
             current.memoryType = storedPatch.memoryType;
           }
+          current.projectionHints = withoutBeliefProjectionHint(
+            current.projectionHints,
+          );
           current.updatedAt = new Date(String(operation.command.updatedAt));
           await this.store.updateMemory(current);
+          const beliefReady = await this.removeBeliefEvidence(
+            memoryId,
+            "update",
+          );
           if (
             storedPatch.content !== undefined ||
             storedPatch.metadata !== undefined
@@ -1320,7 +1503,11 @@ export class Memory {
             projections: {
               raw: "ready",
               vector: "ready",
-              derived: "not_requested",
+              derived: this.beliefProjection.configured
+                ? beliefReady
+                  ? "ready"
+                  : "pending"
+                : "not_requested",
             },
           };
         },
@@ -1337,9 +1524,13 @@ export class Memory {
       record.importance = clamp01(patch.importance);
     }
     if (patch.memoryType !== undefined) record.memoryType = patch.memoryType;
+    record.projectionHints = withoutBeliefProjectionHint(
+      record.projectionHints,
+    );
     record.updatedAt = new Date();
 
     await this.store.updateMemory(record);
+    await this.removeBeliefEvidence(memoryId, "update");
     if (patch.content !== undefined || patch.metadata !== undefined) {
       await this.embedAndStore(record);
     }
@@ -1378,6 +1569,7 @@ export class Memory {
         namespaceId,
         idempotencyKey: options.idempotencyKey,
         kind: "delete",
+        projectsBeliefs: true,
         memoryId,
         request: { memoryId },
         command: {
@@ -1394,6 +1586,10 @@ export class Memory {
             current && !current.forgotten
               ? await this.store.forget(memoryId)
               : false;
+          const beliefReady = await this.removeBeliefEvidence(
+            memoryId,
+            "delete",
+          );
           const vectorReady = await this.deleteVectorIndexEntry(memoryId, {
             operation: "delete",
             operationId: operation.id,
@@ -1417,7 +1613,11 @@ export class Memory {
             projections: {
               raw: "ready",
               vector: vectorReady ? "ready" : "pending",
-              derived: "not_requested",
+              derived: this.beliefProjection.configured
+                ? beliefReady
+                  ? "ready"
+                  : "pending"
+                : "not_requested",
             },
           };
         },
@@ -1433,6 +1633,7 @@ export class Memory {
       });
     }
     const deleted = activeRecord ? await this.store.forget(memoryId) : false;
+    await this.removeBeliefEvidence(memoryId, "delete");
     await this.deleteVectorIndexEntry(memoryId, { operation: "delete" });
     if (activeRecord) await this.refreshSlotSummaryFor(activeRecord);
     return deleted;
@@ -1452,6 +1653,7 @@ export class Memory {
     if (!namespaceId) {
       if (!record) return false;
       await this.store.deleteMemory(memoryId);
+      await this.removeBeliefEvidence(memoryId, "purge");
       await this.deleteVectorIndexEntry(memoryId, { operation: "purge" });
       return true;
     }
@@ -1459,6 +1661,7 @@ export class Memory {
       namespaceId,
       idempotencyKey: options.idempotencyKey,
       kind: "purge",
+      projectsBeliefs: true,
       memoryId,
       request: { memoryId },
       command: {
@@ -1469,6 +1672,7 @@ export class Memory {
       perform: async (operation) => {
         const current = await this.store.getMemory(memoryId);
         if (current) await this.store.deleteMemory(memoryId);
+        const beliefReady = await this.removeBeliefEvidence(memoryId, "purge");
         const vectorReady = await this.deleteVectorIndexEntry(memoryId, {
           operation: "purge",
           operationId: operation.id,
@@ -1479,7 +1683,11 @@ export class Memory {
           projections: {
             raw: "ready",
             vector: vectorReady ? "ready" : "pending",
-            derived: "not_requested",
+            derived: this.beliefProjection.configured
+              ? beliefReady
+                ? "ready"
+                : "pending"
+              : "not_requested",
           },
         };
       },
@@ -1508,6 +1716,7 @@ export class Memory {
         namespaceId,
         idempotencyKey: opts.idempotencyKey,
         kind: "invalidate",
+        projectsBeliefs: true,
         memoryId,
         request: {
           memoryId,
@@ -1531,6 +1740,10 @@ export class Memory {
               : undefined;
           current.updatedAt = operation.createdAt;
           await this.store.updateMemory(current);
+          const beliefReady = await this.invalidateBeliefEvidence(
+            memoryId,
+            current.validTo,
+          );
           await this.refreshSlotSummaryFor(current);
           if (current.supersededBy) {
             const successor = await this.store.getMemory(current.supersededBy);
@@ -1568,7 +1781,11 @@ export class Memory {
             projections: {
               raw: "ready",
               vector: "ready",
-              derived: "not_requested",
+              derived: this.beliefProjection.configured
+                ? beliefReady
+                  ? "ready"
+                  : "pending"
+                : "not_requested",
             },
           };
         },
@@ -1578,6 +1795,7 @@ export class Memory {
     if (opts.supersededBy) record.supersededBy = opts.supersededBy;
     record.updatedAt = new Date();
     await this.store.updateMemory(record);
+    await this.invalidateBeliefEvidence(memoryId, record.validTo);
     await this.refreshSlotSummaryFor(record);
     if (opts.supersededBy) {
       const successor = await this.store.getMemory(opts.supersededBy);
@@ -1609,6 +1827,7 @@ export class Memory {
     const record = await this.store.getMemory(memoryId);
     const changed = await this.store.forget(memoryId);
     if (changed) {
+      await this.removeBeliefEvidence(memoryId, "forget");
       await this.deleteVectorIndexEntry(memoryId, { operation: "forget" });
       if (record) await this.refreshSlotSummaryFor(record);
     }
@@ -1638,7 +1857,9 @@ export class Memory {
         status: "pending",
         rawStatus: "pending",
         vectorStatus: "pending",
-        derivedStatus: "not_requested",
+        derivedStatus: this.beliefProjection.configured
+          ? "pending"
+          : "not_requested",
         leaseExpiresAt: new Date(now.getTime() + OPERATION_LEASE_MS),
         attempts: 1,
         createdAt: now,
@@ -1704,6 +1925,10 @@ export class Memory {
           );
         }
         await this.store.deleteMemories(operation.memoryIds);
+        const beliefReady = await this.removeBeliefEvidenceMany(
+          operation.memoryIds,
+          "deleteAll",
+        );
         const vectorReady = await this.deleteVectorIndexEntries(
           operation.memoryIds,
           {
@@ -1735,7 +1960,11 @@ export class Memory {
           {
             raw: "ready",
             vector: vectorReady ? "ready" : "pending",
-            derived: "not_requested",
+            derived: this.beliefProjection.configured
+              ? beliefReady
+                ? "ready"
+                : "pending"
+              : "not_requested",
           },
           [event],
         );
@@ -1747,7 +1976,9 @@ export class Memory {
           {
             raw: "pending",
             vector: "pending",
-            derived: "not_requested",
+            derived: this.beliefProjection.configured
+              ? "pending"
+              : "not_requested",
           },
         );
         throw error;
@@ -1757,6 +1988,7 @@ export class Memory {
       ? await this.slotKeysFor(filters)
       : [];
     const ids = await this.store.deleteAll(filters);
+    await this.removeBeliefEvidenceMany(ids, "deleteAll");
     await this.deleteVectorIndexEntries(ids, {
       operation: "deleteAll",
       filters,
@@ -1768,8 +2000,8 @@ export class Memory {
   }
 
   /** Permanently erase one structural namespace across canonical and rebuilt
-   * projections. Projection deletion happens first so a failure leaves the
-   * canonical source available for retry/rebuild. */
+   * projections. Canonical deletion wins every race; failed projection cleanup
+   * is observable and remains repairable because projections are derived. */
   async purgeNamespace(
     scope: Scope,
   ): Promise<{ purged: number; documents: number }> {
@@ -1786,6 +2018,7 @@ export class Memory {
     await deleteVectorRecords(this.vectors, ids);
     await this.sidecar.clear({ namespaceId });
     const purgedIds = await this.store.purgeNamespace(namespaceId);
+    await this.clearBeliefEvidence({ namespaceId }, "purgeNamespace");
     await this.documents_.deleteNamespaceOriginals(namespaceId);
     return {
       purged: purgedIds.length,
@@ -1973,6 +2206,7 @@ export class Memory {
   async reset(): Promise<void> {
     await this.init();
     await this.store.reset();
+    await this.clearBeliefEvidence(undefined, "reset");
     await this.documents_.clearOriginals();
     await this.deleteVectorIndexByFilter({}, { operation: "reset" });
   }
@@ -2088,6 +2322,74 @@ export class Memory {
     return this.sidecar.getStateHistory(scopeOf(opts), subject, attribute);
   }
 
+  /**
+   * Governed shadow view for automatically inferred preferences/rules.
+   * `getState()` remains the explicit current-state interface; this method
+   * reports whether repeated independent evidence agrees with that state.
+   */
+  async getBeliefView(
+    subject: string,
+    attribute: string,
+    opts: BeliefQueryOptions = {},
+  ): Promise<BeliefViewResult> {
+    await this.init();
+    const stateScope = scopeOf(opts);
+    const beliefScope = this.beliefOwnerScope(stateScope);
+    const applicability = opts.applicability
+      ? normalizeApplicability(opts.applicability)
+      : this.defaultBeliefApplicability(stateScope);
+    const state = await this.sidecar.getState(stateScope, subject, attribute, {
+      ...(opts.at ? { asOf: opts.at } : {}),
+    });
+    if (!this.beliefProjectionEnabled(stateScope)) {
+      return {
+        projectionStatus: "disabled",
+        mode: opts.mode ?? "default",
+        subject,
+        attribute,
+        applicability,
+        candidates: [],
+        unresolved: false,
+        reasonCodes: ["projection_disabled"],
+        shadow: {
+          outcome: state ? "state_only" : "empty",
+          ...(state ? { state } : {}),
+        },
+      };
+    }
+    const view = await this.beliefReconciler.view(
+      beliefScope,
+      subject,
+      attribute,
+      {
+        mode: opts.mode,
+        applicability,
+        at: opts.at,
+        allApplicability: opts.allApplicability,
+      },
+    );
+    const winner = view.winner;
+    let outcome: BeliefShadowOutcome;
+    if (view.unresolved) outcome = "unresolved";
+    else if (state && winner) {
+      outcome =
+        winner.sourceIds.some((sourceId) => state.sources.includes(sourceId)) ||
+        normalizeBeliefValue(state.value) === normalizeBeliefValue(winner.value)
+          ? "agreement"
+          : "disagreement";
+    } else if (state) outcome = "state_only";
+    else if (winner) outcome = "belief_only";
+    else outcome = "empty";
+    return {
+      ...view,
+      shadow: {
+        outcome,
+        ...(state ? { state } : {}),
+        ...(winner ? { winnerId: winner.id } : {}),
+      },
+    };
+  }
+
   /** Await all in-flight `"deferred"` sidecar derivations (Node shutdown/tests). */
   async flushDerivations(): Promise<void> {
     await Promise.all(this.pendingDerivations);
@@ -2130,10 +2432,58 @@ export class Memory {
     }
   }
 
+  /** Rebuild governed belief evidence from JSON-safe hints frozen on inferred
+   * canonical records. This performs zero LLM calls. */
+  async rebuildBeliefs(
+    scope: Scope = {},
+  ): Promise<{ evidence: number; slots: number }> {
+    await this.init();
+    const requestedScope = scopeOf(scope);
+    const normalizedScope = this.beliefOwnerScope(requestedScope);
+    const scoped = Boolean(
+      normalizedScope.namespaceId ||
+        normalizedScope.userId ||
+        normalizedScope.agentId ||
+        normalizedScope.runId,
+    );
+    if (!this.beliefProjectionEnabled(requestedScope)) {
+      return { evidence: 0, slots: 0 };
+    }
+    await this.beliefReconciler.clear(scoped ? normalizedScope : undefined);
+    const records = await this.store.listMemories(normalizedScope, {
+      limit: 1_000_000,
+      sort: "recent",
+    });
+    records.sort(
+      (left, right) =>
+        left.createdAt.getTime() - right.createdAt.getTime() ||
+        left.id.localeCompare(right.id),
+    );
+    const slots = new Set<string>();
+    let evidence = 0;
+    try {
+      for (const record of records) {
+        const hint = record.projectionHints?.belief;
+        if (!hint || !record.subject || !record.attribute) continue;
+        evidence += await this.projectBeliefSources([record.id]);
+        slots.add(
+          `${normalizeBeliefValue(record.subject)}\u0000${normalizeBeliefValue(
+            record.attribute,
+          )}\u0000${JSON.stringify(hint.applicability)}`,
+        );
+      }
+    } catch (error) {
+      await this.beliefReconciler.clear(scoped ? normalizedScope : undefined);
+      throw error;
+    }
+    return { evidence, slots: slots.size };
+  }
+
   /** Rebuild and verify all rebuildable projections for one namespace. */
   async rebuildProjections(scope: Scope): Promise<{
     vectors: number;
     sidecar: "rebuilt" | "not_configured";
+    beliefs: "rebuilt" | "not_configured";
   }> {
     await this.init();
     const namespaceId = scope.namespaceId?.trim();
@@ -2141,6 +2491,8 @@ export class Memory {
       throw new TypeError("projection rebuild requires a structural namespace");
     }
     const filters = scopeOf(scope);
+    const beliefsEnabledForScope =
+      this.derivationEnabled && this.beliefProjectionEnabled(filters);
     const records = await this.store.listMemories(filters, {
       limit: 1_000_000,
       sort: "recent",
@@ -2192,11 +2544,13 @@ export class Memory {
     await this.store.markProjectionReady(namespaceId, "vector");
     if (this.derivationEnabled) {
       await this.rebuildSidecar(scope);
+      if (beliefsEnabledForScope) await this.rebuildBeliefs(scope);
       await this.store.markProjectionReady(namespaceId, "derived");
     }
     return {
       vectors: expected.size,
       sidecar: this.derivationEnabled ? "rebuilt" : "not_configured",
+      beliefs: beliefsEnabledForScope ? "rebuilt" : "not_configured",
     };
   }
 
@@ -2568,7 +2922,7 @@ export class Memory {
 
   async close(): Promise<void> {
     await Promise.all(this.pendingVectorProjections);
-    await this.store.close();
+    await Promise.all([this.store.close(), this.beliefReconciler.close()]);
   }
 
   // ── internals ─────────────────────────────────────────────────────────────────
@@ -2583,6 +2937,7 @@ export class Memory {
       attribute?: string | null;
       episodeId?: string;
       memoryType?: MemoryType | null;
+      projectionHints?: MemoryProjectionHints;
     },
     identity?: { id: string; createdAt: Date },
   ): Promise<MemoryRecord> {
@@ -2608,6 +2963,8 @@ export class Memory {
           existing.importance !== importance ||
           existing.source !== options.source ||
           stableJson(existing.metadata) !== stableJson(options.metadata) ||
+          stableJson(existing.projectionHints) !==
+            stableJson(structured?.projectionHints) ||
           existing.episodeId !== structured?.episodeId ||
           existing.subject !== (structured?.subject ?? undefined) ||
           existing.attribute !== (structured?.attribute ?? undefined) ||
@@ -2641,6 +2998,7 @@ export class Memory {
       runId: scope.runId,
       source: options.source,
       metadata: options.metadata,
+      projectionHints: structured?.projectionHints,
       createdAt: now,
       updatedAt: now,
       lastAccessedAt: now,
@@ -3180,6 +3538,205 @@ export class Memory {
     }
   }
 
+  private prepareBeliefProjectionHints(
+    extractedType: MemoryType | null,
+    claimValue: string,
+    options: AddOptions,
+    scope: Scope,
+    batchId: string,
+    inferred: boolean,
+  ): MemoryProjectionHints | undefined {
+    const memoryType =
+      options.memoryType ?? extractedType ?? this.defaultMemoryType;
+    if (
+      !inferred ||
+      !this.beliefProjectionEnabled(scope) ||
+      !this.beliefProjection.memoryTypes.has(memoryType)
+    ) {
+      return undefined;
+    }
+    const applicability = options.applicability
+      ? normalizeApplicability(options.applicability)
+      : this.defaultBeliefApplicability(scope);
+    const explicitEvidenceKey = options.evidenceKey?.trim();
+    if (options.evidenceKey !== undefined && !explicitEvidenceKey) {
+      throw new TypeError("evidenceKey must not be empty");
+    }
+    const explicitContextId = options.evidenceContextId?.trim();
+    if (options.evidenceContextId !== undefined && !explicitContextId) {
+      throw new TypeError("evidenceContextId must not be empty");
+    }
+    const weight = options.evidenceWeight ?? 1;
+    if (!Number.isFinite(weight) || weight <= 0 || weight > 1) {
+      throw new TypeError("evidenceWeight must be within (0, 1]");
+    }
+    return {
+      belief: {
+        version: 1,
+        origin: "inferred",
+        applicability: storeApplicability(applicability),
+        claimValue,
+        evidenceKey: explicitEvidenceKey ?? `add:${batchId}`,
+        contextId:
+          explicitContextId ??
+          scope.runId ??
+          applicability.key ??
+          `add:${batchId}`,
+        weight,
+      },
+    };
+  }
+
+  private defaultBeliefApplicability(scope: Scope): ApplicabilityContext {
+    if (scope.namespaceId) return { kind: "project", key: scope.namespaceId };
+    if (scope.runId) return { kind: "conversation", key: scope.runId };
+    if (scope.userId) return { kind: "custom", key: `user:${scope.userId}` };
+    if (scope.agentId) return { kind: "custom", key: `agent:${scope.agentId}` };
+    return { kind: "custom", key: "unscoped" };
+  }
+
+  /**
+   * Learned preferences aggregate across observation runs while retaining the
+   * authenticated namespace/user (or agent) ownership fence. Run identity is
+   * evidence context, not long-term owner identity.
+   */
+  private beliefOwnerScope(scope: Scope): Scope {
+    if (scope.userId) {
+      return {
+        ...(scope.namespaceId ? { namespaceId: scope.namespaceId } : {}),
+        userId: scope.userId,
+      };
+    }
+    if (scope.agentId) {
+      return {
+        ...(scope.namespaceId ? { namespaceId: scope.namespaceId } : {}),
+        agentId: scope.agentId,
+      };
+    }
+    return {
+      ...(scope.namespaceId ? { namespaceId: scope.namespaceId } : {}),
+      ...(scope.runId ? { runId: scope.runId } : {}),
+    };
+  }
+
+  private beliefProjectionRuntimeEnabled(scope: Scope): boolean {
+    if (!this.beliefProjection.configured) return false;
+    try {
+      if (this.beliefProjection.killSwitch?.()) return false;
+    } catch (error) {
+      this.warn(
+        "belief_reconciliation_failed",
+        "Belief reconciliation kill switch failed closed.",
+        error,
+        { ...scopeOf(scope) },
+      );
+      return false;
+    }
+    return true;
+  }
+
+  private beliefProjectionNamespaceAllowed(scope: Scope): boolean {
+    const allowlist = this.beliefProjection.namespaceAllowlist;
+    return (
+      !allowlist ||
+      (scope.namespaceId !== undefined && allowlist.has(scope.namespaceId))
+    );
+  }
+
+  private beliefProjectionEnabled(scope: Scope): boolean {
+    return (
+      this.beliefProjectionRuntimeEnabled(scope) &&
+      this.beliefProjectionNamespaceAllowed(scope)
+    );
+  }
+
+  private async projectDerivedFacts(
+    facts: ExtractedFact[],
+    options: AddOptions,
+    scope: Scope,
+    sources: string[],
+    prelinkedEntities = new Map<string, string[]>(),
+  ): Promise<boolean> {
+    const structuralReady = await this.projectExtractedFacts(
+      facts,
+      options,
+      scope,
+      sources,
+      prelinkedEntities,
+    );
+    let beliefReady = true;
+    try {
+      await this.projectBeliefSources(sources);
+    } catch (error) {
+      beliefReady = false;
+      this.warn(
+        "belief_reconciliation_failed",
+        "Belief evidence projection failed; canonical records and ordinary recall remain intact.",
+        error,
+        { sourceIds: sources.join(","), ...scopeOf(scope) },
+      );
+    }
+    return structuralReady && beliefReady;
+  }
+
+  private async projectBeliefSources(sources: string[]): Promise<number> {
+    // Belief reconciliation is opt-in and normally disabled. Avoid one
+    // canonical-store read per inferred record when the projection is not
+    // configured or the runtime kill switch is active.
+    if (!this.beliefProjectionRuntimeEnabled({})) return 0;
+
+    let projected = 0;
+    for (const sourceId of sources) {
+      const record = await this.store.getMemory(sourceId);
+      const hint = record?.projectionHints?.belief;
+      if (
+        !record ||
+        !hint ||
+        hint.version !== 1 ||
+        hint.origin !== "inferred" ||
+        !this.beliefProjection.memoryTypes.has(record.memoryType)
+      ) {
+        continue;
+      }
+      const sourceScope = scopeFromMemory(record);
+      if (!this.beliefProjectionNamespaceAllowed(sourceScope)) continue;
+      if (!record.subject || !record.attribute) continue;
+      await this.beliefReconciler.observe({
+        scope: this.beliefOwnerScope(sourceScope),
+        subject: record.subject,
+        attribute: record.attribute,
+        value: hint.claimValue ?? record.content,
+        sourceId: record.id,
+        evidenceKey: hint.evidenceKey,
+        contextId: hint.contextId,
+        applicability: restoreApplicability(hint.applicability),
+        observedAt: record.createdAt,
+        validFrom: record.validFrom ?? record.eventDate ?? record.createdAt,
+        ...(record.validTo ? { validTo: record.validTo } : {}),
+        weight: hint.weight,
+      });
+      // Canonical mutation is authoritative. Recheck after projection so a
+      // deferred add racing update/delete/invalidate cannot resurrect stale
+      // evidence after mutation cleanup has already run.
+      const current = await this.store.getMemory(sourceId);
+      const currentHint = current?.projectionHints?.belief;
+      if (
+        !current ||
+        current.forgotten ||
+        !currentHint ||
+        stableJson(currentHint) !== stableJson(hint)
+      ) {
+        await this.beliefReconciler.removeSource(sourceId);
+        continue;
+      }
+      if (current.validTo) {
+        await this.beliefReconciler.invalidateSource(sourceId, current.validTo);
+      }
+      projected++;
+    }
+    return projected;
+  }
+
   /**
    * Re-extract one or more existing canonical records for an explicit sidecar
    * rebuild. Normal adds do not use this method: they pass their already
@@ -3298,8 +3855,13 @@ export class Memory {
     transcript: string,
     scope: Scope,
   ): Promise<ExtractedFact[]> {
+    const systemPrompt =
+      this.factExtractionPrompt ??
+      (this.beliefProjectionEnabled(scope)
+        ? BELIEF_FACT_EXTRACTION_SYSTEM
+        : undefined);
     const raw = await this.llm.chat(
-      buildExtractionMessages(transcript, this.factExtractionPrompt),
+      buildExtractionMessages(transcript, systemPrompt),
       {
         responseFormat: "json",
         context: {
@@ -3323,6 +3885,7 @@ export class Memory {
         if (f.trim()) {
           out.push({
             text: f.trim(),
+            beliefValue: null,
             eventDate: null,
             entities: [],
             subject: null,
@@ -3335,6 +3898,10 @@ export class Memory {
         if (f.text.trim()) {
           out.push({
             text: f.text.trim(),
+            beliefValue:
+              typeof f.value === "string" && f.value.trim()
+                ? f.value.trim()
+                : null,
             eventDate: parseEventDate(f.event_date),
             entities: Array.isArray(f.entities)
               ? f.entities.filter(
@@ -3597,8 +4164,20 @@ export class NamespacedMemory {
     return this.memory.getStateHistory(subject, attribute, this.scope(scope));
   }
 
+  getBeliefView(
+    subject: string,
+    attribute: string,
+    options: BeliefQueryOptions = {},
+  ) {
+    return this.memory.getBeliefView(subject, attribute, this.scope(options));
+  }
+
   rebuildSidecar(scope: Scope = {}) {
     return this.memory.rebuildSidecar(this.scope(scope));
+  }
+
+  rebuildBeliefs(scope: Scope = {}) {
+    return this.memory.rebuildBeliefs(this.scope(scope));
   }
 
   rebuildProjections(scope: Scope = {}) {
@@ -3938,6 +4517,18 @@ function stableJson(value: unknown): string {
   return JSON.stringify(normalize(value));
 }
 
+function normalizeBeliefValue(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function withoutBeliefProjectionHint(
+  hints?: MemoryProjectionHints,
+): MemoryProjectionHints | undefined {
+  if (!hints?.belief) return hints;
+  const { belief: _ignored, ...remaining } = hints;
+  return Object.keys(remaining).length ? remaining : undefined;
+}
+
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
@@ -4020,6 +4611,17 @@ function readAddPlan(
         `idempotent add plan record ${index} has invalid content`,
       );
     }
+    const beliefValue =
+      record.beliefValue === undefined || record.beliefValue === null
+        ? null
+        : typeof record.beliefValue === "string" && record.beliefValue.trim()
+          ? record.beliefValue.trim()
+          : undefined;
+    if (beliefValue === undefined) {
+      throw new Error(
+        `idempotent add plan record ${index} has invalid beliefValue`,
+      );
+    }
     if (
       record.eventDate !== null &&
       (typeof record.eventDate !== "string" ||
@@ -4062,6 +4664,7 @@ function readAddPlan(
     }
     return {
       content: record.content,
+      beliefValue,
       eventDate: record.eventDate,
       entities: [...record.entities],
       subject: record.subject,
@@ -4075,6 +4678,7 @@ function readAddPlan(
 function preparedRecordsToFacts(records: PreparedAddRecord[]): ExtractedFact[] {
   return records.map((record) => ({
     text: record.content,
+    beliefValue: record.beliefValue,
     eventDate: record.eventDate ? new Date(record.eventDate) : null,
     entities: [...record.entities],
     subject: record.subject,

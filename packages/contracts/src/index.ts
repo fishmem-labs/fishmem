@@ -45,6 +45,50 @@ export const MemoryTypeSchema = z.enum([
   "todo",
 ]);
 
+export const ApplicabilityKindSchema = z.enum([
+  "global",
+  "project",
+  "task",
+  "conversation",
+  "channel",
+  "custom",
+]);
+
+export const ApplicabilityContextSchema = z
+  .object({
+    kind: ApplicabilityKindSchema,
+    key: z.string().trim().min(1).max(1_024).optional(),
+    valid_from: z.string().datetime().optional(),
+    valid_to: z.string().datetime().optional(),
+  })
+  .superRefine((context, refinement) => {
+    if (context.kind === "global" && context.key) {
+      refinement.addIssue({
+        code: "custom",
+        path: ["key"],
+        message: "global applicability must not include a key",
+      });
+    }
+    if (context.kind !== "global" && !context.key) {
+      refinement.addIssue({
+        code: "custom",
+        path: ["key"],
+        message: `${context.kind} applicability requires a key`,
+      });
+    }
+    if (
+      context.valid_from &&
+      context.valid_to &&
+      Date.parse(context.valid_to) <= Date.parse(context.valid_from)
+    ) {
+      refinement.addIssue({
+        code: "custom",
+        path: ["valid_to"],
+        message: "valid_to must be after valid_from",
+      });
+    }
+  });
+
 /**
  * Public search modes deliberately omit `deep`: it performs an additional LLM
  * call, so Hosted must price and authorize that lane before it becomes part of
@@ -1052,6 +1096,62 @@ export const StateQuerySchema = z
     message: "One of user_id, agent_id, run_id is required",
   });
 
+const QueryBooleanSchema = z.union([
+  z.boolean(),
+  z.enum(["true", "false"]).transform((value) => value === "true"),
+]);
+
+export const BeliefViewModeSchema = z.enum(["default", "conflict", "audit"]);
+
+export const BeliefQuerySchema = z
+  .object({
+    ...ScopeFields,
+    subject: z.string().trim().min(1),
+    attribute: z.string().trim().min(1),
+    view: BeliefViewModeSchema.default("conflict"),
+    applicability_kind: ApplicabilityKindSchema.optional(),
+    applicability_key: z.string().trim().min(1).max(1_024).optional(),
+    at: z.string().datetime().optional(),
+    all_applicability: QueryBooleanSchema.default(false),
+  })
+  .superRefine((command, refinement) => {
+    if (!command.user_id && !command.agent_id && !command.run_id) {
+      refinement.addIssue({
+        code: "custom",
+        message: "One of user_id, agent_id, run_id is required",
+      });
+    }
+    const kind = command.applicability_kind;
+    if (kind === "global" && command.applicability_key) {
+      refinement.addIssue({
+        code: "custom",
+        path: ["applicability_key"],
+        message: "global applicability must not include a key",
+      });
+    }
+    if (kind && kind !== "global" && !command.applicability_key) {
+      refinement.addIssue({
+        code: "custom",
+        path: ["applicability_key"],
+        message: `${kind} applicability requires a key`,
+      });
+    }
+    if (!kind && command.applicability_key) {
+      refinement.addIssue({
+        code: "custom",
+        path: ["applicability_kind"],
+        message: "applicability_kind is required with applicability_key",
+      });
+    }
+    if (command.all_applicability && command.view !== "audit") {
+      refinement.addIssue({
+        code: "custom",
+        path: ["all_applicability"],
+        message: "all_applicability is available only for audit view",
+      });
+    }
+  });
+
 export const ProfileQuerySchema = z
   .object({
     ...ScopeFields,
@@ -1080,6 +1180,66 @@ export const StateResponseSchema = z.object({
 export const StateHistoryResponseSchema = z.object({
   data: z.array(StateSlotSchema),
 });
+
+export const BeliefEvidenceSchema = z.object({
+  id: z.string(),
+  source_id: z.string(),
+  evidence_key: z.string(),
+  context_id: z.string(),
+  applicability: ApplicabilityContextSchema,
+  observed_at: z.string().datetime(),
+  valid_from: z.string().datetime(),
+  valid_to: z.string().datetime().nullable(),
+  weight: z.number().gt(0).max(1),
+  active: z.boolean(),
+});
+
+export const BeliefCandidateSchema = z.object({
+  id: z.string(),
+  subject: z.string(),
+  attribute: z.string(),
+  value: z.string(),
+  applicability: ApplicabilityContextSchema,
+  status: z.enum(["supported", "contested", "superseded"]),
+  score: z.number().nonnegative(),
+  support: z.number().min(0).max(1),
+  evidence_count: z.number().int().nonnegative(),
+  context_count: z.number().int().nonnegative(),
+  source_ids: z.array(z.string()),
+  first_observed_at: z.string().datetime(),
+  last_observed_at: z.string().datetime(),
+  superseded_by: z.string().nullable(),
+  reason_codes: z.array(z.string()),
+  evidence: z.array(BeliefEvidenceSchema).optional(),
+});
+
+export const BeliefShadowSchema = z.object({
+  outcome: z.enum([
+    "agreement",
+    "disagreement",
+    "state_only",
+    "belief_only",
+    "unresolved",
+    "empty",
+  ]),
+  state: StateSlotSchema.nullable(),
+  winner_id: z.string().nullable(),
+});
+
+export const BeliefViewSchema = z.object({
+  projection_status: z.enum(["ready", "disabled"]),
+  mode: BeliefViewModeSchema,
+  subject: z.string(),
+  attribute: z.string(),
+  applicability: ApplicabilityContextSchema,
+  winner: BeliefCandidateSchema.nullable(),
+  candidates: z.array(BeliefCandidateSchema),
+  unresolved: z.boolean(),
+  reason_codes: z.array(z.string()),
+  shadow: BeliefShadowSchema,
+});
+
+export const BeliefResponseSchema = z.object({ data: BeliefViewSchema });
 
 export const ProfileSectionSchema = z.object({
   id: z.string(),
@@ -1122,6 +1282,11 @@ export type ScopeEntityWire = z.infer<typeof ScopeEntitySchema>;
 export type ScopeEntityTypeWire = z.infer<typeof ScopeEntityTypeSchema>;
 export type AddResultWire = z.infer<typeof AddResultSchema>;
 export type StateSlotWire = z.infer<typeof StateSlotSchema>;
+export type ApplicabilityContextWire = z.infer<
+  typeof ApplicabilityContextSchema
+>;
+export type BeliefQuery = z.infer<typeof BeliefQuerySchema>;
+export type BeliefViewWire = z.infer<typeof BeliefViewSchema>;
 export type IngestDocumentCommand = z.infer<typeof IngestDocumentCommandSchema>;
 export type CreateDocumentUploadCommand = z.infer<
   typeof CreateDocumentUploadCommandSchema
@@ -1879,6 +2044,72 @@ export const openApiDocument = {
         },
       },
     },
+    "/v1/beliefs": {
+      get: {
+        operationId: "getBeliefView",
+        parameters: [
+          ...scopeParameters,
+          {
+            in: "query",
+            name: "subject",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            in: "query",
+            name: "attribute",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            in: "query",
+            name: "view",
+            schema: {
+              type: "string",
+              enum: ["default", "conflict", "audit"],
+              default: "conflict",
+            },
+          },
+          {
+            in: "query",
+            name: "applicability_kind",
+            schema: {
+              type: "string",
+              enum: [
+                "global",
+                "project",
+                "task",
+                "conversation",
+                "channel",
+                "custom",
+              ],
+            },
+          },
+          {
+            in: "query",
+            name: "applicability_key",
+            schema: { type: "string" },
+          },
+          {
+            in: "query",
+            name: "at",
+            schema: { type: "string", format: "date-time" },
+          },
+          {
+            in: "query",
+            name: "all_applicability",
+            schema: { type: "boolean", default: false },
+          },
+        ],
+        responses: {
+          "200": response(
+            "Governed inferred-belief shadow, conflict, or audit view",
+            schemaRef("BeliefResponse"),
+          ),
+          ...errors,
+        },
+      },
+    },
     "/v1/state/history": {
       get: {
         operationId: "getStateHistory",
@@ -2058,6 +2289,12 @@ export const openApiDocument = {
       StateSlot: z.toJSONSchema(StateSlotSchema),
       StateResponse: z.toJSONSchema(StateResponseSchema),
       StateHistoryResponse: z.toJSONSchema(StateHistoryResponseSchema),
+      ApplicabilityContext: z.toJSONSchema(ApplicabilityContextSchema),
+      BeliefEvidence: z.toJSONSchema(BeliefEvidenceSchema),
+      BeliefCandidate: z.toJSONSchema(BeliefCandidateSchema),
+      BeliefShadow: z.toJSONSchema(BeliefShadowSchema),
+      BeliefView: z.toJSONSchema(BeliefViewSchema),
+      BeliefResponse: z.toJSONSchema(BeliefResponseSchema),
       ProfileQuery: z.toJSONSchema(ProfileQuerySchema),
       ProfileSection: z.toJSONSchema(ProfileSectionSchema),
       ProfileResponse: z.toJSONSchema(ProfileResponseSchema),

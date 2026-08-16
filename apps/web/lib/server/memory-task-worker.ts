@@ -19,6 +19,7 @@ import {
   type MemoryInferenceAccounting,
   processMemoryInferenceTask,
 } from "@/lib/server/memory-inference-tasks";
+import { sanitizePublicSnapshot } from "@/lib/server/public-snapshot";
 
 export type MemoryTaskWorkerDependencies = {
   documentExtractionAccounting?: DocumentExtractionAccounting;
@@ -117,12 +118,14 @@ function handlers(
       memory.forNamespace(task.workspaceId).runMaintenance(),
     rebuild: (task) =>
       memory.forNamespace(task.workspaceId).rebuildProjections(),
-    export: (task) =>
-      memory.forNamespace(task.workspaceId).exportSnapshot(),
+    export: async (task) =>
+      sanitizePublicSnapshot(
+        await memory.forNamespace(task.workspaceId).exportSnapshot(),
+      ),
     import: (task) =>
       memory
         .forNamespace(task.workspaceId)
-        .importSnapshot(task.payload.snapshot, {
+        .importSnapshot(sanitizePublicSnapshot(task.payload.snapshot), {
           idempotencyKey: task.operationId ?? task.documentId,
         }),
     memory_infer: (task) =>

@@ -1,3 +1,5 @@
+import type { BeliefReconciler, StateSidecar } from "fishmem";
+
 type ApiTokenAuthState = {
   status: string;
   expiresAt: Date | null;
@@ -19,11 +21,36 @@ export function apiTokenAuthFailure(
 export function memoryDerivationConfig(
   enabled: boolean,
   sidecar?: StateSidecar,
+  beliefReconciler?: BeliefReconciler,
 ) {
+  const beliefEnabled =
+    process.env.FISHMEM_BELIEF_RECONCILIATION_ENABLED === "1";
+  const namespaceAllowlist = (
+    process.env.FISHMEM_BELIEF_RECONCILIATION_ALLOWLIST ?? ""
+  )
+    .split(",")
+    .map((namespaceId) => namespaceId.trim())
+    .filter(Boolean);
   return enabled
     ? ({
-        derivation: { enabled: true, schedule: "inline", sidecar },
+        derivation: {
+          enabled: true,
+          schedule: "inline",
+          sidecar,
+          ...(beliefEnabled
+            ? {
+                beliefs: {
+                  enabled: true,
+                  namespaceAllowlist,
+                  ...(beliefReconciler
+                    ? { reconciler: beliefReconciler }
+                    : {}),
+                  killSwitch: () =>
+                    process.env.FISHMEM_BELIEF_RECONCILIATION_DISABLED === "1",
+                },
+              }
+            : {}),
+        },
       } as const)
     : ({} as const);
 }
-import type { StateSidecar } from "fishmem";

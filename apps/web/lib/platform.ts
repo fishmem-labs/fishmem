@@ -84,15 +84,22 @@ export async function createMemoryStores(env: {
       binding: env.D1 as never,
       autoMigrate: false,
     });
+    const beliefReconciler = await fishmem.createD1BeliefReconciler({
+      binding: env.D1 as never,
+      autoMigrate: false,
+    });
     const vectorStore = new fishmem.VectorizeStore({
       index: env.VECTORIZE as never,
     });
-    return { graphStore, stateSidecar, vectorStore };
+    return { graphStore, stateSidecar, beliefReconciler, vectorStore };
   }
   const graphStore = await fishmem.createSqliteGraphStore({ url: DATABASE_URL });
   const stateSidecar = await fishmem.createSqliteStateSidecar({
     url: DATABASE_URL,
   });
+  const beliefReconciler = await fishmem.createSqliteBeliefReconciler({
+    url: DATABASE_URL,
+  });
   const vectorStore = new fishmem.SqliteVectorStore({ url: DATABASE_URL });
-  return { graphStore, stateSidecar, vectorStore };
+  return { graphStore, stateSidecar, beliefReconciler, vectorStore };
 }

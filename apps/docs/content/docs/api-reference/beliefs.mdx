@@ -1,0 +1,118 @@
+---
+title: Governed belief views
+description: Inspect supported, contested, and superseded inferred preferences without changing canonical memory.
+---
+
+`GET /v1/beliefs` reads an opt-in, rebuildable shadow projection. It is for
+automatically inferred preferences and learned rules that should accumulate
+evidence before they are trusted. It does not replace explicit state, mutate
+canonical records, or change ordinary search results.
+
+## Query
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `user_id`, `agent_id`, or `run_id` | string | At least one authenticated memory scope |
+| `subject` | string | Subject, for example `Ada` |
+| `attribute` | string | Stable slot key, for example `editor_theme` |
+| `view` | `default`, `conflict`, or `audit` | Defaults to `conflict` |
+| `applicability_kind` | `global`, `project`, `task`, `conversation`, `channel`, or `custom` | Optional semantic context |
+| `applicability_key` | string | Required for every non-global applicability kind |
+| `at` | ISO date-time | Evaluate evidence and applicability windows at this time |
+| `all_applicability` | boolean | Audit-only operator view across every applicability context |
+
+```bash
+curl -G https://fishmem.com/v1/beliefs \
+  -H "Authorization: Bearer $FISHMEM_API_KEY" \
+  --data-urlencode "user_id=ada" \
+  --data-urlencode "subject=Ada" \
+  --data-urlencode "attribute=editor_theme" \
+  --data-urlencode "view=audit"
+```
+
+## Response
+
+```json
+{
+  "data": {
+    "projection_status": "ready",
+    "mode": "audit",
+    "subject": "Ada",
+    "attribute": "editor_theme",
+    "applicability": { "kind": "project", "key": "workspace_123" },
+    "winner": {
+      "id": "belief_...",
+      "subject": "Ada",
+      "attribute": "editor_theme",
+      "value": "dark mode",
+      "applicability": { "kind": "project", "key": "workspace_123" },
+      "status": "supported",
+      "score": 3,
+      "support": 1,
+      "evidence_count": 3,
+      "context_count": 3,
+      "source_ids": ["mem_1", "mem_2", "mem_3"],
+      "first_observed_at": "2026-08-01T00:00:00.000Z",
+      "last_observed_at": "2026-08-15T00:00:00.000Z",
+      "superseded_by": null,
+      "reason_codes": ["policy_thresholds_met"],
+      "evidence": [
+        {
+          "id": "belief_ev_...",
+          "source_id": "mem_1",
+          "evidence_key": "add:...",
+          "context_id": "run_1",
+          "applicability": {
+            "kind": "project",
+            "key": "workspace_123"
+          },
+          "observed_at": "2026-08-01T00:00:00.000Z",
+          "valid_from": "2026-08-01T00:00:00.000Z",
+          "valid_to": null,
+          "weight": 1,
+          "active": true
+        }
+      ]
+    },
+    "candidates": [],
+    "unresolved": false,
+    "reason_codes": ["contextual_override"],
+    "shadow": {
+      "outcome": "agreement",
+      "state": null,
+      "winner_id": "belief_..."
+    }
+  }
+}
+```
+
+`projection_status: "disabled"` is an expected result when the rollout is not
+enabled, the namespace is outside the allowlist, or the runtime kill switch is
+active.
+
+## Lifecycle and safety
+
+- `default` returns only a supported winner and hides unresolved candidates.
+- `conflict` returns active candidates without evidence-row detail.
+- `audit` includes inactive evidence, source IDs, and machine-readable reason
+  codes.
+- Echoes from one evidence key count once. A key that claims two active values
+  is quarantined, including under concurrent writes.
+- Evidence with the same applicability kind/key competes whenever its validity
+  windows overlap; different windows do not create parallel winners.
+- Active contextual conflict blocks global fallback. Expired or absent
+  contextual evidence may fall back to a supported global candidate.
+- Public memory writes cannot set evidence keys, weights, or applicability.
+  Those fields are derived from authenticated scope and the frozen one-pass
+  extraction plan, so model-controlled metadata cannot manufacture support.
+- Canonical update, invalidation, deletion, and namespace purge propagate to
+  the shadow projection. Trusted engine snapshots retain rebuild hints; public
+  REST export/import strips those implementation-owned fields so a client
+  cannot manufacture evidence identities, weights, or applicability.
+
+The default policy requires three independent evidence keys, three distinct
+contexts, at least 0.6 weighted support, and a weighted lead of 1. These are
+operator policy defaults, not universal truth. Keep the feature shadow-only
+until your own paired evaluation passes.
+
+See [Configuration](/open-source/configuration) for opt-in rollout controls.

@@ -88,9 +88,27 @@ async with AsyncFishMem(api_key="fm_...") as fishmem:
   set_feedback, and clear_feedback;
 - `events`: list, get, and wait;
 - `state`: get and history;
+- `beliefs`: get;
 - `profile`: get;
 - `operations`: list, get, retry, and wait;
 - `exports.create` and `imports.create`.
+
+Read the opt-in governed belief projection with the same query contract as the
+REST API:
+
+```python
+view = fishmem.beliefs.get(
+    {
+        "user_id": "alex",
+        "subject": "Alex",
+        "attribute": "answer_style",
+        "view": "audit",
+    }
+)
+```
+
+The async client exposes `await fishmem.beliefs.get(...)`. A disabled
+projection is returned as data; it is not treated as a transport error.
 
 ## Pagination
 
