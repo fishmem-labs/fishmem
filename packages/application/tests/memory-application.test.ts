@@ -29,6 +29,10 @@ function fixture() {
 			createdAt: new Date("2026-01-02T00:00:00.000Z"),
 		}),
 		clearFeedback: vi.fn().mockResolvedValue(true),
+		stats: vi.fn().mockResolvedValue({
+			totalMemories: 12,
+			totalEntities: 4,
+		}),
 		getBeliefView: vi.fn().mockResolvedValue({
 			projectionStatus: "ready",
 			mode: "conflict",
@@ -48,6 +52,15 @@ function fixture() {
 }
 
 describe("MemoryApplication", () => {
+	it("returns exact namespace dashboard statistics", async () => {
+		const { app, memory } = fixture();
+		await expect(app.stats("workspace")).resolves.toEqual({
+			totalMemories: 12,
+			totalEntities: 4,
+		});
+		expect(memory.stats).toHaveBeenCalledOnce();
+	});
+
 	it("validates and binds canonical add commands", async () => {
 		const { app, engine, memory } = fixture();
 		await app.add(

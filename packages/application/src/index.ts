@@ -377,6 +377,10 @@ export class MemoryApplication {
 		};
 	}
 
+	async stats(namespaceId: string) {
+		return this.namespace(namespaceId).stats();
+	}
+
 	async getScopeEntity(namespaceId: string, rawType: unknown, rawId: unknown) {
 		const type = ScopeEntityTypeSchema.parse(rawType);
 		const id = ScopeEntityIdSchema.parse(rawId);

@@ -4023,6 +4023,39 @@ export class NamespacedMemory {
     return this.memory.store.listScopeEntities(this.namespaceId, options);
   }
 
+  async stats(): Promise<{ totalMemories: number; totalEntities: number }> {
+    await this.memory.init();
+    const [totalMemories, totalEntities] = await Promise.all([
+      this.memory.store.countMemories({ namespaceId: this.namespaceId }),
+      this.countScopeEntities(),
+    ]);
+    return { totalMemories, totalEntities };
+  }
+
+  private async countScopeEntities(): Promise<number> {
+    if (this.memory.store.countScopeEntities) {
+      return this.memory.store.countScopeEntities(this.namespaceId);
+    }
+
+    let total = 0;
+    let cursor:
+      | { updatedAt: Date; type: ScopeEntityType; id: string }
+      | undefined;
+    do {
+      const page = await this.memory.store.listScopeEntities(this.namespaceId, {
+        cursor,
+        limit: 1_000,
+      });
+      total += page.length;
+      const last = page.at(-1);
+      cursor =
+        page.length === 1_000 && last
+          ? { updatedAt: last.updatedAt, type: last.type, id: last.id }
+          : undefined;
+    } while (cursor);
+    return total;
+  }
+
   async getScopeEntity(
     type: ScopeEntityType,
     id: string,

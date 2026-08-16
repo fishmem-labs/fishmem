@@ -101,6 +101,8 @@ export interface GraphStore {
     namespaceId: string,
     options?: ScopeEntityListOptions,
   ): Promise<ScopeEntity[]>;
+  /** Exact number of structural user/agent/run owners in a namespace. */
+  countScopeEntities?(namespaceId: string): Promise<number>;
 
   // ── Associations (graph edges) ─────────────────────────────────────────────
   createAssociation(association: Association): Promise<void>;

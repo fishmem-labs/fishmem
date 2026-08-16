@@ -168,6 +168,17 @@ export class InMemoryGraphStore implements GraphStore {
     }));
   }
 
+  async countScopeEntities(namespaceId: string): Promise<number> {
+    const entities = new Set<string>();
+    for (const memory of this.memories.values()) {
+      if (memory.forgotten || memory.namespaceId !== namespaceId) continue;
+      if (memory.userId) entities.add(`user\0${memory.userId}`);
+      if (memory.agentId) entities.add(`agent\0${memory.agentId}`);
+      if (memory.runId) entities.add(`run\0${memory.runId}`);
+    }
+    return entities.size;
+  }
+
   async getHighImportance(
     threshold: number,
     limit: number,

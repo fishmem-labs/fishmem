@@ -62,6 +62,9 @@ async function seed(store: GraphStore) {
 
 async function expectScopeEntityContract(store: GraphStore) {
   await seed(store);
+  expect(store.countScopeEntities).toBeDefined();
+  await expect(store.countScopeEntities!("alpha")).resolves.toBe(4);
+  await expect(store.countScopeEntities!("beta")).resolves.toBe(1);
   const first = await store.listScopeEntities("alpha", { limit: 2 });
   expect(first).toMatchObject([
     {

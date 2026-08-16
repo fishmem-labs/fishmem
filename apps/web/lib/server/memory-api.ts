@@ -2677,6 +2677,10 @@ export async function appMemoriesHandler(
       return json({ data: shapeMemory(current as MemoryItem) });
     }
 
+    if (method === "GET" && !sub && url.searchParams.get("stats") === "1") {
+      return json(await application.stats(workspaceId));
+    }
+
     if (method === "POST") {
       const body: unknown = await request.json().catch(() => null);
       if (!isRecord(body)) return apiError(400, "Invalid body", "INVALID_BODY");

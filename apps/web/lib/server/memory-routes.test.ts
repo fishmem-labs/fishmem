@@ -59,6 +59,7 @@ function dependencies() {
       createdAt: new Date("2026-07-13T00:00:00.000Z"),
       updatedAt: new Date("2026-07-13T00:00:00.000Z"),
     }),
+    getAll: vi.fn().mockResolvedValue({ results: [] }),
     getBeliefView: vi.fn().mockResolvedValue({
       projectionStatus: "ready",
       mode: "audit",
@@ -109,6 +110,7 @@ function dependencies() {
       createdAt: new Date("2026-07-31T00:00:00.000Z"),
     }),
     clearFeedback: vi.fn().mockResolvedValue(true),
+    stats: vi.fn().mockResolvedValue({ totalMemories: 12, totalEntities: 4 }),
     listScopeEntities: vi.fn().mockResolvedValue([
       {
         id: "ada",
@@ -1175,6 +1177,29 @@ describe("authenticated public memory routes", () => {
     );
     expect(notifyTask).toHaveBeenCalledWith("task_infer");
     expect(engine.forNamespace).not.toHaveBeenCalled();
+  });
+
+  it("returns exact dashboard statistics without listing memories", async () => {
+    const { engine, memory } = dependencies();
+    const request = new Request(
+      "https://fishmem.test/api/app/memories?workspace=ws_1&stats=1",
+    );
+    const response = await appMemoriesHandler(
+      request,
+      ["memories"],
+      new URL(request.url),
+      {} as never,
+      { workspaces: [{ documentId: "ws_1" }] },
+      async () => engine as never,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      totalMemories: 12,
+      totalEntities: 4,
+    });
+    expect(memory.stats).toHaveBeenCalledOnce();
+    expect(memory.getAll).not.toHaveBeenCalled();
   });
 
   it("serves the governed belief audit shape through the dashboard adapter", async () => {

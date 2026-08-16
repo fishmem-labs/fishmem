@@ -273,6 +273,31 @@ export class DrizzleGraphStore implements GraphStore {
     return pages.flat().sort(compareScopeEntities).slice(0, limit);
   }
 
+  async countScopeEntities(namespaceId: string): Promise<number> {
+    const fields = [
+      this.t.memories.userId,
+      this.t.memories.agentId,
+      this.t.memories.runId,
+    ];
+    const counts = await Promise.all(
+      fields.map(async (field) => {
+        const rows = await this.db
+          .select({ c: sql<number>`count(distinct ${field})` })
+          .from(this.t.memories)
+          .where(
+            and(
+              eq(this.t.memories.namespaceId, namespaceId),
+              eq(this.t.memories.forgotten, false),
+              isNotNull(field),
+              sql`${field} <> ''`,
+            ),
+          );
+        return Number(rows[0]?.c ?? 0);
+      }),
+    );
+    return counts.reduce((total, value) => total + value, 0);
+  }
+
   private async scopeEntityRows(
     type: ScopeEntityType,
     namespaceId: string,
