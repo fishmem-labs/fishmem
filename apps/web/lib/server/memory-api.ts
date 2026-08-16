@@ -93,6 +93,37 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 
+export type DashboardMemoryStats = {
+  totalMemories: number;
+  totalEntities: number;
+};
+
+export async function queryDashboardMemoryStats(
+  db: AppDb,
+  namespaceId: string,
+): Promise<DashboardMemoryStats> {
+  const [row] = await db.all<DashboardMemoryStats>(sql`
+    select
+      count(*) as "totalMemories",
+      count(distinct case
+        when user_id is not null and user_id <> '' then user_id
+      end)
+      + count(distinct case
+        when agent_id is not null and agent_id <> '' then agent_id
+      end)
+      + count(distinct case
+        when run_id is not null and run_id <> '' then run_id
+      end) as "totalEntities"
+    from fishmem_memories
+    where namespace_id = ${namespaceId} and forgotten = 0
+  `);
+
+  return {
+    totalMemories: Number(row?.totalMemories ?? 0),
+    totalEntities: Number(row?.totalEntities ?? 0),
+  };
+}
+
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -2552,18 +2583,27 @@ export async function appMemoriesHandler(
     enqueue: enqueueMemoryInferenceTask,
     notify: notifyOperationTask,
   },
+  dashboardStatsQuery: (
+    db: AppDb,
+    namespaceId: string,
+  ) => Promise<DashboardMemoryStats> = queryDashboardMemoryStats,
 ) {
   const requestedWorkspaceId = url.searchParams.get("workspace");
   const workspaceId = dashboardWorkspaceId(user, requestedWorkspaceId);
   if (!workspaceId) {
     return apiError(400, "No project for user", "NO_PROJECT");
   }
-  const engine = await engineFactory();
-  const application = new MemoryApplication(engine);
   const method = request.method.toUpperCase();
   const sub = path[1];
 
   try {
+    if (method === "GET" && !sub && url.searchParams.get("stats") === "1") {
+      return json(await dashboardStatsQuery(db, workspaceId));
+    }
+
+    const engine = await engineFactory();
+    const application = new MemoryApplication(engine);
+
     if (method === "GET" && sub === "snapshot") {
       return json({ data: await exportWorkspaceSnapshot(workspaceId) });
     }
@@ -2675,10 +2715,6 @@ export async function appMemoriesHandler(
       });
       const current = await application.get(workspaceId, updated.id);
       return json({ data: shapeMemory(current as MemoryItem) });
-    }
-
-    if (method === "GET" && !sub && url.searchParams.get("stats") === "1") {
-      return json(await application.stats(workspaceId));
     }
 
     if (method === "POST") {

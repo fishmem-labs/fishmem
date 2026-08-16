@@ -1180,7 +1180,11 @@ describe("authenticated public memory routes", () => {
   });
 
   it("returns exact dashboard statistics without listing memories", async () => {
-    const { engine, memory } = dependencies();
+    const { engine } = dependencies();
+    const statsQuery = vi.fn().mockResolvedValue({
+      totalMemories: 12,
+      totalEntities: 4,
+    });
     const request = new Request(
       "https://fishmem.test/api/app/memories?workspace=ws_1&stats=1",
     );
@@ -1191,6 +1195,11 @@ describe("authenticated public memory routes", () => {
       {} as never,
       { workspaces: [{ documentId: "ws_1" }] },
       async () => engine as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      statsQuery,
     );
 
     expect(response.status).toBe(200);
@@ -1198,8 +1207,8 @@ describe("authenticated public memory routes", () => {
       totalMemories: 12,
       totalEntities: 4,
     });
-    expect(memory.stats).toHaveBeenCalledOnce();
-    expect(memory.getAll).not.toHaveBeenCalled();
+    expect(statsQuery).toHaveBeenCalledWith({}, "ws_1");
+    expect(engine.forNamespace).not.toHaveBeenCalled();
   });
 
   it("serves the governed belief audit shape through the dashboard adapter", async () => {
