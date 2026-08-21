@@ -26,13 +26,13 @@
 		"check:versions": "node scripts/check-versions.mjs"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.0",
-		"@types/node": "^22.19.20",
-		"gpt-tokenizer": "3.4.0",
-		"mem0ai": "3.1.2",
-		"tsx": "^4.22.4",
-		"typescript": "^5.7.2",
-		"vitest": "3.2.7"
+		"@biomejs/biome": "^2.5.9",
+		"@types/node": "^26.2.0",
+		"gpt-tokenizer": "4.0.0",
+		"mem0ai": "3.1.6",
+		"tsx": "^4.23.12",
+		"typescript": "^7.0.2",
+		"vitest": "4.1.10"
 	},
 	"engines": {
 		"node": ">=20"

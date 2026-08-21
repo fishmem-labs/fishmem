@@ -65,22 +65,22 @@
 		"zustand": "^5.0.9"
 	},
 	"devDependencies": {
-		"@cloudflare/vite-plugin": "1.20.0",
-		"@cloudflare/workers-types": "5.20260812.1",
+		"@cloudflare/vite-plugin": "1.52.1",
+		"@cloudflare/workers-types": "5.20260818.1",
 		"@playwright/test": "1.62.1",
 		"@tailwindcss/postcss": "^4",
-		"@tanstack/router-plugin": "1.168.20",
-		"@types/node": "^20.19.27",
+		"@tanstack/router-plugin": "1.168.32",
+		"@types/node": "^26.2.0",
 		"@types/react": "^19",
 		"@types/react-dom": "^19",
-		"@vitejs/plugin-react": "5.1.4",
+		"@vitejs/plugin-react": "6.0.5",
 		"drizzle-kit": "^0.31.10",
-		"eslint": "^9",
+		"eslint": "^10",
 		"tailwindcss": "^4",
-		"typescript": "^5",
-		"vite": "7.3.6",
-		"vitest": "3.2.7",
-		"wrangler": "4.121.0"
+		"typescript": "^7",
+		"vite": "8.2.1",
+		"vitest": "4.1.10",
+		"wrangler": "4.123.0"
 	},
 	"packageManager": "pnpm@10.32.0",
 	"exports": {
