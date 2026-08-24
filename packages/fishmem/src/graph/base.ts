@@ -137,6 +137,8 @@ export interface GraphStore {
     filters: MemoryFilters,
     options?: ListOptions,
   ): Promise<Episode[]>;
+  /** Permanently delete exact episode ids. Missing ids are ignored. */
+  deleteEpisodes(ids: string[]): Promise<void>;
 
   /**
    * Merge `merged` into `survivor` atomically: update survivor, rewire

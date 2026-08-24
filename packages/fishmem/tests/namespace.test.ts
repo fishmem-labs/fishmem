@@ -134,6 +134,63 @@ describe("Memory.forNamespace", () => {
     });
   });
 
+  it("replays and bulk-deletes opt-in episodes without duplicate or stale retrieval", async () => {
+    const memory = await Memory.create({
+      embedder: new MockEmbedder(64),
+      graphStore: new InMemoryGraphStore(),
+      llm: new MockLLM(),
+      vectorStore: new InMemoryVectorStore(),
+      episodes: { archive: true, searchable: true },
+      autoAssociate: { enabled: false },
+    });
+    const alpha = memory.forNamespace("alpha");
+    const input = [
+      { role: "user" as const, content: "Name this migration" },
+      { role: "assistant" as const, content: "Call it Project Albatross" },
+    ];
+    const first = await alpha.add(input, {
+      idempotencyKey: "episode-add-1",
+      infer: false,
+      userId: "ada",
+    });
+    await expect(
+      alpha.add(input, {
+        idempotencyKey: "episode-add-1",
+        infer: false,
+        userId: "ada",
+      }),
+    ).resolves.toEqual(first);
+
+    expect(await alpha.episodes({ userId: "ada" })).toHaveLength(1);
+    expect((await alpha.getAll({ userId: "ada" })).results).toHaveLength(2);
+    expect(
+      (
+        await alpha.search("What was the migration project called?", {
+          userId: "ada",
+        })
+      ).results.some(
+        (result) => result.memory.metadata?.__retrievalDoc === "episode",
+      ),
+    ).toBe(true);
+
+    await expect(
+      alpha.deleteAll(
+        { userId: "ada" },
+        { idempotencyKey: "delete-episode-ada" },
+      ),
+    ).resolves.toEqual({ deleted: 2 });
+    expect(await alpha.episodes({ userId: "ada" })).toHaveLength(0);
+    expect(
+      (
+        await alpha.search("Project Albatross", {
+          userId: "ada",
+        })
+      ).results.some(
+        (result) => result.memory.metadata?.__retrievalDoc === "episode",
+      ),
+    ).toBe(false);
+  });
+
   it("rejects idempotency conflicts while allowing the key in another namespace", async () => {
     const memory = await createMemory();
     const alpha = memory.forNamespace("alpha");

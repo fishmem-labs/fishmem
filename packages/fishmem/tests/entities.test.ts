@@ -34,7 +34,7 @@ async function newMemory(llm: MockLLM, overrides: MemoryConfig = {}) {
     autoAssociate: { enabled: false },
     // The entity-graph walk is opt-in after ablation (Δ0.0 vs memory graph);
     // these tests exercise the opt-in path.
-    search: { entityGraph: true },
+    search: { searchStrategy: "recall", entityGraph: true },
     ...overrides,
   });
 }
@@ -157,7 +157,7 @@ describe("entity-graph recall", () => {
     const responder: MockResponder = (messages) => {
       const joined = messages.map((m) => m.content).join("\n");
       if (joined.includes("FISHMEM_TASK: extract")) {
-        if (joined.includes("first")) {
+        if (joined.includes("user: first chunk")) {
           return JSON.stringify({
             facts: [
               {

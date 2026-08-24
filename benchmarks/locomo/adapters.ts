@@ -4,6 +4,9 @@
  * layer: verbatim storage, derivation overlays, and retrieval.
  */
 
+import { capOpenAIEmbeddingRequest } from "../embedding-input.js";
+import type { BenchmarkReasoningEffort } from "../llm-provider.js";
+
 export interface BenchMessage {
   role: "user" | "assistant";
   content: string;
@@ -100,6 +103,8 @@ interface Mem0SearchResponse {
 
 export interface AdapterConfig {
   llmModel: string;
+  /** Explicit write/extraction reasoning budget for supported LLMs. */
+  llmReasoningEffort?: BenchmarkReasoningEffort;
   embedderModel: string;
   apiKey: string;
   /** Custom OpenAI-compatible endpoint (proxy support). */
@@ -161,8 +166,8 @@ export async function createFishmemAdapter(
     >;
     return rest;
   };
-  // One fishmem storage architecture: every LOCOMO chunk is stored as one
-  // verbatim memory. Context injection remains an adapter-only ablation knob.
+  // FishMem performs one canonical extraction pass for every benchmark chunk.
+  // Context injection remains an adapter-only ablation knob.
   let activeContextMode: "full" | "gated" | "lean" =
     ctxModeOf(cfg.overrides) ?? "lean";
   let memory = await Memory.create(
@@ -193,6 +198,9 @@ export async function createFishmemAdapter(
             config: {
               apiKey: cfg.apiKey,
               model: cfg.llmModel,
+              ...(cfg.llmReasoningEffort
+                ? { reasoningEffort: cfg.llmReasoningEffort }
+                : {}),
               timeoutMs: cfg.providerTimeoutMs,
               maxRetries: cfg.providerRetries,
               ...(cfg.baseURL ? { baseURL: cfg.baseURL } : {}),
@@ -210,11 +218,10 @@ export async function createFishmemAdapter(
     lastTrace: () => lastTrace,
     async init() {},
     async add(messages, userId) {
-      // Store the whole chunk as ONE verbatim memory (MemPalace-style
-      // "drawer"), turns + date prefix intact. Derivation, if enabled through
-      // overrides, is an overlay; it never changes recall storage.
-      const content = messages.map((m) => m.content).join("\n");
-      const res = await memory.add([{ role: "user", content }], { userId });
+      // Preserve the ordered user/assistant turns exactly as supplied to mem0.
+      // Memory.add performs one extraction pass; derivation, when enabled
+      // through overrides, reuses that same result.
+      const res = await memory.add(messages, { userId });
       return res.results.length;
     },
     async search(query, userId, topK) {
@@ -286,6 +293,11 @@ export async function createFishmemAdapter(
       return out;
     },
     async endSession(userId) {
+      // The standard benchmark adapter uses lean answer context and therefore
+      // never reads a synthesized profile. Avoid paying for a profile that
+      // cannot affect any answer. Full/gated profile experiments still refresh
+      // it normally when explicitly selected through overrides.
+      if (activeContextMode === "lean") return;
       await memory.refreshProfile({ userId });
     },
     async setSearchOverrides(overrides) {
@@ -487,9 +499,24 @@ export async function createMem0Adapter(
   });
   if (cfg.providerFetch) {
     const trackedProviderFetch: typeof fetch = async (...args) => {
-      const request = providerRequestLabel(args[0], args[1]);
+      const [reasonedInput, reasonedInit] = await injectChatCompletionReasoning(
+        args[0],
+        args[1],
+        cfg.llmModel,
+        cfg.llmReasoningEffort,
+      );
+      const capped = await capOpenAIEmbeddingRequest(
+        reasonedInput,
+        reasonedInit,
+      );
+      if (capped.truncatedInputs > 0) {
+        diagnostics.warning("mem0_embedding_input_truncated");
+      }
+      const input = capped.input;
+      const init = capped.init;
+      const request = providerRequestLabel(input, init);
       try {
-        const response = await cfg.providerFetch!(...args);
+        const response = await cfg.providerFetch!(input, init);
         if (!response.ok) {
           providerFailures++;
           providerFailureDetails.push(`${request}: HTTP ${response.status}`);
@@ -503,13 +530,14 @@ export async function createMem0Adapter(
         throw error;
       }
     };
-    // The adapter-level wrapper owns retries; disable SDK retries to avoid
-    // multiplying attempts for one benchmark unit.
+    // Use the same request-level retry budget as FishMem. A recovered attempt
+    // remains visible in provider usage and diagnostics, while an exhausted
+    // request still rejects the enclosing add/search operation.
     bindMem0ProviderTransport(
       memory,
       trackedProviderFetch,
       cfg.providerTimeoutMs,
-      0,
+      cfg.providerRetries,
     );
   }
   const requireHealthyProvider = async <T>(
@@ -522,12 +550,7 @@ export async function createMem0Adapter(
       const result = await operation();
       const failures = providerFailures - failuresBefore;
       if (failures > 0) {
-        diagnostics.warning("mem0_provider_failure");
-        throw new ProviderIntegrityError(
-          label,
-          failures,
-          providerFailureDetails.slice(detailsBefore),
-        );
+        diagnostics.warning("mem0_provider_retry");
       }
       return result;
     } catch (error) {
@@ -612,6 +635,47 @@ function providerRequestLabel(
   const raw =
     typeof input === "string" || input instanceof URL ? input : input.url;
   return `${method.toUpperCase()} ${new URL(String(raw)).pathname}`;
+}
+
+/**
+ * mem0ai 3.1.2 does not expose OpenAI's `reasoning_effort` option. Rewrite
+ * only its internal Chat Completions request so both benchmark adapters use
+ * the same explicitly disclosed write budget. Embedding requests are left
+ * byte-for-byte unchanged.
+ */
+async function injectChatCompletionReasoning(
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+  model: string,
+  reasoningEffort?: BenchmarkReasoningEffort,
+): Promise<[Parameters<typeof fetch>[0], Parameters<typeof fetch>[1]]> {
+  if (!reasoningEffort) return [input, init];
+  const raw =
+    typeof input === "string" || input instanceof URL ? input : input.url;
+  if (!new URL(String(raw)).pathname.endsWith("/chat/completions")) {
+    return [input, init];
+  }
+
+  const rewrite = (body: string): string => {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    if (parsed.model === model) parsed.reasoning_effort = reasoningEffort;
+    return JSON.stringify(parsed);
+  };
+
+  if (typeof init?.body === "string") {
+    const headers = new Headers(init.headers);
+    headers.delete("content-length");
+    return [input, { ...init, headers, body: rewrite(init.body) }];
+  }
+  if (input instanceof Request && init?.body === undefined) {
+    const body = await input.clone().text();
+    const headers = new Headers(input.headers);
+    headers.delete("content-length");
+    return [new Request(input, { headers, body: rewrite(body) }), init];
+  }
+  throw new Error(
+    "mem0ai provider contract changed: chat completion body is not rewritable",
+  );
 }
 
 function bindMem0ProviderTransport(

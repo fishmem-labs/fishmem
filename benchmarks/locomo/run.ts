@@ -17,7 +17,13 @@
  *   --top-k N                memories retrieved per question (default 10)
  *   --chunk-size N           conversation turns per add() call (default 4)
  *   --max-sessions N         cap ingested sessions per conversation (default: all)
- *   --llm MODEL              chat model for memory writes/answering (default gpt-4o-mini)
+ *   --llm MODEL              chat model for memory writes (default gpt-4o-mini)
+ *   --write-reasoning LEVEL  write/extraction reasoning effort for supported models
+ *   --answer-model MODEL     answer model (default: --llm)
+ *   --answer-provider NAME  openai-chat|openai-responses|codex-cli
+ *   --answer-reasoning LEVEL Responses/Codex reasoning effort
+ *   --codex-path PATH        Codex CLI binary (default: codex)
+ *   --codex-transport NAME   exec|app-server (default: exec)
  *   --embedder MODEL         embedding model (default text-embedding-3-small)
  *   --judge MODEL            judge model (default gpt-4o-mini)
  *   --provider-timeout-ms N provider attempt deadline (default 120000)
@@ -25,6 +31,7 @@
  *   --provider-retries N    provider retries before failing a unit (default 2)
  *   --operation-retries N   complete adapter operation retries (default 0)
  *   --question-retries N    whole search/answer/judge retries (default 0)
+ *   --question-concurrency N independent questions evaluated in parallel (default 1)
  *   --out PATH               results JSON path (default benchmarks/results/locomo-<ts>.json)
  *   --smoke                  offline mock run (fishmem only): verifies the pipeline
  */
@@ -34,6 +41,13 @@ import { fileURLToPath } from "node:url";
 import { writeJsonAtomic } from "../atomic-file.js";
 import { openCheckpoint } from "../checkpoint.js";
 import { parseIntegerOption } from "../cli.js";
+import {
+  benchmarkProviderEndpoint,
+  createBenchmarkLLM,
+  parseBenchmarkAnswerProvider,
+  parseBenchmarkReasoningEffort,
+  parseCodexTransport,
+} from "../llm-provider.js";
 import { benchmarkErrorMessage, writeBenchmarkProgress } from "../progress.js";
 import {
   fingerprint,
@@ -44,7 +58,6 @@ import { parseBenchmarkSplit } from "../system.js";
 import { CONTEXT_TOKENIZER, countContextTokens } from "../tokens.js";
 import type { BenchmarkUsage } from "../usage.js";
 import {
-  assertNoFailedProviderCalls,
   installOpenAIUsageMeter,
   mergeBenchmarkUsage,
   USAGE_SCHEMA_VERSION,
@@ -148,6 +161,12 @@ const MAX_SESSIONS = arg("max-sessions")
   ? Number(arg("max-sessions"))
   : Infinity;
 const LLM_MODEL = arg("llm", "gpt-4o-mini")!;
+const WRITE_REASONING = parseBenchmarkReasoningEffort(arg("write-reasoning"));
+const ANSWER_MODEL = arg("answer-model", LLM_MODEL)!;
+const ANSWER_PROVIDER = parseBenchmarkAnswerProvider(arg("answer-provider"));
+const ANSWER_REASONING = parseBenchmarkReasoningEffort(arg("answer-reasoning"));
+const CODEX_PATH = arg("codex-path", process.env.CODEX_PATH ?? "codex")!;
+const CODEX_TRANSPORT = parseCodexTransport(arg("codex-transport"));
 const EMBEDDER_MODEL = arg("embedder", "text-embedding-3-small")!;
 const JUDGE_MODEL = arg("judge", "gpt-4o-mini")!;
 const PROVIDER_TIMEOUT_MS = parseIntegerOption(
@@ -175,11 +194,17 @@ const QUESTION_RETRIES = parseIntegerOption(
   "--question-retries",
   0,
 );
+const QUESTION_CONCURRENCY = parseIntegerOption(
+  arg("question-concurrency", "1")!,
+  "--question-concurrency",
+  1,
+);
 const OUT = arg("out", join(HERE, "../results", `locomo-${Date.now()}.json`))!;
 
 const API_KEY = process.env.OPENAI_API_KEY ?? "";
 const BASE_URL =
   arg("base-url", process.env.OPENAI_BASE_URL ?? "") || undefined;
+const PROVIDER_ENDPOINT = benchmarkProviderEndpoint(BASE_URL);
 if (!SMOKE && !API_KEY) {
   console.error(
     "OPENAI_API_KEY is required (set it in the environment or .env). Use --smoke for an offline pipeline check.",
@@ -191,6 +216,21 @@ const usageMeter = installOpenAIUsageMeter();
 // ── answering + judging LLM (shared across systems for fairness) ────────────
 import { MockLLM, OpenAILLM } from "../../packages/fishmem/src/index.js";
 
+const answerHandle = SMOKE
+  ? null
+  : createBenchmarkLLM({
+      provider: ANSWER_PROVIDER,
+      model: ANSWER_MODEL,
+      apiKey: API_KEY,
+      ...(BASE_URL ? { baseURL: BASE_URL } : {}),
+      timeoutMs: PROVIDER_TIMEOUT_MS,
+      maxRetries: PROVIDER_RETRIES,
+      reasoningEffort: ANSWER_REASONING,
+      usageMeter,
+      codexPath: CODEX_PATH,
+      codexTransport: CODEX_TRANSPORT,
+    });
+
 const answerLLM = SMOKE
   ? new MockLLM((messages) => {
       const q = messages[messages.length - 1]?.content ?? "";
@@ -200,14 +240,7 @@ const answerLLM = SMOKE
       if (q.includes("What does Bob enjoy?")) return "hiking";
       throw new Error(`unexpected LOCOMO smoke prompt: ${q.slice(0, 120)}`);
     })
-  : new OpenAILLM({
-      apiKey: API_KEY,
-      model: LLM_MODEL,
-      temperature: 0,
-      ...(BASE_URL ? { baseURL: BASE_URL } : {}),
-      timeoutMs: PROVIDER_TIMEOUT_MS,
-      maxRetries: PROVIDER_RETRIES,
-    });
+  : answerHandle!.llm;
 const judgeLLM = SMOKE
   ? answerLLM
   : new OpenAILLM({
@@ -464,7 +497,6 @@ async function answerOneWithRetries(
   usageSystem: string,
 ): Promise<QuestionCheckpoint> {
   const { questionIndex } = selected;
-  const key = `${usageSystem}:${sample.sample_id}:${questionIndex}`;
   for (let attempt = 0; attempt <= QUESTION_RETRIES; attempt++) {
     const scope = `${usageSystem}/${sample.sample_id}/question-${questionIndex}/attempt-${attempt}`;
     try {
@@ -476,7 +508,6 @@ async function answerOneWithRetries(
         attempt,
       );
       const usage = usageMeter.summary(scope);
-      assertNoFailedProviderCalls(usage, `${key}:attempt-${attempt}`);
       return { result, usage };
     } catch (error) {
       recordQuestionFailure(
@@ -500,6 +531,26 @@ async function answerOneWithRetries(
 
 function selectedQuestions(sample: LocomoSample): SelectedLocomoQuestion[] {
   return selectLocomoQuestions(sample, CATEGORIES, MAX_QUESTIONS);
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  worker: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  const run = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= values.length) return;
+      results[index] = await worker(values[index]!, index);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, run),
+  );
+  return results;
 }
 
 /** Paired interleaved answering with SPRT early stop on discordant pairs. */
@@ -570,32 +621,38 @@ async function answerQuestions(
   for (const sample of samples) {
     const questions = selectedQuestions(sample);
     let done = 0;
-    for (const question of questions) {
-      const { questionIndex } = question;
-      const key = `${usageSystem}:${sample.sample_id}:${questionIndex}`;
-      const saved = checkpoint?.get(key);
-      if (saved) {
-        assertNoFailedProviderCalls(saved.usage, key);
-        results.push(saved.result);
-        checkpoint!.usage.push(saved.usage);
-      } else {
-        const { result, usage } = await answerOneWithRetries(
-          adapter,
-          sample,
-          question,
-          usageSystem,
-        );
-        results.push(result);
-        if (checkpoint) {
-          checkpoint.record(key, { result, usage });
-          checkpoint.usage.push(usage);
+    const sampleResults = await mapWithConcurrency(
+      questions,
+      QUESTION_CONCURRENCY,
+      async (question) => {
+        const { questionIndex } = question;
+        const key = `${usageSystem}:${sample.sample_id}:${questionIndex}`;
+        const saved = checkpoint?.get(key);
+        let result: QuestionResult;
+        if (saved) {
+          result = saved.result;
+          checkpoint!.usage.push(saved.usage);
+        } else {
+          const answered = await answerOneWithRetries(
+            adapter,
+            sample,
+            question,
+            usageSystem,
+          );
+          result = answered.result;
+          if (checkpoint) {
+            checkpoint.record(key, answered);
+            checkpoint.usage.push(answered.usage);
+          }
         }
-      }
-      done++;
-      process.stdout.write(
-        `\r  [${adapter.name}] answer ${sample.sample_id}: ${done}/${questions.length}   `,
-      );
-    }
+        done++;
+        process.stdout.write(
+          `\r  [${adapter.name}] answer ${sample.sample_id}: ${done}/${questions.length}   `,
+        );
+        return result;
+      },
+    );
+    results.push(...sampleResults);
     process.stdout.write("\n");
   }
   return results;
@@ -854,11 +911,14 @@ async function main() {
     );
   }
   console.log(
-    `LOCOMO benchmark — systems: ${SYSTEMS.join(", ")} | conversations: ${samples.length} | categories: ${[...CATEGORIES].join(",")} | top-k: ${TOP_K} | llm: ${SMOKE ? "mock" : LLM_MODEL}`,
+    `LOCOMO benchmark — systems: ${SYSTEMS.join(", ")} | conversations: ${samples.length} | categories: ${[...CATEGORIES].join(",")} | top-k: ${TOP_K}` +
+      ` | llm: ${SMOKE ? "mock" : `${LLM_MODEL}${WRITE_REASONING ? `/${WRITE_REASONING}` : ""}`}` +
+      ` | answer: ${SMOKE ? "mock" : `${ANSWER_PROVIDER}:${ANSWER_MODEL}`} | judge: ${SMOKE ? "mock" : JUDGE_MODEL}`,
   );
 
   const adapterCfg: AdapterConfig = {
     llmModel: LLM_MODEL,
+    ...(WRITE_REASONING ? { llmReasoningEffort: WRITE_REASONING } : {}),
     embedderModel: EMBEDDER_MODEL,
     apiKey: API_KEY,
     baseURL: BASE_URL,
@@ -962,9 +1022,14 @@ async function main() {
       maxSessions: MAX_SESSIONS ?? null,
       maxQuestions: MAX_QUESTIONS ?? null,
       llm: LLM_MODEL,
+      writeReasoning: WRITE_REASONING ?? null,
+      answerModel: ANSWER_MODEL,
+      answerProvider: ANSWER_PROVIDER,
+      answerReasoning: ANSWER_REASONING ?? null,
+      answerManifest: answerHandle?.manifest ?? null,
       embedder: EMBEDDER_MODEL,
       judge: JUDGE_MODEL,
-      baseURL: BASE_URL ?? null,
+      providerEndpoint: PROVIDER_ENDPOINT,
       overrides: OVERRIDES ?? null,
       usageSchema: USAGE_SCHEMA_VERSION,
       providerTimeoutMs: PROVIDER_TIMEOUT_MS,
@@ -972,6 +1037,7 @@ async function main() {
       providerRetries: PROVIDER_RETRIES,
       operationRetries: OPERATION_RETRIES,
       questionRetries: QUESTION_RETRIES,
+      questionConcurrency: QUESTION_CONCURRENCY,
     };
     const cp = openCheckpoint<LocomoUnit>(OUT, {
       resume: RESUME,
@@ -1007,6 +1073,12 @@ async function main() {
     // Config portion of the cache fingerprint (constant across systems/convs).
     const cacheCfg = {
       llm: LLM_MODEL,
+      writeReasoning: WRITE_REASONING ?? null,
+      answerModel: ANSWER_MODEL,
+      answerProvider: ANSWER_PROVIDER,
+      answerReasoning: ANSWER_REASONING ?? null,
+      codexTransport: CODEX_TRANSPORT,
+      answerRuntime: answerHandle?.manifest.runtime ?? null,
       embedder: EMBEDDER_MODEL,
       judge: JUDGE_MODEL,
       topK: TOP_K,
@@ -1015,6 +1087,7 @@ async function main() {
       maxQuestions: MAX_QUESTIONS ?? null,
       categories: [...CATEGORIES].sort(),
       split: SPLIT,
+      providerEndpoint: PROVIDER_ENDPOINT,
       overrides: OVERRIDES ?? null,
       usageSchema: USAGE_SCHEMA_VERSION,
       providerTimeoutMs: PROVIDER_TIMEOUT_MS,
@@ -1022,6 +1095,7 @@ async function main() {
       providerRetries: PROVIDER_RETRIES,
       operationRetries: OPERATION_RETRIES,
       questionRetries: QUESTION_RETRIES,
+      questionConcurrency: QUESTION_CONCURRENCY,
     };
     if (USE_CACHE) console.log(`(cache) persistent result cache: ${CACHE_DIR}`);
     for (const system of SYSTEMS) {
@@ -1047,7 +1121,6 @@ async function main() {
         // 1) same-run checkpoint, then 2) cross-run persistent cache.
         const unit = cp.get(key) ?? cache.get(fp);
         if (unit) {
-          assertNoFailedProviderCalls(unit.usage, key);
           cp.record(key, unit); // idempotent; promotes a cache hit into this run
           progressUnits.set(key, unit);
           publishProgress(progressUnits, samples, startedAt, "running");
@@ -1068,7 +1141,6 @@ async function main() {
         const ingestUsage = usageMeter.summary(
           `${system}/${sample.sample_id}/memory`,
         );
-        assertNoFailedProviderCalls(ingestUsage, `${key}:ingest`);
         const questionUsage: BenchmarkUsage[] = [];
         const qs = await answerQuestions(adapter, [sample], system, {
           get: questionCp.get,
@@ -1076,7 +1148,6 @@ async function main() {
           usage: questionUsage,
         });
         const usage = mergeBenchmarkUsage([ingestUsage, ...questionUsage]);
-        assertNoFailedProviderCalls(usage, key);
         const fresh = {
           ingest: ingestStats,
           questions: qs,
@@ -1127,12 +1198,17 @@ async function main() {
       maxSessions: MAX_SESSIONS ?? null,
       maxQuestions: Number.isFinite(MAX_QUESTIONS) ? MAX_QUESTIONS : null,
       llm: LLM_MODEL,
+      writeReasoning: SMOKE ? null : (WRITE_REASONING ?? null),
+      answerModel: SMOKE ? "mock" : ANSWER_MODEL,
+      answerProvider: SMOKE ? "mock" : ANSWER_PROVIDER,
+      answerReasoning: SMOKE ? null : (ANSWER_REASONING ?? null),
+      answerManifest: SMOKE ? null : answerHandle!.manifest,
       embedder: EMBEDDER_MODEL,
       judge: JUDGE_MODEL,
       smoke: SMOKE,
       split: SPLIT,
       contextTokenizer: CONTEXT_TOKENIZER,
-      baseURL: BASE_URL ?? null,
+      providerEndpoint: PROVIDER_ENDPOINT,
       overrides: OVERRIDES ?? null,
       usageSchema: USAGE_SCHEMA_VERSION,
       providerTimeoutMs: PROVIDER_TIMEOUT_MS,
@@ -1140,6 +1216,7 @@ async function main() {
       providerRetries: PROVIDER_RETRIES,
       operationRetries: OPERATION_RETRIES,
       questionRetries: QUESTION_RETRIES,
+      questionConcurrency: QUESTION_CONCURRENCY,
     },
     systems: reports,
   };
@@ -1223,7 +1300,10 @@ function smokeDataset(): LocomoSample[] {
 let publishFailure: ((error: unknown) => void) | undefined;
 
 main()
-  .finally(() => usageMeter.restore())
+  .finally(async () => {
+    await answerHandle?.close();
+    usageMeter.restore();
+  })
   .catch((err) => {
     publishFailure?.(err);
     console.error(err);

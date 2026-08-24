@@ -2,7 +2,7 @@
 
 > Status: authoritative
 >
-> Last updated: 2026-08-16
+> Last updated: 2026-08-24
 
 This document owns FishMem's current memory semantics and module boundaries.
 Historical raw-base experiments remain in benchmark reports and
@@ -56,6 +56,34 @@ Rules:
 
 This matches the useful high-level mem0 split—extraction by default, raw on
 request—without copying its internal topology or accepting silent fallbacks.
+
+## Optional non-lossy Episodes
+
+Canonical facts and exact conversation history solve different problems. The
+embedded engine therefore has a separate, opt-in Episode archive:
+
+```text
+successful inferred add
+    ├── selective facts → canonical memory records
+    └── episodes.archive=true
+           role-preserving user/assistant messages → Episode authority
+           episodes.searchable=true → hidden rebuildable retrieval documents
+```
+
+Episode archival and search default to false. System and tool messages are not
+archived. `archiveEpisode: false` can disable archival for an individual add,
+and `deleteEpisode` removes the authority plus its known vector projections.
+Episode retrieval documents never appear in `getAll` or canonical memory
+counts; every search hit is rehydrated through the authoritative Episode and
+must match its structural namespace/user/agent/run scope. Deleting the Episode
+therefore makes a stale vector immediately invisible.
+
+An Episode is written only after extraction has succeeded. A failed inferred
+add archives nothing, preserving the fail-closed writer contract. Snapshot
+import, namespace purge, reset, delete-all, and projection rebuild include
+Episodes explicitly. This raw archive has a stricter privacy and retention
+contract than selective facts and must never be enabled implicitly by an
+adapter or hosted plan.
 
 ## Conversation memory versus documents
 
@@ -360,7 +388,10 @@ include:
 6. Dashboard browser journey from key creation through recall evidence and
    export/import.
 7. A benchmark manifest matching the shipped default semantics. Historical
-   verbatim/RAG results remain historical until rerun.
+   verbatim/RAG results remain historical until rerun. The frozen 2026-08-24
+   selective-writer plus opt-in Episode portfolio passes the quality gate on
+   two of three full paired datasets; its LOCOMO loss and claim boundaries are
+   part of the required evidence.
 
 Governed beliefs additionally require zero namespace/applicability leakage,
 concurrent evidence-conflict quarantine, source-complete audit output,
@@ -382,6 +413,12 @@ default recall.
   migrations apply to a fresh local database. A credentialed remote deployment
   smoke must still prove D1, Vectorize metadata indexes, R2, rate limiting, and
   the scheduled task trigger together.
+- Selective writes and opt-in Episode retrieval have full paired
+  LongMemEval-`oracle`, BEAM-`100k`, and LOCOMO evidence. The quality portfolio
+  passes with two wins and one LOCOMO loss, but clean isolated cost/wall-clock
+  evidence, real Postgres and D1 Episode lifecycle tests, and context-token
+  guardrails remain open. In particular, the winning LongMemEval and BEAM runs
+  used about 9.2x and 24.1x mem0's mean retrieved context.
 - Governed beliefs are implemented as an opt-in shadow projection. Their
   SQLite persistence/reopen path is covered locally, but real Postgres and D1
   lifecycle tests plus paired LongMemEval/BEAM/LoCoMo evidence are still open;

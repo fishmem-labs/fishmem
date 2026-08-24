@@ -25,3 +25,22 @@ description: 为写入、召回与下游回答建立贴近生产的验收集。
 ## 4. 加入运维闸门
 
 测量写入与搜索尾延迟、空召回、降级、额度结算、任务重试与删除。真实文件、真实项目边界、真实网络和目标部署必须至少跑一次。只有保留集、运行指标与恢复检查同时通过才发布。
+
+## 当前公开证据
+
+2026-08-24 冻结的评测组合在同一套公开配置下，对 FishMem 与 mem0 OSS
+`3.1.2` 进行逐题配对比较。
+
+| 测试集 | 变体 | 配对题数 | FishMem | mem0 | 差值（95% CI） |
+| --- | --- | ---: | ---: | ---: | ---: |
+| LongMemEval | `oracle` | 500 | 88.2% | 83.8% | +4.4 pt（+1.0 至 +7.8） |
+| BEAM | `100k` | 400 | 46.7% | 41.0% | +5.7 pt（+1.8 至 +9.5） |
+| LoCoMo | 类别 1–5 | 1,986 | 67.5% | 71.1% | -3.7 pt（-5.8 至 -1.5） |
+
+三个结果都参与发布判断，LoCoMo 的败项没有被筛掉。LongMemEval `oracle`
+不是 LongMemEval-S；当前产物也不足以支持公开的成本或端到端总耗时比较。
+FishMem 在两个胜项上使用的召回上下文明显多于 mem0，因此上下文效率仍是
+明确的后续优化项，而不是宣传主张。
+
+- [完整证据报告](https://github.com/fishmem-labs/fishmem/blob/main/benchmarks/reports/evidence-2026-08-24.md)
+- [Benchmark 运行器](https://github.com/fishmem-labs/fishmem/tree/main/benchmarks)

@@ -39,6 +39,23 @@ FishMem 提供三个产品形态：
 
 配置允许时，召回可组合关键词、向量、时间与图信号。确切能力取决于部署配置；基础存储并不要求使用托管嵌入模型。
 
+## 评测快照
+
+2026-08-24 冻结的对比对 FishMem 与 mem0 OSS `3.1.2` 使用逐题配对数据，
+并使用完全相同且公开的写入、答案生成、Embedding 与裁判配置。
+
+| Benchmark | 配对题数 | FishMem | mem0 | 配对差值（95% CI） |
+| --- | ---: | ---: | ---: | ---: |
+| LongMemEval `oracle` | 500 | 88.2% | 83.8% | +4.4 pt（+1.0 至 +7.8） |
+| BEAM `100k` | 400 | 46.7% | 41.0% | +5.7 pt（+1.8 至 +9.5） |
+| LoCoMo，类别 1–5 | 1,986 | 67.5% | 71.1% | -3.7 pt（-5.8 至 -1.5） |
+
+这是两个统计显著的胜项和一个统计显著的败项，并不代表 FishMem 在所有场景
+都更强。LongMemEval 使用的是 `oracle` 变体，而不是 LongMemEval-S。由于复用
+的基线运行包含中断后恢复的进程，本次不发布成本和端到端总耗时对比。配置
+manifest、分类结果、artifact hash 与完整声明边界见
+[完整证据报告](https://github.com/fishmem-labs/fishmem/blob/main/benchmarks/reports/evidence-2026-08-24.md)。
+
 ## 选择使用方式
 
 <Cards>

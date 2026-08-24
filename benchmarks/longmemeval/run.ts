@@ -18,14 +18,20 @@
  *   --top-k N                memories retrieved per question (default 10)
  *   --chunk-size N           conversation turns per add() call (default 4)
  *   --profile-every N        adapter.endSession() every N sessions (default 10; 0 disables)
- *   --llm MODEL              chat model for memory writes and answering (default gpt-4o-mini)
+ *   --llm MODEL              chat model for memory writes (default gpt-4o-mini)
+ *   --write-reasoning LEVEL  write/extraction reasoning effort for supported models
  *   --answer-model MODEL     override the answering model only (default: --llm value)
+ *   --answer-provider NAME   openai-chat|openai-responses|codex-cli
+ *   --answer-reasoning LEVEL Responses/Codex reasoning effort
+ *   --codex-path PATH        Codex CLI binary (default: codex)
+ *   --codex-transport NAME   exec|app-server (default: exec)
  *   --embedder MODEL         embedding model (default text-embedding-3-small)
  *   --judge MODEL            judge model (default gpt-4o, the official default)
  *   --provider-timeout-ms N  deadline for each provider attempt (default 120000)
  *   --operation-timeout-ms N deadline for a complete adapter operation (default 300000)
  *   --provider-retries N     provider retries before failing a unit (default 2)
  *   --operation-retries N    complete adapter operation retries (default 0)
+ *   --overrides JSON         FishMem config overrides (recorded in output)
  *   --system NAME            run one system: fishmem|mem0 (default fishmem)
  *   --systems a,b            run multiple systems into one comparable result suite
  *   --out PATH               results JSON path (default benchmarks/results/longmemeval-<ts>.json)
@@ -39,6 +45,13 @@ import { writeJsonAtomic } from "../atomic-file.js";
 import { openCheckpoint } from "../checkpoint.js";
 import { parseIntegerOption } from "../cli.js";
 import {
+  benchmarkProviderEndpoint,
+  createBenchmarkLLM,
+  parseBenchmarkAnswerProvider,
+  parseBenchmarkReasoningEffort,
+  parseCodexTransport,
+} from "../llm-provider.js";
+import {
   type AdapterConfig,
   type BenchMessage,
   createAdapter,
@@ -51,7 +64,6 @@ import { takePerGroup } from "../sampling.js";
 import { parseBenchmarkSplit, parseBenchmarkSystem } from "../system.js";
 import { CONTEXT_TOKENIZER, countContextTokens } from "../tokens.js";
 import {
-  assertNoFailedProviderCalls,
   installOpenAIUsageMeter,
   mergeBenchmarkUsage,
   USAGE_SCHEMA_VERSION,
@@ -147,7 +159,12 @@ const TOP_K = Number(arg("top-k", "10"));
 const CHUNK_SIZE = Math.max(1, Number(arg("chunk-size", "4")));
 const PROFILE_EVERY = Number(arg("profile-every", "10"));
 const LLM_MODEL = arg("llm", "gpt-4o-mini")!;
+const WRITE_REASONING = parseBenchmarkReasoningEffort(arg("write-reasoning"));
 const ANSWER_MODEL = arg("answer-model", LLM_MODEL)!;
+const ANSWER_PROVIDER = parseBenchmarkAnswerProvider(arg("answer-provider"));
+const ANSWER_REASONING = parseBenchmarkReasoningEffort(arg("answer-reasoning"));
+const CODEX_PATH = arg("codex-path", process.env.CODEX_PATH ?? "codex")!;
+const CODEX_TRANSPORT = parseCodexTransport(arg("codex-transport"));
 const EMBEDDER_MODEL = arg("embedder", "text-embedding-3-small")!;
 const JUDGE_MODEL = arg("judge", "gpt-4o")!; // official LongMemEval default
 const PROVIDER_TIMEOUT_MS = parseIntegerOption(
@@ -196,6 +213,7 @@ const OUT = arg(
 const API_KEY = process.env.OPENAI_API_KEY ?? "";
 const BASE_URL =
   arg("base-url", process.env.OPENAI_BASE_URL ?? "") || undefined;
+const PROVIDER_ENDPOINT = benchmarkProviderEndpoint(BASE_URL);
 if (!SMOKE && !API_KEY) {
   console.error(
     "OPENAI_API_KEY is required (set it in the environment or root .env). Use --smoke for an offline pipeline check.",
@@ -210,6 +228,21 @@ import {
   MockLLM,
   OpenAILLM,
 } from "../../packages/fishmem/src/index.js";
+
+const answerHandle = SMOKE
+  ? null
+  : createBenchmarkLLM({
+      provider: ANSWER_PROVIDER,
+      model: ANSWER_MODEL,
+      apiKey: API_KEY,
+      ...(BASE_URL ? { baseURL: BASE_URL } : {}),
+      timeoutMs: PROVIDER_TIMEOUT_MS,
+      maxRetries: PROVIDER_RETRIES,
+      reasoningEffort: ANSWER_REASONING,
+      usageMeter,
+      codexPath: CODEX_PATH,
+      codexTransport: CODEX_TRANSPORT,
+    });
 
 /**
  * Smoke responder: scripts deterministic answers for the two fabricated
@@ -242,16 +275,7 @@ function smokeResponder(messages: { content: string }[]): string {
   return "smoke answer";
 }
 
-const answerLLM: LLM = SMOKE
-  ? new MockLLM(smokeResponder)
-  : new OpenAILLM({
-      apiKey: API_KEY,
-      model: ANSWER_MODEL,
-      temperature: 0,
-      ...(BASE_URL ? { baseURL: BASE_URL } : {}),
-      timeoutMs: PROVIDER_TIMEOUT_MS,
-      maxRetries: PROVIDER_RETRIES,
-    });
+const answerLLM: LLM = SMOKE ? new MockLLM(smokeResponder) : answerHandle!.llm;
 const judgeLLM: LLM = SMOKE
   ? answerLLM
   : new OpenAILLM({
@@ -342,6 +366,7 @@ async function processInstance(
   // Per-instance isolation: fresh adapter (in-memory stores) + userId = question_id.
   const adapterCfg: AdapterConfig = {
     llmModel: LLM_MODEL,
+    ...(WRITE_REASONING ? { llmReasoningEffort: WRITE_REASONING } : {}),
     embedderModel: EMBEDDER_MODEL,
     apiKey: API_KEY,
     baseURL: BASE_URL,
@@ -441,7 +466,6 @@ async function processInstance(
     const judgeMs = Date.now() - t3;
 
     const usage = usageMeter.summary(usageScope);
-    assertNoFailedProviderCalls(usage, inst.question_id);
     return {
       questionId: inst.question_id,
       questionType: inst.question_type,
@@ -780,7 +804,8 @@ async function runSystem(
   console.log(
     `LongMemEval benchmark — system: ${system} | variant: ${SMOKE ? "smoke" : VARIANT} | instances: ${instances.length}` +
       ` | concurrency: ${CONCURRENCY} | top-k: ${TOP_K} | profile-every: ${PROFILE_EVERY}` +
-      ` | llm: ${SMOKE ? "mock" : LLM_MODEL}${ANSWER_MODEL !== LLM_MODEL ? ` | answer: ${ANSWER_MODEL}` : ""} | judge: ${SMOKE ? "mock" : JUDGE_MODEL}`,
+      ` | llm: ${SMOKE ? "mock" : `${LLM_MODEL}${WRITE_REASONING ? `/${WRITE_REASONING}` : ""}`}` +
+      ` | answer: ${SMOKE ? "mock" : `${ANSWER_PROVIDER}:${ANSWER_MODEL}`} | judge: ${SMOKE ? "mock" : JUDGE_MODEL}`,
   );
 
   // Incremental checkpoint: each instance is independent (its own adapter +
@@ -804,7 +829,11 @@ async function runSystem(
       chunkSize: CHUNK_SIZE,
       profileEvery: PROFILE_EVERY,
       llm: LLM_MODEL,
+      writeReasoning: WRITE_REASONING ?? null,
       answerModel: ANSWER_MODEL,
+      answerProvider: ANSWER_PROVIDER,
+      answerReasoning: ANSWER_REASONING ?? null,
+      answerManifest: answerHandle?.manifest ?? null,
       embedder: EMBEDDER_MODEL,
       judge: JUDGE_MODEL,
       usageSchema: USAGE_SCHEMA_VERSION,
@@ -812,6 +841,8 @@ async function runSystem(
       operationTimeoutMs: OPERATION_TIMEOUT_MS,
       providerRetries: PROVIDER_RETRIES,
       operationRetries: OPERATION_RETRIES,
+      providerEndpoint: PROVIDER_ENDPOINT,
+      overrides: OVERRIDES ?? null,
     },
   });
   const doneKeys = new Set(
@@ -873,7 +904,11 @@ async function runSystem(
       chunkSize: CHUNK_SIZE,
       profileEvery: PROFILE_EVERY,
       llm: SMOKE ? "mock" : LLM_MODEL,
+      writeReasoning: SMOKE ? null : (WRITE_REASONING ?? null),
       answerModel: SMOKE ? "mock" : ANSWER_MODEL,
+      answerProvider: SMOKE ? "mock" : ANSWER_PROVIDER,
+      answerReasoning: SMOKE ? null : (ANSWER_REASONING ?? null),
+      answerManifest: SMOKE ? null : answerHandle!.manifest,
       embedder: SMOKE ? "mock" : EMBEDDER_MODEL,
       judge: SMOKE ? "mock" : JUDGE_MODEL,
       judgeProtocol:
@@ -888,6 +923,8 @@ async function runSystem(
       operationTimeoutMs: OPERATION_TIMEOUT_MS,
       providerRetries: PROVIDER_RETRIES,
       operationRetries: OPERATION_RETRIES,
+      providerEndpoint: PROVIDER_ENDPOINT,
+      overrides: OVERRIDES ?? null,
     },
     results,
     summary,
@@ -957,7 +994,10 @@ async function main() {
 let publishFailure: ((error: unknown) => void) | undefined;
 
 main()
-  .finally(() => usageMeter.restore())
+  .finally(async () => {
+    await answerHandle?.close();
+    usageMeter.restore();
+  })
   .catch((err) => {
     publishFailure?.(err);
     console.error(err);

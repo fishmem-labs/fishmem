@@ -229,6 +229,12 @@ function dependencies() {
     },
   );
   const notifyTask = vi.fn().mockResolvedValue(undefined);
+  const resolveInferencePolicy = vi.fn().mockResolvedValue({
+    version: 1,
+    instructions: "Remember durable support preferences.",
+    categories: ["Support preference"],
+    source_updated_at: "2026-07-31T00:00:00.000Z",
+  });
   const runtime = {
     authenticate: vi.fn().mockResolvedValue(auth),
     derivationEnabled: vi.fn().mockResolvedValue(true),
@@ -238,6 +244,7 @@ function dependencies() {
     getEngine: vi.fn().mockResolvedValue(engine),
     notifyTask,
     recordRequest: vi.fn().mockResolvedValue(undefined),
+    resolveInferencePolicy,
     reserveUsage,
     settleUsage,
   } as unknown as PublicMemoryApiDependencies;
@@ -248,6 +255,7 @@ function dependencies() {
     memory,
     notifyTask,
     reserveUsage,
+    resolveInferencePolicy,
     runtime,
     settleUsage,
   };
@@ -769,6 +777,11 @@ describe("authenticated public memory routes", () => {
         }),
         derivationEnabled: true,
         idempotencyKey: "add-ada-tea",
+        policy: expect.objectContaining({
+          categories: ["Support preference"],
+          instructions: "Remember durable support preferences.",
+          version: 1,
+        }),
         workspaceId: "ws_1",
         usage: expect.objectContaining({
           api_token_id: "key_1",
@@ -1137,7 +1150,12 @@ describe("authenticated public memory routes", () => {
   });
 
   it("routes the dashboard adapter through the same application contract", async () => {
-    const { engine, enqueueInference, notifyTask } = dependencies();
+    const {
+      engine,
+      enqueueInference,
+      notifyTask,
+      resolveInferencePolicy,
+    } = dependencies();
     const request = new Request(
       "https://fishmem.test/api/app/memories?workspace=ws_1",
       {
@@ -1159,6 +1177,7 @@ describe("authenticated public memory routes", () => {
       {
         enqueue: enqueueInference as never,
         notify: notifyTask,
+        resolvePolicy: resolveInferencePolicy,
       },
     );
 
@@ -1172,6 +1191,11 @@ describe("authenticated public memory routes", () => {
           user_id: "ada",
         }),
         idempotencyKey: "dashboard-add",
+        policy: expect.objectContaining({
+          categories: ["Support preference"],
+          instructions: "Remember durable support preferences.",
+          version: 1,
+        }),
         workspaceId: "ws_1",
       }),
     );
@@ -1308,6 +1332,12 @@ describe("authenticated public memory routes", () => {
         authorize,
         enqueue: enqueue as never,
         notify: vi.fn(),
+        resolvePolicy: vi.fn().mockResolvedValue({
+          version: 1,
+          instructions: "Remember durable support preferences.",
+          categories: ["Support preference"],
+          source_updated_at: null,
+        }),
       },
     );
 

@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { countTokens } from "gpt-tokenizer/encoding/cl100k_base";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createAdapter,
@@ -12,22 +13,44 @@ import { installOpenAIUsageMeter } from "../usage.js";
 
 let openAIStub: Server;
 let openAIBaseURL: string;
+interface OpenAIRequestBody extends Record<string, unknown> {
+  input?: string | string[];
+  messages?: Array<{ role?: string; content?: string }>;
+  model?: string;
+  reasoning_effort?: string;
+}
+const chatRequestBodies: OpenAIRequestBody[] = [];
+const embeddingInputTokenCounts: number[] = [];
+let transientFailuresRemaining = 0;
 
 beforeAll(async () => {
   openAIStub = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
-    const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
-      input?: string | string[];
-      messages?: Array<{ content?: string }>;
-      model?: string;
-    };
+    const body = JSON.parse(
+      Buffer.concat(chunks).toString("utf8"),
+    ) as OpenAIRequestBody;
 
     response.setHeader("content-type", "application/json");
     if (request.url === "/v1/embeddings") {
       const inputs = Array.isArray(body.input)
         ? body.input
         : [body.input ?? ""];
+      const tokenCounts = inputs.map((input) => countTokens(input));
+      embeddingInputTokenCounts.push(...tokenCounts);
+      if (tokenCounts.some((tokens) => tokens > 8192)) {
+        response.statusCode = 400;
+        response.end(
+          JSON.stringify({
+            error: {
+              message:
+                "Invalid 'input': maximum context length is 8192 tokens.",
+              type: "invalid_request_error",
+            },
+          }),
+        );
+        return;
+      }
       response.end(
         JSON.stringify({
           object: "list",
@@ -44,6 +67,7 @@ beforeAll(async () => {
     }
 
     if (request.url === "/v1/chat/completions") {
+      chatRequestBodies.push(body);
       const prompt = (body.messages ?? [])
         .map((message) => message.content ?? "")
         .join("\n");
@@ -52,9 +76,19 @@ beforeAll(async () => {
         response.end(JSON.stringify({ error: { message: "forced failure" } }));
         return;
       }
+      if (
+        prompt.includes("transient provider failure") &&
+        transientFailuresRemaining > 0
+      ) {
+        transientFailuresRemaining--;
+        response.statusCode = 503;
+        response.end(JSON.stringify({ error: { message: "transient" } }));
+        return;
+      }
       const text = prompt.toLowerCase().includes("pnpm")
         ? "User requires pnpm for package management"
         : "User supplied a memory";
+      const isFishmemExtraction = prompt.includes("FISHMEM_TASK: extract");
       response.end(
         JSON.stringify({
           id: "chatcmpl-contract",
@@ -67,9 +101,13 @@ beforeAll(async () => {
               finish_reason: "stop",
               message: {
                 role: "assistant",
-                content: JSON.stringify({
-                  memory: [{ id: "0", text, attributed_to: "user" }],
-                }),
+                content: JSON.stringify(
+                  isFishmemExtraction
+                    ? { facts: [text] }
+                    : {
+                        memory: [{ id: "0", text, attributed_to: "user" }],
+                      },
+                ),
               },
             },
           ],
@@ -169,7 +207,133 @@ describe.each(adapters)("$name MemoryAdapter contract", ({ create }) => {
   });
 });
 
+describe("fishmem benchmark input contract", () => {
+  it("preserves each original conversation role in the extraction transcript", async () => {
+    chatRequestBodies.length = 0;
+    const adapter = await createFishmemAdapter({
+      llmModel: "gpt-4o-mini",
+      embedderModel: "text-embedding-3-small",
+      apiKey: "contract-test",
+      baseURL: openAIBaseURL,
+      providerRetries: 0,
+    });
+    try {
+      await adapter.add(
+        [
+          { role: "user", content: "Human stated the durable preference." },
+          {
+            role: "assistant",
+            content: "Assistant promised to remember the preference.",
+          },
+        ],
+        "role-preservation-tenant",
+      );
+
+      const extraction = chatRequestBodies.find((body) =>
+        body.messages?.some((message) =>
+          message.content?.includes("FISHMEM_TASK: extract"),
+        ),
+      );
+      const transcript = extraction?.messages?.find(
+        (message) => message.role === "user",
+      )?.content;
+      expect(transcript).toBe(
+        "user: Human stated the durable preference.\n" +
+          "assistant: Assistant promised to remember the preference.",
+      );
+    } finally {
+      await adapter.close();
+    }
+  });
+});
+
 describe("mem0 benchmark metering contract", () => {
+  it("caps mem0's pre-search embedding query at the provider limit", async () => {
+    embeddingInputTokenCounts.length = 0;
+    const adapter = await createMem0Adapter({
+      llmModel: "gpt-5.6-luna",
+      embedderModel: "text-embedding-3-small",
+      apiKey: "contract-test",
+      baseURL: openAIBaseURL,
+      providerFetch: globalThis.fetch,
+      providerRetries: 0,
+    });
+    try {
+      const created = await adapter.add(
+        [{ role: "user", content: "memory ".repeat(8_190) }],
+        "oversized-memory-tenant",
+      );
+      expect(Math.max(...embeddingInputTokenCounts)).toBeLessThanOrEqual(8192);
+      expect(created).toBeGreaterThan(0);
+      expect(adapter.drainDiagnostics()).toEqual({
+        warningCounts: { mem0_embedding_input_truncated: 1 },
+        retries: 0,
+        timeouts: 0,
+      });
+    } finally {
+      await adapter.close();
+    }
+  });
+
+  it("keeps a recovered provider retry as measured degradation", async () => {
+    transientFailuresRemaining = 1;
+    const adapter = await createMem0Adapter({
+      llmModel: "gpt-4o-mini",
+      embedderModel: "text-embedding-3-small",
+      apiKey: "contract-test",
+      baseURL: openAIBaseURL,
+      providerFetch: globalThis.fetch,
+      providerRetries: 2,
+    });
+    try {
+      await expect(
+        adapter.add(
+          [{ role: "user", content: "transient provider failure" }],
+          "retry-tenant",
+        ),
+      ).resolves.toBeGreaterThan(0);
+      expect(adapter.drainDiagnostics()).toEqual({
+        warningCounts: { mem0_provider_retry: 1 },
+        retries: 0,
+        timeouts: 0,
+      });
+    } finally {
+      transientFailuresRemaining = 0;
+      await adapter.close();
+    }
+  });
+
+  it("injects the disclosed write reasoning effort into mem0", async () => {
+    chatRequestBodies.length = 0;
+    const adapter = await createMem0Adapter({
+      llmModel: "gpt-5.6-luna",
+      llmReasoningEffort: "none",
+      embedderModel: "text-embedding-3-small",
+      apiKey: "contract-test",
+      baseURL: openAIBaseURL,
+      providerFetch: globalThis.fetch,
+    });
+    try {
+      await adapter.add(
+        [{ role: "user", content: "This repository requires pnpm." }],
+        "reasoning-tenant",
+      );
+      expect(chatRequestBodies).not.toHaveLength(0);
+      expect(
+        chatRequestBodies.every((body) => body.reasoning_effort === "none"),
+      ).toBe(true);
+      expect(
+        chatRequestBodies.every(
+          (body) =>
+            (body.response_format as { type?: string } | undefined)?.type ===
+            "json_object",
+        ),
+      ).toBe(true);
+    } finally {
+      await adapter.close();
+    }
+  });
+
   it("applies a separate deadline to a complete adapter operation", async () => {
     const diagnostics = createDiagnosticsTracker();
     await expect(
@@ -238,9 +402,7 @@ describe("mem0 benchmark metering contract", () => {
           [{ role: "user", content: "force provider failure" }],
           "failed-provider-tenant",
         ),
-      ).rejects.toThrow(
-        "mem0.add had 1 failed provider call(s): POST /v1/chat/completions: HTTP 503",
-      );
+      ).rejects.toThrow("mem0.add had 3 failed provider call(s)");
       expect(adapter.drainDiagnostics()).toEqual({
         warningCounts: { mem0_provider_failure: 1 },
         retries: 0,

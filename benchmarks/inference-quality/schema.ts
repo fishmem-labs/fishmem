@@ -2,7 +2,7 @@ import type { MemoryType, Message } from "../../packages/fishmem/src/index.js";
 
 export const INFERENCE_QUALITY_SCHEMA_VERSION = 1 as const;
 export const INFERENCE_QUALITY_DATASET_VERSION =
-  "fishmem-selective-inference-v1" as const;
+  "fishmem-selective-inference-v3" as const;
 
 export type InferenceQualityCategory =
   | "durable-recall"

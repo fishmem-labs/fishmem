@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
-  FACT_EXTRACTION_SYSTEM,
+  EXHAUSTIVE_FACT_EXTRACTION_SYSTEM,
   InMemoryGraphStore,
   InMemoryVectorStore,
   type LLM,
@@ -27,6 +28,20 @@ import {
   type InferenceQualityCase,
   type InferenceQualityRun,
 } from "./schema.js";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+// Match the three retrieval benchmark runners: local development reads the
+// repo-root .env without overriding explicit process environment variables.
+for (const envPath of [join(HERE, "../../.env")]) {
+  if (!existsSync(envPath)) continue;
+  for (const line of readFileSync(envPath, "utf8").split("\n")) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (match && !process.env[match[1]!]) {
+      process.env[match[1]!] = match[2]!.replace(/^["']|["']$/g, "");
+    }
+  }
+}
 
 type Usage = InferencePromptRun["usage"];
 
@@ -176,7 +191,7 @@ async function main() {
   const specs = [
     {
       id: "baseline-exhaustive" as const,
-      prompt: FACT_EXTRACTION_SYSTEM,
+      prompt: EXHAUSTIVE_FACT_EXTRACTION_SYSTEM,
     },
     { id: "selective-v1" as const, prompt: SELECTIVE_FACT_EXTRACTION_SYSTEM },
   ].map((spec) => ({

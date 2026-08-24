@@ -56,20 +56,29 @@ describe("MockLLM", () => {
 describe("provider usage metering", () => {
   it("reports OpenAI chat and embedding usage with call context", async () => {
     const onUsage = vi.fn();
-    const llm = new OpenAILLM({ apiKey: "test", model: "chat-model", onUsage });
+    const llm = new OpenAILLM({
+      apiKey: "test",
+      model: "chat-model",
+      reasoningEffort: "none",
+      onUsage,
+    });
+    const createChatCompletion = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: "ok" } }],
+      usage: { prompt_tokens: 11, completion_tokens: 7 },
+    });
     (llm as unknown as { client: unknown }).client = {
       chat: {
         completions: {
-          create: vi.fn().mockResolvedValue({
-            choices: [{ message: { content: "ok" } }],
-            usage: { prompt_tokens: 11, completion_tokens: 7 },
-          }),
+          create: createChatCompletion,
         },
       },
     };
     await llm.chat([{ role: "user", content: "hello" }], {
       context: { namespaceId: "workspace", operation: "test.chat" },
     });
+    expect(createChatCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoning_effort: "none" }),
+    );
 
     const embedder = new OpenAIEmbedder({
       apiKey: "test",
@@ -111,6 +120,45 @@ describe("provider usage metering", () => {
         kind: "embedding",
         inputTokens: 5,
         outputTokens: 0,
+      }),
+    );
+  });
+
+  it("uses strict OpenAI structured outputs when a JSON schema is supplied", async () => {
+    const llm = new OpenAILLM({ apiKey: "test", model: "chat-model" });
+    const create = vi.fn().mockResolvedValue({
+      choices: [
+        { finish_reason: "stop", message: { content: '{"facts":[]}' } },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    (llm as unknown as { client: unknown }).client = {
+      chat: { completions: { create } },
+    };
+
+    await llm.chat([{ role: "user", content: "hello" }], {
+      responseFormat: "json",
+      jsonSchema: {
+        name: "facts",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: { facts: { type: "array", items: { type: "string" } } },
+          required: ["facts"],
+          additionalProperties: false,
+        },
+      },
+    } as never);
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        response_format: {
+          type: "json_schema",
+          json_schema: expect.objectContaining({
+            name: "facts",
+            strict: true,
+          }),
+        },
       }),
     );
   });

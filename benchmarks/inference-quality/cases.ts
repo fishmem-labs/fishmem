@@ -184,7 +184,7 @@ export const INFERENCE_QUALITY_CASES: readonly InferenceQualityCase[] = [
     id: "unconfirmed-assistant-suggestion",
     category: "role-attribution",
     description:
-      "Does not promote an assistant suggestion into a user decision.",
+      "Leaves an unaccepted assistant recommendation in episodic context instead of canonical facts.",
     messages: [
       {
         role: "assistant",
@@ -193,6 +193,13 @@ export const INFERENCE_QUALITY_CASES: readonly InferenceQualityCase[] = [
       { role: "user", content: "Maybe. Let's think about that later." },
     ],
     required: [],
+    forbidden: [
+      {
+        allText: ["user", "redis"],
+        anyText: ["decided", "accepted", "approved", "standardized"],
+        memoryTypes: ["decision"],
+      },
+    ],
     maxFacts: 0,
   },
   {

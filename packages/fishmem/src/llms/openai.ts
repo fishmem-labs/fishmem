@@ -6,10 +6,21 @@ export interface OpenAILLMConfig {
   model?: string;
   baseURL?: string;
   temperature?: number;
+  /** Reasoning budget for models that support Chat Completions reasoning. */
+  reasoningEffort?: OpenAIReasoningEffort;
   onUsage?: ProviderUsageHandler;
   timeoutMs?: number;
   maxRetries?: number;
 }
+
+export type OpenAIReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 /**
  * OpenAI chat-completions LLM (also works with OpenAI-compatible endpoints via
@@ -20,6 +31,7 @@ export class OpenAILLM implements LLM {
   private readonly apiKey: string;
   private readonly baseURL?: string;
   private readonly temperature: number;
+  private readonly reasoningEffort?: OpenAIReasoningEffort;
   private client: unknown;
   private readonly onUsage?: ProviderUsageHandler;
   private readonly timeoutMs?: number;
@@ -30,6 +42,7 @@ export class OpenAILLM implements LLM {
     this.apiKey = config.apiKey ?? process.env.OPENAI_API_KEY ?? "";
     this.baseURL = config.baseURL;
     this.temperature = config.temperature ?? 0;
+    this.reasoningEffort = config.reasoningEffort;
     this.onUsage = config.onUsage;
     this.timeoutMs = config.timeoutMs;
     this.maxRetries = config.maxRetries;
@@ -67,9 +80,17 @@ export class OpenAILLM implements LLM {
       temperature: options?.temperature ?? this.temperature,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     };
+    if (this.reasoningEffort) {
+      params.reasoning_effort = this.reasoningEffort;
+    }
     if (options?.maxTokens) params.max_tokens = options.maxTokens;
     if (options?.responseFormat === "json") {
-      params.response_format = { type: "json_object" };
+      params.response_format = options.jsonSchema
+        ? {
+            type: "json_schema",
+            json_schema: options.jsonSchema,
+          }
+        : { type: "json_object" };
     }
     const startedAt = Date.now();
     const res = await client.chat.completions.create(params);
@@ -82,6 +103,20 @@ export class OpenAILLM implements LLM {
       latencyMs: Date.now() - startedAt,
       context: options?.context,
     });
-    return res.choices[0]?.message?.content ?? "";
+    const choice = res.choices[0];
+    const refusal = choice?.message?.refusal;
+    if (refusal) {
+      throw new Error(`OpenAI refused the structured response: ${refusal}`);
+    }
+    if (
+      choice?.finish_reason &&
+      choice.finish_reason !== "stop" &&
+      choice.finish_reason !== "tool_calls"
+    ) {
+      throw new Error(
+        `OpenAI response did not complete: finish_reason=${choice.finish_reason}`,
+      );
+    }
+    return choice?.message?.content ?? "";
   }
 }

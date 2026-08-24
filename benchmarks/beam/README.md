@@ -106,10 +106,21 @@ pnpm bench:beam -- --systems fishmem,mem0 --variant 100k --instances 2 --split d
 # mem0-blog-comparable setups (read the cost section first!):
 pnpm bench:beam -- --variant 1m --split full
 pnpm bench:beam -- --variant 10m --concurrency 1 --split full
+
+# Subscription-backed Codex answer run (publishable only after the full gate):
+pnpm bench:beam -- --systems fishmem,mem0 --variant 100k \
+  --instances 1 --split dev \
+  --llm gpt-5.6-luna --write-reasoning none \
+  --answer-provider codex-cli \
+  --answer-model gpt-5.6-sol --answer-reasoning none \
+  --codex-transport app-server
 ```
 
 `OPENAI_API_KEY` is read from the environment or the repo-root `.env`;
 `OPENAI_BASE_URL` (or `--base-url`) supports OpenAI-compatible proxies.
+The key remains required for Codex answer runs because memory writes,
+embeddings, and the official judge stay on their configured compatible API provider. See the shared
+[answer provider policy](../README.md#answer-provider-policy).
 
 ### Flags
 
@@ -123,8 +134,13 @@ pnpm bench:beam -- --variant 10m --concurrency 1 --split full
 | `--top-k N` | 10 | memories retrieved per question |
 | `--chunk-size N` | 4 | conversation messages per `add()` call |
 | `--profile-every N` | 5 | `endSession()` (profile refresh) every N batches; 0 disables |
-| `--llm MODEL` | `gpt-4o-mini` | memory-write + answering model |
+| `--llm MODEL` | `gpt-4o-mini` | memory-write model and default answer model |
+| `--write-reasoning LEVEL` | off | explicit write/extraction reasoning effort for supported models |
 | `--answer-model MODEL` | = `--llm` | override the answering model only |
+| `--answer-provider NAME` | `openai-chat` | `openai-chat`, `openai-responses`, or version-pinned `codex-cli` |
+| `--answer-reasoning LEVEL` | off | Responses/Codex reasoning effort; Codex does not accept `max` |
+| `--codex-path PATH` | `CODEX_PATH` or `codex` | Codex CLI binary; app-server requires CLI >= 0.144.0 |
+| `--codex-transport NAME` | `exec` | `exec` or preferred persistent `app-server` |
 | `--embedder MODEL` | `text-embedding-3-small` | embedding model |
 | `--judge MODEL` | `gpt-4.1-mini` | judge model (official BEAM default) |
 | `--provider-timeout-ms N` | `120000` | deadline per provider attempt |

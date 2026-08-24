@@ -8,7 +8,7 @@ interface PriceRate {
   output?: number;
 }
 
-interface UsageRecord {
+export interface BenchmarkProviderUsageRecord {
   scope?: string;
   kind: UsageKind;
   model: string;
@@ -36,10 +36,10 @@ export interface BenchmarkUsage {
   >;
 }
 
-export const USAGE_SCHEMA_VERSION = "openai-response-v3";
+export const USAGE_SCHEMA_VERSION = "provider-response-v5-priced-subtotal";
 
 export const PRICE_SNAPSHOT = {
-  asOf: "2026-07-14",
+  asOf: "2026-08-22",
   currency: "USD",
   unit: "per_1m_tokens",
   source: "https://developers.openai.com/api/docs/models",
@@ -47,6 +47,9 @@ export const PRICE_SNAPSHOT = {
     "gpt-4o-mini": { input: 0.15, cachedInput: 0.075, output: 0.6 },
     "gpt-4o": { input: 2.5, cachedInput: 1.25, output: 10 },
     "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, output: 1.6 },
+    "gpt-5.6-sol": { input: 5, cachedInput: 0.5, output: 30 },
+    "gpt-5.6-terra": { input: 2, cachedInput: 0.2, output: 12 },
+    "gpt-5.6-luna": { input: 0.2, cachedInput: 0.02, output: 1.2 },
     "text-embedding-3-small": { input: 0.02 },
     "text-embedding-3-large": { input: 0.13 },
     "text-embedding-ada-002": { input: 0.1 },
@@ -55,6 +58,8 @@ export const PRICE_SNAPSHOT = {
 
 export interface OpenAIUsageMeter {
   run<T>(scope: string, operation: () => T): T;
+  /** Record provider usage that happened outside this process' fetch transport. */
+  record(record: Omit<BenchmarkProviderUsageRecord, "scope">): void;
   summary(scopePrefix: string): BenchmarkUsage;
   unscopedCalls(): number;
   restore(): void;
@@ -87,7 +92,7 @@ export function assertNoFailedProviderCalls(
 
 export function installOpenAIUsageMeter(): OpenAIUsageMeter {
   const storage = new AsyncLocalStorage<string>();
-  const records: UsageRecord[] = [];
+  const records: BenchmarkProviderUsageRecord[] = [];
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
@@ -115,6 +120,7 @@ export function installOpenAIUsageMeter(): OpenAIUsageMeter {
 
   return {
     run: (scope, operation) => storage.run(scope, operation),
+    record: (record) => records.push({ ...record, scope: storage.getStore() }),
     summary: (scopePrefix) => summarize(records, scopePrefix),
     unscopedCalls: () => records.filter((record) => !record.scope).length,
     restore() {
@@ -131,6 +137,7 @@ function requestKind(
     typeof input === "string" || input instanceof URL ? input : input.url;
   const path = new URL(String(raw)).pathname.replace(/\/+$/, "");
   if (path.endsWith("/chat/completions")) return "chat";
+  if (path.endsWith("/responses")) return "chat";
   if (path.endsWith("/embeddings")) return "embedding";
   return undefined;
 }
@@ -139,28 +146,34 @@ function recordFromResponse(
   scope: string | undefined,
   kind: UsageKind,
   value: unknown,
-): UsageRecord {
+): BenchmarkProviderUsageRecord {
   if (!isObject(value)) {
     return { scope, kind, model: "unknown", failed: false };
   }
   const usage = isObject(value.usage) ? value.usage : undefined;
-  const details =
-    usage && isObject(usage.prompt_tokens_details)
+  const details = usage
+    ? isObject(usage.prompt_tokens_details)
       ? usage.prompt_tokens_details
-      : undefined;
+      : isObject(usage.input_tokens_details)
+        ? usage.input_tokens_details
+        : undefined
+    : undefined;
   return {
     scope,
     kind,
     model: typeof value.model === "string" ? value.model : "unknown",
-    inputTokens: finiteNumber(usage?.prompt_tokens ?? usage?.total_tokens),
+    inputTokens: finiteNumber(
+      usage?.prompt_tokens ?? usage?.input_tokens ?? usage?.total_tokens,
+    ),
     cachedInputTokens: finiteNumber(details?.cached_tokens) ?? 0,
-    outputTokens: finiteNumber(usage?.completion_tokens) ?? 0,
+    outputTokens:
+      finiteNumber(usage?.completion_tokens ?? usage?.output_tokens) ?? 0,
     failed: false,
   };
 }
 
 function summarize(
-  records: UsageRecord[],
+  records: BenchmarkProviderUsageRecord[],
   scopePrefix: string,
 ): BenchmarkUsage {
   const selected = records.filter(
@@ -205,7 +218,11 @@ function summarize(
     inputTokens: sum(successful, "inputTokens"),
     cachedInputTokens: sum(successful, "cachedInputTokens"),
     outputTokens: sum(successful, "outputTokens"),
-    ...(unmeteredCalls === 0 && unpricedCalls === 0 ? { estimatedUsd } : {}),
+    // Keep the subtotal for every priced, metered call even when a separate
+    // subscription-backed provider has no per-token USD price. `unpricedCalls`
+    // remains mandatory evidence so the subtotal cannot be mistaken for total
+    // workload cost.
+    ...(unmeteredCalls === 0 ? { estimatedUsd } : {}),
     unscopedCalls: 0,
     unmeteredCalls,
     unpricedCalls,
@@ -278,7 +295,10 @@ function priceFor(model: string): PriceRate | undefined {
   return undefined;
 }
 
-function sum(records: UsageRecord[], key: keyof UsageRecord): number {
+function sum(
+  records: BenchmarkProviderUsageRecord[],
+  key: keyof BenchmarkProviderUsageRecord,
+): number {
   return records.reduce((total, record) => {
     const value = record[key];
     return total + (typeof value === "number" ? value : 0);

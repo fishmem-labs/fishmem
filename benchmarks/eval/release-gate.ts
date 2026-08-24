@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { auditOperationalEvidence } from "./attempt-ledger.js";
 import { assertPublishableRun, compareEvalRuns } from "./compare.js";
 import { normalizeEvalRuns } from "./normalize.js";
 import type { EvalRun } from "./schema.js";
@@ -10,18 +11,37 @@ export type EvidenceGateResult = {
 };
 
 const REQUIRED_PORTFOLIO = [
-  { prefix: "locomo", categories: ["1", "2", "3", "4"] },
+  {
+    prefix: "locomo",
+    minimumItems: 1_986,
+    categories: ["1", "2", "3", "4", "5"],
+  },
   {
     prefix: "longmemeval:",
-    categories: ["knowledge-update", "temporal-reasoning", "multi-session"],
+    minimumItems: 500,
+    categories: [
+      "knowledge-update",
+      "temporal-reasoning",
+      "multi-session",
+      "single-session-user",
+      "single-session-assistant",
+      "single-session-preference",
+    ],
   },
   {
     prefix: "beam:",
+    minimumItems: 400,
     categories: [
-      "contradiction_resolution",
-      "knowledge_update",
-      "event_ordering",
       "abstention",
+      "contradiction_resolution",
+      "event_ordering",
+      "information_extraction",
+      "instruction_following",
+      "knowledge_update",
+      "multi_session_reasoning",
+      "preference_following",
+      "summarization",
+      "temporal_reasoning",
     ],
   },
 ] as const;
@@ -34,17 +54,52 @@ export function auditEvidencePortfolio(runs: EvalRun[]): EvidenceGateResult {
     const matching = runs.filter((run) =>
       run.dataset.startsWith(requirement.prefix),
     );
-    const fishmem = matching.find((run) => run.system === "fishmem");
-    const mem0 = matching.find((run) => run.system === "mem0");
+    const paired = matching
+      .filter((run) => run.split === "full")
+      .map((run) => run.dataset)
+      .filter((dataset, index, datasets) => datasets.indexOf(dataset) === index)
+      .map((dataset) => ({
+        fishmem: matching.find(
+          (run) =>
+            run.dataset === dataset &&
+            run.split === "full" &&
+            run.system === "fishmem",
+        ),
+        mem0: matching.find(
+          (run) =>
+            run.dataset === dataset &&
+            run.split === "full" &&
+            run.system === "mem0",
+        ),
+      }))
+      .filter(
+        (pair): pair is { fishmem: EvalRun; mem0: EvalRun } =>
+          pair.fishmem !== undefined && pair.mem0 !== undefined,
+      )
+      .sort(
+        (left, right) =>
+          Math.min(right.fishmem.items.length, right.mem0.items.length) -
+          Math.min(left.fishmem.items.length, left.mem0.items.length),
+      )[0];
+    const fishmem = paired?.fishmem;
+    const mem0 = paired?.mem0;
     if (!fishmem || !mem0) {
       gaps.push(
-        `${requirement.prefix}: same-harness fishmem and mem0 runs required`,
+        `${requirement.prefix}: same-harness fishmem and mem0 full-split runs required`,
       );
       continue;
     }
     try {
       assertPublishableRun(fishmem);
       assertPublishableRun(mem0);
+      if (
+        fishmem.items.length < requirement.minimumItems ||
+        mem0.items.length < requirement.minimumItems
+      ) {
+        gaps.push(
+          `${fishmem.dataset}: homepage evidence requires at least ${requirement.minimumItems.toLocaleString("en-US")} paired items (fishmem=${fishmem.items.length}, mem0=${mem0.items.length})`,
+        );
+      }
       const categories = new Set(fishmem.items.map((item) => item.category));
       for (const category of requirement.categories) {
         if (!categories.has(category)) {
@@ -68,16 +123,29 @@ export function auditEvidencePortfolio(runs: EvalRun[]): EvidenceGateResult {
         "fishmem must have non-negative paired confidence bounds and positive quality deltas on at least two required datasets",
       );
     }
-    const stateRuns = runs.filter(
+    const claimsStateProfileDefault = runs.some(
       (run) =>
-        run.system === "fishmem" &&
-        run.config.derivationEnabled === true &&
-        (run.dataset === "locomo" || run.dataset.startsWith("longmemeval:")),
+        run.system === "fishmem" && run.config.derivationEnabled === true,
     );
-    if (stateRuns.length < 2) {
-      gaps.push(
-        "state/profile default requires derivation-enabled paired evidence on LOCOMO and LongMemEval",
+    if (claimsStateProfileDefault) {
+      const stateDatasets = new Set(
+        runs
+          .filter(
+            (run) =>
+              run.system === "fishmem" &&
+              run.config.derivationEnabled === true &&
+              (run.dataset === "locomo" ||
+                run.dataset.startsWith("longmemeval:")),
+          )
+          .map((run) =>
+            run.dataset.startsWith("longmemeval:") ? "longmemeval" : "locomo",
+          ),
       );
+      if (stateDatasets.size < 2) {
+        gaps.push(
+          "state/profile default claim requires derivation-enabled paired evidence on LOCOMO and LongMemEval",
+        );
+      }
     }
   }
 
@@ -99,7 +167,19 @@ function main() {
     normalizeEvalRuns(JSON.parse(readFileSync(path, "utf8"))),
   );
   const result = auditEvidencePortfolio(runs);
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  const operational = auditOperationalEvidence(paths);
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        ...result,
+        operationalMetricsPublishable: operational.publishable,
+        operationalGaps: operational.gaps,
+        processAttempts: operational.attempts,
+      },
+      null,
+      2,
+    )}\n`,
+  );
   if (!result.publishable) process.exitCode = 1;
 }
 

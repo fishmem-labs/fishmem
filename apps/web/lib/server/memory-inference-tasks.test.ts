@@ -134,6 +134,94 @@ describe("asynchronous memory inference", () => {
     client.close();
   });
 
+  it("freezes the project policy at enqueue and persists categorized memories", async () => {
+    const { client, db } = await database();
+    let systemPrompt = "";
+    const memory = await Memory.create({
+      embedder: new MockEmbedder(64),
+      graphStore: await createSqliteGraphStore({ url: ":memory:" }),
+      llm: new MockLLM((messages) => {
+        systemPrompt =
+          messages.find((message) => message.role === "system")?.content ?? "";
+        return JSON.stringify({
+          facts: [
+            {
+              text: "Ada prefers tea",
+              category: "Preference",
+              subject: "Ada",
+              attribute: "drink preference",
+              type: "preference",
+            },
+          ],
+        });
+      }),
+      vectorStore: new SqliteVectorStore({ url: ":memory:" }),
+    });
+    const policy = {
+      version: 1 as const,
+      instructions: "Remember durable preferences only.",
+      categories: ["Preference", "Account detail"],
+      source_updated_at: "2026-08-22T01:00:00.000Z",
+    };
+    const command = { content: "Ada prefers tea", user_id: "ada" };
+    const task = await enqueueMemoryInferenceTask(db as never, {
+      workspaceId: "workspace",
+      command,
+      idempotencyKey: "policy-snapshot-1",
+      derivationEnabled: false,
+      policy,
+    });
+
+    policy.instructions = "Remember nothing.";
+    policy.categories.splice(0, policy.categories.length, "Changed");
+    const replay = await enqueueMemoryInferenceTask(db as never, {
+      workspaceId: "workspace",
+      command,
+      idempotencyKey: "policy-snapshot-1",
+      derivationEnabled: false,
+      policy: {
+        ...policy,
+        categories: [...policy.categories],
+      },
+    });
+    expect(replay.documentId).toBe(task.documentId);
+
+    await expect(
+      processMemoryTaskById(
+        db as never,
+        memory,
+        task.documentId,
+        new Date(task.nextAttemptAt!.getTime() + 1_000),
+      ),
+    ).resolves.toMatchObject({ claimed: 1, succeeded: 1 });
+
+    expect(systemPrompt).toContain("Remember durable preferences only.");
+    expect(systemPrompt).toContain('["Preference","Account detail"]');
+    expect(systemPrompt).not.toContain("Remember nothing.");
+    const stored = (
+      await memory.forNamespace("workspace").getAll({ userId: "ada" })
+    ).results;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.metadata).toMatchObject({
+      categories: ["Preference"],
+    });
+
+    const completedTask = await db
+      .select()
+      .from(schema.operationTasks)
+      .where(eq(schema.operationTasks.documentId, task.documentId))
+      .get();
+    expect(completedTask?.payload).toMatchObject({
+      version: 2,
+      policy_fingerprint: expect.any(String),
+    });
+    expect(completedTask?.payload).not.toHaveProperty("policy");
+    expect(JSON.stringify(completedTask?.payload)).not.toContain(
+      "Remember durable preferences only.",
+    );
+    client.close();
+  });
+
   it("surfaces a failed projection and repairs it without reinference or duplicate writes", async () => {
     class FailingOnceVectorStore extends SqliteVectorStore {
       private failed = false;

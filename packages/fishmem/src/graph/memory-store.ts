@@ -370,6 +370,10 @@ export class InMemoryGraphStore implements GraphStore {
       .map((e) => ({ ...e, messages: e.messages.map((m) => ({ ...m })) }));
   }
 
+  async deleteEpisodes(ids: string[]): Promise<void> {
+    for (const id of new Set(ids)) this.episodes.delete(id);
+  }
+
   async mergeMemoriesAtomic(survivor: Memory, merged: Memory): Promise<void> {
     // 1. Update survivor.
     this.memories.set(survivor.id, clone(survivor));

@@ -15,7 +15,18 @@ describe("public API contract", () => {
     expect(api.Memory).toBe(Memory);
     expect(api.buildExtractionMessages).toBeTypeOf("function");
     expect(api.FACT_EXTRACTION_SYSTEM).toContain("FISHMEM_TASK: extract");
-    expect(api.FACT_EXTRACTION_SYSTEM).toContain("extract EVERY distinct fact");
+    expect(api.FACT_EXTRACTION_SYSTEM).toBe(
+      api.SELECTIVE_FACT_EXTRACTION_SYSTEM,
+    );
+    expect(api.FACT_EXTRACTION_SYSTEM).not.toContain(
+      "extract EVERY distinct fact",
+    );
+    expect(api.EXHAUSTIVE_FACT_EXTRACTION_SYSTEM).toContain(
+      "extract EVERY distinct fact",
+    );
+    expect(api.EXHAUSTIVE_FACT_EXTRACTION_SYSTEM).toContain(
+      "retain its original ordinal position",
+    );
     expect(api.FACT_EXTRACTION_SYSTEM).not.toContain(
       'must also include "value"',
     );
@@ -30,6 +41,9 @@ describe("public API contract", () => {
     );
     expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
       "Assistant claims are not user facts",
+    );
+    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
+      "remain episodic context, not canonical facts",
     );
     expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
       "summarize/rewrite/translate payloads are source",

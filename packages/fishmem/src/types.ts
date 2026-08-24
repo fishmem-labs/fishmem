@@ -168,7 +168,7 @@ export interface ScopeEntity {
   updatedAt: Date;
 }
 
-/** A raw conversation chunk archived before extraction (non-lossy store). */
+/** A raw conversation chunk archived after a successful add (non-lossy store). */
 export interface Episode {
   id: string;
   namespaceId?: string;

@@ -644,6 +644,14 @@ export class DrizzleGraphStore implements GraphStore {
     }));
   }
 
+  async deleteEpisodes(ids: string[]): Promise<void> {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return;
+    await this.db
+      .delete(this.t.episodes)
+      .where(inArray(this.t.episodes.id, unique));
+  }
+
   async mergeMemoriesAtomic(survivor: Memory, merged: Memory): Promise<void> {
     // 1. Update survivor.
     await this.updateMemory(survivor);

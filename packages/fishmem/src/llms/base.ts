@@ -20,9 +20,18 @@ export type ProviderUsageHandler = (
   usage: ProviderUsage,
 ) => void | Promise<void>;
 
+export interface LLMJsonSchema {
+  name: string;
+  description?: string;
+  schema: Record<string, unknown>;
+  strict?: boolean;
+}
+
 export interface LLMChatOptions {
   /** Ask the model to return a JSON object. */
   responseFormat?: "json" | "text";
+  /** Provider-enforced JSON schema when structured outputs are supported. */
+  jsonSchema?: LLMJsonSchema;
   temperature?: number;
   maxTokens?: number;
   context?: ProviderCallContext;

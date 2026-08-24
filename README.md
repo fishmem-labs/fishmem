@@ -50,6 +50,31 @@ coding-agent memory on your Mac with FishMem Desktop.
   `run_id` scopes, with a [documented path](https://docs.fishmem.com/cloud/migrate-from-mem0)
   for moving from mem0.
 
+## Evaluation snapshot
+
+The frozen 2026-08-24 full-suite comparison uses identical inputs and scoring
+for FishMem and mem0 OSS `3.1.2`. Both systems use `gpt-5.6-luna` for memory
+writes, `text-embedding-3-small` for embeddings, and a stateless, read-only
+Codex `gpt-5.6-sol` answer generator. FishMem passes the repository quality
+gate by producing a positive paired confidence bound on two of the three
+required datasets; the losing result is reported alongside the wins.
+
+| Benchmark | Paired items | FishMem | mem0 | Paired delta (95% CI) |
+| --- | ---: | ---: | ---: | ---: |
+| LongMemEval `oracle` | 500 | 88.2% | 83.8% | +4.4 pt (+1.0 to +7.8) |
+| BEAM `100k` | 400 | 46.7% | 41.0% | +5.7 pt (+1.8 to +9.5) |
+| LOCOMO, categories 1–5 | 1,986 | 67.5% | 71.1% | -3.7 pt (-5.8 to -1.5) |
+
+These LongMemEval results are for the `oracle` variant, not LongMemEval-S, and
+must not be compared with the published LongMemEval-S human reference. Total
+cost and end-to-end wall-clock claims are withheld because two reused baseline
+runs contain recovered process attempts. FishMem also retrieved about 9.2x and
+24.1x as many context tokens as mem0 on LongMemEval and BEAM respectively;
+context efficiency remains an open optimization target. See the
+[full scorecard](./benchmarks/reports/evidence-2026-08-24.md) for artifact
+hashes, provider endpoint, model/runtime manifests, category results, latency,
+usage, and all publication caveats.
+
 ## Quickstart
 
 Install the TypeScript SDK for FishMem Cloud or a self-hosted FishMem service:
@@ -97,12 +122,19 @@ See the [SDK quickstart](https://docs.fishmem.com/sdk/quickstart),
 
 | Input | Mode | What FishMem stores |
 | --- | --- | --- |
-| Conversation | `infer: true` | Refined records only |
+| Conversation | `infer: true` | Refined canonical records |
 | Prepared record | `infer: false` | Submitted content verbatim |
 | Long text or file | `documents` | Retained source and searchable RAG index |
+| Conversation (embedded engine, opt-in) | `episodes.archive: true` | Role-preserving user/assistant history alongside canonical records |
 
-FishMem does not store both raw conversation and refined records for the same
-write. If inference fails, it does not silently fall back to raw storage.
+Canonical memory has one writer: FishMem never turns the raw input into a
+second canonical record when inference is enabled. The embedded engine can
+optionally keep a separate, non-lossy Episode archive for applications that
+need exact conversational recall. Episode archival and search are disabled by
+default because raw history has a different privacy and retention contract;
+applications can opt out per write with `archiveEpisode: false` and delete an
+Episode independently. If inference fails, FishMem stores neither canonical
+records nor an Episode and never silently falls back to raw canonical storage.
 
 ## Choose how to run
 
@@ -144,10 +176,9 @@ and contribution guidelines.
 
 ## Project status
 
-FishMem is at `0.1.0` and under active development. Review the
+FishMem is at `0.2.0` and under active development. Review the
 [release notes](https://docs.fishmem.com/release-notes) before upgrading.
-Benchmark code and reproducibility notes live in [`benchmarks/`](./benchmarks);
-the README does not present historical experiments as current product claims.
+Benchmark code and reproducibility notes live in [`benchmarks/`](./benchmarks).
 
 ## Community
 

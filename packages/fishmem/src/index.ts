@@ -190,12 +190,17 @@ export { AnthropicLLM, type AnthropicLLMConfig } from "./llms/anthropic.js";
 export type {
   LLM,
   LLMChatOptions,
+  LLMJsonSchema,
   ProviderCallContext,
   ProviderUsage,
   ProviderUsageHandler,
 } from "./llms/base.js";
 export { MockLLM, type MockResponder } from "./llms/mock.js";
-export { OpenAILLM, type OpenAILLMConfig } from "./llms/openai.js";
+export {
+  OpenAILLM,
+  type OpenAILLMConfig,
+  type OpenAIReasoningEffort,
+} from "./llms/openai.js";
 // Facade + options.
 export {
   type AddOptions,
@@ -217,9 +222,12 @@ export {
 } from "./memory.js";
 // Prompts (exported so users can customise derivation-extraction behaviour).
 export {
+  applyMemoryExtractionPolicy,
   BELIEF_FACT_EXTRACTION_SYSTEM,
   buildExtractionMessages,
+  EXHAUSTIVE_FACT_EXTRACTION_SYSTEM,
   FACT_EXTRACTION_SYSTEM,
+  type MemoryExtractionPolicy,
   SELECTIVE_FACT_EXTRACTION_SYSTEM,
 } from "./prompts/index.js";
 // Core domain types. The record interface is exported as `MemoryItem` to avoid

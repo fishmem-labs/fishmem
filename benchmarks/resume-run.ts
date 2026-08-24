@@ -26,6 +26,7 @@ type Attempt = {
   before?: ProgressSummary;
   after?: ProgressSummary;
   outcome?: "success" | "failed" | "interrupted" | "recovered-interruption";
+  retryDelayMs?: number;
 };
 
 type AttemptLedger = {
@@ -42,7 +43,7 @@ export async function runResumeLoop(argv: string[]): Promise<number> {
   const separator = args.indexOf("--");
   if (separator < 0 || separator === args.length - 1) {
     throw new Error(
-      "usage: resume-run --progress PATH --max-attempts N [--delay-ms N] -- <command...>",
+      "usage: resume-run --progress PATH --max-attempts N [--delay-ms N] [--max-delay-ms N] [--jitter-ms N] -- <command...>",
     );
   }
   const options = args.slice(0, separator);
@@ -58,6 +59,21 @@ export async function runResumeLoop(argv: string[]): Promise<number> {
     "--delay-ms",
     0,
   );
+  const maxDelayMs = parseIntegerOption(
+    option(options, "max-delay-ms", "60000"),
+    "--max-delay-ms",
+    0,
+  );
+  const jitterMs = parseIntegerOption(
+    option(options, "jitter-ms", "1000"),
+    "--jitter-ms",
+    0,
+  );
+  if (maxDelayMs < delayMs) {
+    throw new Error(
+      "--max-delay-ms must be greater than or equal to --delay-ms",
+    );
+  }
   if (!command.includes("--resume")) {
     throw new Error("resumed benchmark command must include --resume");
   }
@@ -116,13 +132,51 @@ export async function runResumeLoop(argv: string[]): Promise<number> {
         ledger,
         index + 1 === maxAttempts ? "exhausted" : "running",
       );
-      if (index + 1 < maxAttempts && delayMs > 0) await sleep(delayMs);
+      if (index + 1 < maxAttempts && delayMs > 0) {
+        attempt.retryDelayMs = calculateRetryDelayMs(
+          delayMs,
+          maxDelayMs,
+          jitterMs,
+          trailingFailedAttempts(ledger),
+        );
+        persistLedger(ledgerPath, ledger, "running");
+        process.stdout.write(
+          `Retrying after ${attempt.retryDelayMs}ms backoff.\n`,
+        );
+        await sleep(attempt.retryDelayMs);
+      }
     }
     return 1;
   } finally {
     process.removeListener("SIGINT", onSigint);
     process.removeListener("SIGTERM", onSigterm);
   }
+}
+
+export function calculateRetryDelayMs(
+  baseDelayMs: number,
+  maxDelayMs: number,
+  jitterMs: number,
+  consecutiveFailures: number,
+  random: () => number = Math.random,
+): number {
+  if (baseDelayMs <= 0 || maxDelayMs <= 0) return 0;
+  const exponent = Math.min(Math.max(consecutiveFailures - 1, 0), 30);
+  const exponentialDelay = Math.min(maxDelayMs, baseDelayMs * 2 ** exponent);
+  const availableJitter = Math.min(
+    Math.max(jitterMs, 0),
+    maxDelayMs - exponentialDelay,
+  );
+  return Math.round(exponentialDelay + availableJitter * random());
+}
+
+function trailingFailedAttempts(ledger: AttemptLedger): number {
+  let count = 0;
+  for (let index = ledger.attempts.length - 1; index >= 0; index--) {
+    if (ledger.attempts[index]?.outcome !== "failed") break;
+    count++;
+  }
+  return count;
 }
 
 function recoverInterruptedAttempt(

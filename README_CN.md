@@ -48,6 +48,27 @@ Mac 上通过 FishMem Desktop 为 Codex 和 Claude Code 提供本地记忆。
 - **迁移路径清晰。** FishMem 使用熟悉的 `user_id`、`agent_id` 和 `run_id`
   范围，并提供[从 mem0 迁移的明确说明](https://docs.fishmem.com/cloud/migrate-from-mem0)。
 
+## 评测快照
+
+2026-08-24 冻结的全量评测对 FishMem 与 mem0 OSS `3.1.2` 使用完全相同的
+输入和评分协议。两者均使用 `gpt-5.6-luna` 写入记忆、
+`text-embedding-3-small` 生成 Embedding，并由无状态、只读的 Codex
+`gpt-5.6-sol` 生成答案。三个必测数据集中，FishMem 在两个数据集上的配对
+置信区间为正，因而通过仓库质量门禁；落后的结果也在同一张表中完整展示。
+
+| Benchmark | 配对题数 | FishMem | mem0 | 配对差值（95% CI） |
+| --- | ---: | ---: | ---: | ---: |
+| LongMemEval `oracle` | 500 | 88.2% | 83.8% | +4.4 pt（+1.0 至 +7.8） |
+| BEAM `100k` | 400 | 46.7% | 41.0% | +5.7 pt（+1.8 至 +9.5） |
+| LOCOMO，类别 1–5 | 1,986 | 67.5% | 71.1% | -3.7 pt（-5.8 至 -1.5） |
+
+这里的 LongMemEval 是 `oracle` 变体，不是 LongMemEval-S，不能与公开的
+LongMemEval-S 人类参考成绩比较。由于复用的两个基线运行包含中断后恢复的
+进程，本次不发布总成本和端到端总耗时结论。FishMem 在 LongMemEval 和 BEAM
+胜项中检索的平均上下文 Token 仍约为 mem0 的 9.2 倍和 24.1 倍，上下文效率
+仍需优化。完整的 artifact hash、provider endpoint、模型与运行时 manifest、
+分类结果、延迟、用量和发布限制见[完整证据报告](./benchmarks/reports/evidence-2026-08-24.md)。
+
 ## 快速开始
 
 使用 TypeScript SDK 连接 FishMem Cloud 或自部署服务：
@@ -94,12 +115,17 @@ pip install fishmem
 
 | 输入 | 模式 | FishMem 保存的内容 |
 | --- | --- | --- |
-| 对话 | `infer: true` | 仅保存精炼后的记录 |
+| 对话 | `infer: true` | 精炼后的 canonical records |
 | 已整理记录 | `infer: false` | 原样保存提交内容 |
 | 长文本或文件 | `documents` | 保留原文和可搜索的 RAG 索引 |
+| 对话（嵌入式引擎，显式启用） | `episodes.archive: true` | 在 canonical records 之外保存带角色的 user/assistant 原始历史 |
 
-同一次写入不会同时保存对话原文和精炼记录。推理失败时，FishMem 也不会静默
-退回原文存储。
+Canonical memory 只有一个 writer：启用推理时，FishMem 不会再把原始输入作为
+第二条 canonical record 保存。确实需要逐字对话召回的应用，可以在嵌入式引擎
+中显式启用独立的非损 Episode archive。由于原始历史具有不同的隐私与留存契约，
+Episode 归档和检索默认关闭；应用可在单次写入中使用 `archiveEpisode: false`
+关闭归档，也可独立删除 Episode。推理失败时，canonical records 与 Episode
+都不会写入，也不会静默退回原始 canonical 存储。
 
 ## 选择部署方式
 
@@ -139,9 +165,9 @@ pnpm lint
 
 ## 项目状态
 
-FishMem 当前版本为 `0.1.0`，仍在快速迭代。升级前请查看
+FishMem 当前版本为 `0.2.0`，仍在快速迭代。升级前请查看
 [发布说明](https://docs.fishmem.com/release-notes)。Benchmark 代码和复现说明
-位于 [`benchmarks/`](./benchmarks)；README 不会把历史实验写成当前产品结论。
+位于 [`benchmarks/`](./benchmarks)。
 
 ## 社区
 

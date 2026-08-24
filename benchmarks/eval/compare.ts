@@ -13,6 +13,8 @@ export interface EvalComparison {
   mcnemar?: { aOnly: number; bOnly: number; p: number };
 }
 
+const MAX_PROVIDER_FAILURE_RATE = 0.02;
+
 export function compareEvalRuns(a: EvalRun, b: EvalRun): EvalComparison {
   assertComparable(a, b, true);
   return buildComparison(a, b);
@@ -64,9 +66,52 @@ export function assertPublishableRun(run: EvalRun): void {
       `${run.dataset}/${run.system} has ${run.summary.reliability.judgeErrors} judge errors`,
     );
   }
+  const answerManifest = run.config.answerManifest;
+  const answerManifestRecord =
+    answerManifest !== null &&
+    typeof answerManifest === "object" &&
+    !Array.isArray(answerManifest)
+      ? (answerManifest as Record<string, unknown>)
+      : undefined;
+  if (answerManifestRecord?.publishable === false) {
+    throw new Error(
+      `${run.dataset}/${run.system} answer provider is marked non-publishable`,
+    );
+  }
+  const codexSubscriptionAnswer =
+    answerManifestRecord?.provider === "codex-cli" &&
+    answerManifestRecord.publishable === true &&
+    answerManifestRecord.billing === "chatgpt-subscription" &&
+    answerManifestRecord.transport === "codex-app-server";
+  if (answerManifestRecord?.provider === "codex-cli") {
+    const runtime = answerManifestRecord.runtime;
+    const isolation = answerManifestRecord.isolation;
+    if (
+      !codexSubscriptionAnswer ||
+      runtime === null ||
+      typeof runtime !== "object" ||
+      Array.isArray(runtime) ||
+      typeof (runtime as Record<string, unknown>).codexCli !== "string" ||
+      typeof (runtime as Record<string, unknown>).codexProviderPackage !==
+        "string" ||
+      typeof (runtime as Record<string, unknown>).instructionsSha256 !==
+        "string" ||
+      isolation === null ||
+      typeof isolation !== "object" ||
+      Array.isArray(isolation) ||
+      (isolation as Record<string, unknown>).threadMode !== "stateless" ||
+      (isolation as Record<string, unknown>).sandbox !== "read-only" ||
+      (isolation as Record<string, unknown>).tools !== "disabled"
+    ) {
+      throw new Error(
+        `${run.dataset}/${run.system} Codex answer manifest is not reproducible`,
+      );
+    }
+  }
   const missing = [
     ["config.systemVersion", run.config.systemVersion],
     ["config.usageSchema", run.config.usageSchema],
+    ["config.providerEndpoint", run.config.providerEndpoint],
     ["cost.llmCalls", run.summary.cost.llmCalls],
     ["cost.embeddingCalls", run.summary.cost.embeddingCalls],
     ["cost.inputTokens", run.summary.cost.inputTokens],
@@ -94,14 +139,31 @@ export function assertPublishableRun(run: EvalRun): void {
   for (const [name, value] of [
     ["unscoped", run.summary.cost.unscopedCalls],
     ["unmetered", run.summary.cost.unmeteredCalls],
-    ["unpriced", run.summary.cost.unpricedCalls],
-    ["failed", run.summary.cost.failedCalls],
   ] as const) {
     if (value !== 0) {
       throw new Error(
         `${run.dataset}/${run.system} has ${value} ${name} provider calls`,
       );
     }
+  }
+  const unpricedCalls = run.summary.cost.unpricedCalls ?? 0;
+  if (
+    (codexSubscriptionAnswer && unpricedCalls !== run.items.length) ||
+    (!codexSubscriptionAnswer && unpricedCalls !== 0)
+  ) {
+    throw new Error(
+      `${run.dataset}/${run.system} has ${unpricedCalls} unpriced provider calls; expected ${codexSubscriptionAnswer ? `one Codex answer call per item (${run.items.length})` : "zero"}`,
+    );
+  }
+  const successfulCalls =
+    (run.summary.cost.llmCalls ?? 0) + (run.summary.cost.embeddingCalls ?? 0);
+  const failedCalls = run.summary.cost.failedCalls ?? 0;
+  const providerAttempts = successfulCalls + failedCalls;
+  const failureRate = providerAttempts > 0 ? failedCalls / providerAttempts : 0;
+  if (failureRate > MAX_PROVIDER_FAILURE_RATE) {
+    throw new Error(
+      `${run.dataset}/${run.system} has ${failedCalls} failed provider calls (${(failureRate * 100).toFixed(2)}% of attempts; maximum ${(MAX_PROVIDER_FAILURE_RATE * 100).toFixed(2)}%)`,
+    );
   }
 }
 
@@ -133,7 +195,11 @@ function assertComparable(a: EvalRun, b: EvalRun, publishable: boolean): void {
     "topK",
     "chunkSize",
     "llm",
+    "writeReasoning",
     "answerModel",
+    "answerProvider",
+    "answerReasoning",
+    "answerManifest",
     "embedder",
     "judge",
     "variant",
@@ -148,8 +214,11 @@ function assertComparable(a: EvalRun, b: EvalRun, publishable: boolean): void {
     "operationTimeoutMs",
     "operationRetries",
     "providerRetries",
+    "questionRetries",
+    "questionConcurrency",
     "perType",
     "concurrency",
+    "providerEndpoint",
   ]) {
     const left = a.config[key];
     const right = b.config[key];

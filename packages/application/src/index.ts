@@ -24,6 +24,7 @@ import type {
 } from "@fishmem/contracts";
 import type {
 	Memory,
+	MemoryExtractionPolicy,
 	MemoryFeedback,
 	MemoryFilterExpression,
 	MemoryFilterField,
@@ -31,6 +32,10 @@ import type {
 	ScopeEntity,
 	ScopeEntityType,
 } from "fishmem";
+
+export type MemoryAddExecutionOptions = {
+	extractionPolicy?: MemoryExtractionPolicy;
+};
 
 export class MemoryApplicationError extends Error {
 	constructor(
@@ -292,7 +297,12 @@ export class MemoryApplication {
 		return this.engine.forNamespace(namespaceId);
 	}
 
-	async add(namespaceId: string, body: unknown, idempotencyKey?: string) {
+	async add(
+		namespaceId: string,
+		body: unknown,
+		idempotencyKey?: string,
+		execution: MemoryAddExecutionOptions = {},
+	) {
 		const command = AddMemoryCommandSchema.parse(body);
 		const key = idempotencyKey
 			? IdempotencyKeySchema.parse(idempotencyKey)
@@ -303,6 +313,7 @@ export class MemoryApplication {
 			infer: command.infer,
 			idempotencyKey: key,
 			metadata: command.metadata,
+			extractionPolicy: execution.extractionPolicy,
 			...(command.event_date
 				? { eventDate: new Date(command.event_date) }
 				: {}),

@@ -13,6 +13,10 @@ import {
   type OperationTask,
 } from "@/lib/server/operation-tasks";
 import { enqueueWebhookEvent } from "@/lib/server/webhook-outbox";
+import {
+  type MemoryInferencePolicySnapshot,
+  parseMemoryInferencePolicySnapshot,
+} from "@/lib/server/memory-inference-policy";
 
 export type MemoryInferenceUsageAuthorization = {
   version: 1;
@@ -27,7 +31,7 @@ export type MemoryInferenceEventScope = {
   run_id?: string;
 };
 
-export type MemoryInferenceTaskPayload = {
+export type LegacyMemoryInferenceTaskPayload = {
   version: 1;
   command: AddMemoryCommand;
   command_fingerprint: string;
@@ -36,6 +40,19 @@ export type MemoryInferenceTaskPayload = {
   derivation_enabled: boolean;
   usage?: MemoryInferenceUsageAuthorization;
 };
+
+export type MemoryInferenceTaskPayload = Omit<
+  LegacyMemoryInferenceTaskPayload,
+  "version"
+> & {
+  version: 2;
+  policy: MemoryInferencePolicySnapshot;
+  policy_fingerprint: string;
+};
+
+export type AnyMemoryInferenceTaskPayload =
+  | LegacyMemoryInferenceTaskPayload
+  | MemoryInferenceTaskPayload;
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) {
@@ -61,22 +78,48 @@ async function sha256(value: string) {
   ).join("");
 }
 
-function parseMemoryInferenceIdentity(payload: Record<string, unknown>) {
+type MemoryInferenceIdentity = Pick<
+  LegacyMemoryInferenceTaskPayload,
+  | "command_fingerprint"
+  | "event_scope"
+  | "idempotency_key"
+  | "derivation_enabled"
+> &
+  (
+    | { version: 1 }
+    | { version: 2; policy_fingerprint: string }
+  );
+
+function parseMemoryInferenceIdentity(
+  payload: Record<string, unknown>,
+): MemoryInferenceIdentity {
   if (
-    payload.version !== 1 ||
+    (payload.version !== 1 && payload.version !== 2) ||
     typeof payload.command_fingerprint !== "string" ||
     typeof payload.idempotency_key !== "string" ||
     typeof payload.derivation_enabled !== "boolean"
   ) {
     throw new Error("Invalid memory inference task payload");
   }
-  return {
-    version: 1 as const,
+  if (
+    payload.version === 2 &&
+    typeof payload.policy_fingerprint !== "string"
+  ) {
+    throw new Error("Invalid memory inference task payload");
+  }
+  const identity = {
     command_fingerprint: payload.command_fingerprint,
     event_scope: readMemoryInferenceEventScope(payload),
     idempotency_key: payload.idempotency_key,
     derivation_enabled: payload.derivation_enabled,
   };
+  return payload.version === 2
+    ? {
+        ...identity,
+        version: 2,
+        policy_fingerprint: payload.policy_fingerprint as string,
+      }
+    : { ...identity, version: 1 };
 }
 
 export function readMemoryInferenceEventScope(
@@ -99,7 +142,7 @@ export function readMemoryInferenceEventScope(
 
 export function parseMemoryInferenceTaskPayload(
   payload: Record<string, unknown>,
-): MemoryInferenceTaskPayload {
+): AnyMemoryInferenceTaskPayload {
   const identity = parseMemoryInferenceIdentity(payload);
   const command = AddMemoryCommandSchema.parse(payload.command);
   if (!command.infer) {
@@ -111,11 +154,16 @@ export function parseMemoryInferenceTaskPayload(
     !Array.isArray(payload.usage)
       ? (payload.usage as MemoryInferenceUsageAuthorization)
       : undefined;
-  return {
-    ...identity,
-    command,
-    ...(usage ? { usage } : {}),
-  };
+  if (identity.version === 2) {
+    return {
+      ...identity,
+      version: 2,
+      command,
+      policy: parseMemoryInferencePolicySnapshot(payload.policy),
+      ...(usage ? { usage } : {}),
+    };
+  }
+  return { ...identity, version: 1, command, ...(usage ? { usage } : {}) };
 }
 
 function equivalentMemoryInferencePayload(
@@ -141,6 +189,7 @@ export async function enqueueMemoryInferenceTask(
     command: unknown;
     idempotencyKey: string;
     derivationEnabled: boolean;
+    policy?: MemoryInferencePolicySnapshot;
     usage?: MemoryInferenceUsageAuthorization;
   },
 ) {
@@ -154,19 +203,37 @@ export async function enqueueMemoryInferenceTask(
     ...(command.agent_id ? { agent_id: command.agent_id } : {}),
     ...(command.run_id ? { run_id: command.run_id } : {}),
   };
+  const policy = input.policy
+    ? parseMemoryInferencePolicySnapshot(input.policy)
+    : undefined;
+  const policyFingerprint = policy
+    ? await sha256(stableJson(policy))
+    : undefined;
   return enqueueOperationTask(db, {
     workspaceId: input.workspaceId,
     operationId: `memory-infer:${input.idempotencyKey}`,
     kind: "memory_infer",
-    payload: {
-      version: 1,
-      command,
-      command_fingerprint: commandFingerprint,
-      event_scope: eventScope,
-      idempotency_key: input.idempotencyKey,
-      derivation_enabled: input.derivationEnabled,
-      ...(input.usage ? { usage: input.usage } : {}),
-    } satisfies MemoryInferenceTaskPayload,
+    payload: policy
+      ? ({
+          version: 2,
+          command,
+          command_fingerprint: commandFingerprint,
+          event_scope: eventScope,
+          idempotency_key: input.idempotencyKey,
+          derivation_enabled: input.derivationEnabled,
+          policy,
+          policy_fingerprint: policyFingerprint!,
+          ...(input.usage ? { usage: input.usage } : {}),
+        } satisfies MemoryInferenceTaskPayload)
+      : ({
+          version: 1,
+          command,
+          command_fingerprint: commandFingerprint,
+          event_scope: eventScope,
+          idempotency_key: input.idempotencyKey,
+          derivation_enabled: input.derivationEnabled,
+          ...(input.usage ? { usage: input.usage } : {}),
+        } satisfies LegacyMemoryInferenceTaskPayload),
     payloadEquivalent: equivalentMemoryInferencePayload,
   });
 }
@@ -192,12 +259,26 @@ export async function processMemoryInferenceTask(
 ) {
   await accounting?.authorize(task);
   const payload = parseMemoryInferenceTaskPayload(task.payload);
+  if (
+    payload.version === 2 &&
+    (await sha256(stableJson(payload.policy))) !== payload.policy_fingerprint
+  ) {
+    throw new Error("Memory inference policy fingerprint mismatch");
+  }
   const application = new MemoryApplication(memory);
   const result = AddMemoryResponseSchema.parse(
     await application.add(
       task.workspaceId,
       payload.command,
       payload.idempotency_key,
+      payload.version === 2
+        ? {
+            extractionPolicy: {
+              instructions: payload.policy.instructions,
+              categories: payload.policy.categories,
+            },
+          }
+        : undefined,
     ),
   );
   if (payload.derivation_enabled) {
@@ -230,11 +311,14 @@ export async function processMemoryInferenceTask(
   );
   return completeOperationTask(
     {
-      version: 1,
+      version: payload.version,
       command_fingerprint: payload.command_fingerprint,
       event_scope: payload.event_scope,
       idempotency_key: payload.idempotency_key,
       derivation_enabled: payload.derivation_enabled,
+      ...(payload.version === 2
+        ? { policy_fingerprint: payload.policy_fingerprint }
+        : {}),
       ...(payload.usage ? { usage: payload.usage } : {}),
     },
     result,

@@ -37,9 +37,20 @@ pnpm bench:longmemeval -- --systems fishmem,mem0 --variant oracle --per-type 5 -
 
 # Full haystack (expensive — see cost guidance below):
 NODE_OPTIONS=--max-old-space-size=8192 pnpm bench:longmemeval -- --variant s --concurrency 8 --split full
+
+# Subscription-backed Codex answer run (publishable only after the full gate):
+pnpm bench:longmemeval -- --systems fishmem,mem0 --variant oracle \
+  --instances 2 --split dev \
+  --llm gpt-5.6-luna --write-reasoning none \
+  --answer-provider codex-cli \
+  --answer-model gpt-5.6-sol --answer-reasoning none \
+  --codex-transport app-server
 ```
 
 `OPENAI_API_KEY` is read from the environment or the repo-root `.env`.
+It remains required for Codex answer runs because memory writes, embeddings,
+and the official judge stay on their configured compatible API provider. See the shared
+[answer provider policy](../README.md#answer-provider-policy).
 
 ### Flags
 
@@ -55,8 +66,13 @@ NODE_OPTIONS=--max-old-space-size=8192 pnpm bench:longmemeval -- --variant s --c
 | `--top-k N` | 10 | memories retrieved per question |
 | `--chunk-size N` | 4 | conversation turns per `add()` call |
 | `--profile-every N` | 10 | `endSession()` (profile refresh) every N sessions; 0 disables |
-| `--llm MODEL` | `gpt-4o-mini` | memory-write + answering model |
+| `--llm MODEL` | `gpt-4o-mini` | memory-write model and default answer model |
+| `--write-reasoning LEVEL` | off | explicit write/extraction reasoning effort for supported models |
 | `--answer-model MODEL` | = `--llm` | override the answering model only |
+| `--answer-provider NAME` | `openai-chat` | `openai-chat`, `openai-responses`, or version-pinned `codex-cli` |
+| `--answer-reasoning LEVEL` | off | Responses/Codex reasoning effort; Codex does not accept `max` |
+| `--codex-path PATH` | `CODEX_PATH` or `codex` | Codex CLI binary; app-server requires CLI >= 0.144.0 |
+| `--codex-transport NAME` | `exec` | `exec` or preferred persistent `app-server` |
 | `--embedder MODEL` | `text-embedding-3-small` | embedding model |
 | `--judge MODEL` | `gpt-4o` | judge model (official LongMemEval default) |
 | `--provider-timeout-ms N` | `120000` | deadline per provider attempt |

@@ -270,8 +270,8 @@ export function SettingsPage() {
                 Memory instructions
               </p>
               <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                Guidance the engine follows when deciding what to store and recall
-                for this project.
+                Guidance the engine follows when deciding what to store and how
+                to categorize it for this project.
               </p>
             </div>
             <textarea

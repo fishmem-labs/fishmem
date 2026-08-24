@@ -16,6 +16,27 @@ class FailingDeleteVectorStore extends InMemoryVectorStore {
   }
 }
 
+class FailingSaveGraphStore extends InMemoryGraphStore {
+  override async saveMemory(): Promise<void> {
+    throw new Error("memory save failed");
+  }
+}
+
+class CountingBatchEmbedder extends MockEmbedder {
+  readonly batchSizes: number[] = [];
+  singleCalls = 0;
+
+  override async embed(text: string): Promise<number[]> {
+    this.singleCalls++;
+    return super.embed(text);
+  }
+
+  override async embedBatch(texts: string[]): Promise<number[][]> {
+    this.batchSizes.push(texts.length);
+    return super.embedBatch(texts);
+  }
+}
+
 async function newMemory(llm = new MockLLM()): Promise<Memory> {
   return Memory.create({
     embedder: new MockEmbedder(128),
@@ -84,6 +105,17 @@ describe("canonical add semantics", () => {
       new MockLLM((_messages, options) => {
         extractionCalls++;
         expect(options?.context?.operation).toBe("memory.extract");
+        expect(
+          (options as unknown as { jsonSchema?: unknown })?.jsonSchema,
+        ).toMatchObject({
+          name: "fishmem_fact_extraction",
+          strict: true,
+          schema: {
+            type: "object",
+            required: ["facts"],
+            additionalProperties: false,
+          },
+        });
         return JSON.stringify({
           facts: [
             {
@@ -118,6 +150,196 @@ describe("canonical add semantics", () => {
     );
     expect(stored.some((record) => record.content === TEXT)).toBe(false);
     expect(extractionCalls).toBe(1);
+  });
+
+  it("embeds all refined records from one add in a single batch", async () => {
+    const embedder = new CountingBatchEmbedder(128);
+    const mem = await Memory.create({
+      embedder,
+      llm: new MockLLM(() =>
+        JSON.stringify({
+          facts: [
+            { text: "Sam lives in Paris", type: "fact" },
+            { text: "Sam has a cat", type: "fact" },
+          ],
+        }),
+      ),
+      vectorStore: new InMemoryVectorStore(),
+      graphStore: new InMemoryGraphStore(),
+    });
+
+    await mem.add(TEXT, { userId: "u1" });
+
+    expect(embedder.batchSizes).toEqual([2]);
+    expect(embedder.singleCalls).toBe(0);
+  });
+
+  it("opt-in episodes preserve roles, stay out of canonical counts, and remain searchable", async () => {
+    const embedder = new CountingBatchEmbedder(128);
+    const mem = await Memory.create({
+      embedder,
+      llm: new MockLLM(() =>
+        JSON.stringify({
+          facts: [{ text: "Atlas is evaluating cache options" }],
+        }),
+      ),
+      vectorStore: new InMemoryVectorStore(),
+      graphStore: new InMemoryGraphStore(),
+      episodes: { archive: true, searchable: true },
+      autoAssociate: { enabled: false },
+    });
+
+    const added = await mem.add(
+      [
+        { role: "user", content: "How should Atlas handle its cache?" },
+        {
+          role: "assistant",
+          content: "I recommend that Atlas migrate its cache to Redis.",
+        },
+      ],
+      { namespaceId: "project-a", userId: "u1" },
+    );
+    const canonical = (await mem.getAll({ namespaceId: "project-a" })).results;
+    const episodes = await mem.episodes({ namespaceId: "project-a" });
+
+    expect(canonical).toHaveLength(1);
+    expect(episodes).toHaveLength(1);
+    expect(episodes[0]!.messages).toEqual([
+      { role: "user", content: "How should Atlas handle its cache?" },
+      {
+        role: "assistant",
+        content: "I recommend that Atlas migrate its cache to Redis.",
+      },
+    ]);
+    expect((await mem.get(added.results[0]!.id))?.episodeId).toBe(
+      episodes[0]!.id,
+    );
+    // One extraction-memory vector and one hidden episode retrieval vector are
+    // prepared in the same provider batch.
+    expect(embedder.batchSizes).toEqual([2]);
+
+    const recalled = await mem.search(
+      "What cache did you recommend for Atlas?",
+      {
+        namespaceId: "project-a",
+        userId: "u1",
+        limit: 10,
+      },
+    );
+    expect(
+      recalled.results.some(
+        (result) =>
+          result.memory.metadata?.__retrievalDoc === "episode" &&
+          result.memory.content.includes("assistant: I recommend") &&
+          result.memory.content.includes("Redis"),
+      ),
+    ).toBe(true);
+  });
+
+  it("supports per-add episode opt-out and makes deleted episode vectors invisible", async () => {
+    const mem = await Memory.create({
+      embedder: new MockEmbedder(128),
+      llm: new MockLLM(() => JSON.stringify({ facts: [] })),
+      vectorStore: new InMemoryVectorStore(),
+      graphStore: new InMemoryGraphStore(),
+      episodes: { archive: true, searchable: true },
+      autoAssociate: { enabled: false },
+    });
+
+    await mem.add("do not archive this request", {
+      namespaceId: "project-a",
+      archiveEpisode: false,
+    });
+    expect(await mem.episodes({ namespaceId: "project-a" })).toEqual([]);
+
+    await mem.add(
+      [
+        { role: "user", content: "Need a codename" },
+        { role: "assistant", content: "Use the codename Cormorant." },
+      ],
+      { namespaceId: "project-a" },
+    );
+    const [episode] = await mem.episodes({ namespaceId: "project-a" });
+    expect(episode).toBeDefined();
+    await expect(
+      mem.deleteEpisode(episode!.id, { namespaceId: "other-project" }),
+    ).resolves.toBe(false);
+    await expect(
+      mem.deleteEpisode(episode!.id, { namespaceId: "project-a" }),
+    ).resolves.toBe(true);
+    expect(await mem.episodes({ namespaceId: "project-a" })).toEqual([]);
+    const recalled = await mem.search("What was the codename?", {
+      namespaceId: "project-a",
+    });
+    expect(
+      recalled.results.some(
+        (result) => result.memory.metadata?.__retrievalDoc === "episode",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects an episode retrieval pointer whose payload widens authority scope", async () => {
+    const mem = await Memory.create({
+      embedder: new MockEmbedder(128),
+      llm: new MockLLM(() => JSON.stringify({ facts: [] })),
+      vectorStore: new InMemoryVectorStore(),
+      graphStore: new InMemoryGraphStore(),
+      episodes: { archive: true, searchable: true },
+      autoAssociate: { enabled: false },
+    });
+    await mem.add(
+      [
+        { role: "user", content: "Need a launch codename" },
+        { role: "assistant", content: "Use Project Kingfisher." },
+      ],
+      { namespaceId: "project-a", userId: "u1" },
+    );
+    const [pointer] = await mem.vectors.list({ namespaceId: "project-a" }, 10);
+    expect(
+      (pointer?.payload.metadata as Record<string, unknown> | undefined)
+        ?.__retrievalDoc,
+    ).toBe("episode");
+    await mem.vectors.upsert([
+      {
+        ...pointer!,
+        payload: { ...pointer!.payload, namespaceId: "project-b" },
+      },
+    ]);
+
+    const leaked = await mem.search("What was the launch codename?", {
+      namespaceId: "project-b",
+      userId: "u1",
+    });
+    expect(
+      leaked.results.some(
+        (result) => result.memory.metadata?.__retrievalDoc === "episode",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not retain a raw episode when canonical storage fails", async () => {
+    const store = new FailingSaveGraphStore();
+    const mem = await Memory.create({
+      embedder: new MockEmbedder(128),
+      llm: new MockLLM(() =>
+        JSON.stringify({ facts: [{ text: "Atlas uses Redis" }] }),
+      ),
+      vectorStore: new InMemoryVectorStore(),
+      graphStore: store,
+      episodes: { archive: true, searchable: true },
+      autoAssociate: { enabled: false },
+    });
+
+    await expect(
+      mem.add(
+        [
+          { role: "user", content: "Which cache does Atlas use?" },
+          { role: "assistant", content: "Atlas uses Redis." },
+        ],
+        { namespaceId: "project-a", userId: "u1" },
+      ),
+    ).rejects.toThrow("memory save failed");
+    expect(await store.listEpisodes({ namespaceId: "project-a" })).toEqual([]);
   });
 
   it("infer:false stores input verbatim and never calls the LLM", async () => {
@@ -212,6 +434,66 @@ describe("canonical add semantics", () => {
     );
   });
 
+  it("applies project extraction rules and stores the selected category", async () => {
+    let systemPrompt = "";
+    const mem = await newMemory(
+      new MockLLM((messages) => {
+        systemPrompt =
+          messages.find((message) => message.role === "system")?.content ?? "";
+        return JSON.stringify({
+          facts: [
+            {
+              text: "Ada prefers tea",
+              category: "USER PREFERENCE",
+              subject: "Ada",
+              attribute: "drink preference",
+              type: "preference",
+            },
+          ],
+        });
+      }),
+    );
+
+    const result = await mem.add("Ada prefers tea", {
+      userId: "ada",
+      metadata: { source: "support-chat" },
+      extractionPolicy: {
+        instructions: "Remember durable food and drink preferences only.",
+        categories: ["User preference", "Account detail"],
+      },
+    });
+
+    expect(systemPrompt).toContain("PROJECT_MEMORY_POLICY_V1");
+    expect(systemPrompt).toContain(
+      "Remember durable food and drink preferences only.",
+    );
+    expect(systemPrompt).toContain('["User preference","Account detail"]');
+    await expect(mem.get(result.results[0]!.id)).resolves.toMatchObject({
+      metadata: {
+        source: "support-chat",
+        categories: ["User preference"],
+      },
+    });
+  });
+
+  it("fails closed when a categorized extraction omits its category", async () => {
+    const mem = await newMemory(
+      new MockLLM(() =>
+        JSON.stringify({ facts: [{ text: "Ada prefers tea" }] }),
+      ),
+    );
+
+    await expect(
+      mem.add("Ada prefers tea", {
+        userId: "ada",
+        extractionPolicy: {
+          categories: ["User preference"],
+        },
+      }),
+    ).rejects.toThrow("facts[0].category");
+    expect((await mem.getAll({ userId: "ada" })).results).toHaveLength(0);
+  });
+
   it("rejects removed storage mode config instead of mapping it", async () => {
     await expect(
       Memory.create({
@@ -234,6 +516,7 @@ describe("canonical add semantics", () => {
       vectorStore: new InMemoryVectorStore(),
       graphStore: new InMemoryGraphStore(),
       derivation: { enabled: true },
+      episodes: { archive: true, searchable: true },
       onWarning: (warning) => warnings.push(warning),
     });
 
@@ -241,6 +524,7 @@ describe("canonical add semantics", () => {
       "extract failed",
     );
     expect((await mem.getAll({ userId: "u1" })).results).toHaveLength(0);
+    expect(await mem.episodes({ userId: "u1" })).toHaveLength(0);
     expect(warnings).toHaveLength(0);
   });
 

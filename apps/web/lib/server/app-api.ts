@@ -47,6 +47,10 @@ import {
 import { dispatchPendingMemoryTasks } from "@/lib/server/memory-task-worker";
 import { hashToken } from "@/lib/server/token";
 import { retryWebhookDelivery } from "@/lib/server/webhook-outbox";
+import {
+  DEFAULT_MEMORY_CATEGORIES,
+  DEFAULT_MEMORY_INSTRUCTIONS,
+} from "@/lib/server/memory-inference-policy";
 
 type RouteHandler = (
   request: Request,
@@ -237,16 +241,6 @@ function sinceForRange(range: string) {
 function requestLogLabel(row: typeof requestLogs.$inferSelect) {
   return MEMORY_ENDPOINT_LABELS[row.operation] ?? `${row.method} ${row.path}`;
 }
-
-const DEFAULT_MEMORY_INSTRUCTIONS =
-  "Store durable user preferences, facts, and project context. Avoid transient conversation details unless the API request explicitly marks them as memory-worthy.";
-
-const DEFAULT_MEMORY_CATEGORIES = [
-  "User preferences",
-  "Profile facts",
-  "Long-term context",
-  "Agent instructions",
-];
 
 const DEFAULT_WEBHOOK_EVENTS = [
   "memory_add",

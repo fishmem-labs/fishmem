@@ -14,16 +14,24 @@ import { writeJsonAtomic } from "../atomic-file.js";
 import { judgeRubric } from "../beam/judge.js";
 import { openCheckpoint } from "../checkpoint.js";
 import { parseIntegerOption } from "../cli.js";
+import { summarizeAttemptLedger } from "../eval/attempt-ledger.js";
 import { assertPublishableRun, compareEvalRuns } from "../eval/compare.js";
 import { normalizeEvalRuns } from "../eval/normalize.js";
 import {
   auditEvidencePortfolio,
   resultPathsFromArgs,
 } from "../eval/release-gate.js";
+import { parseReportArgs } from "../eval/report.js";
 import { renderScorecard, writeScorecard } from "../eval/scorecard.js";
+import {
+  benchmarkProviderEndpoint,
+  parseBenchmarkAnswerProvider,
+  parseBenchmarkReasoningEffort,
+  parseCodexTransport,
+} from "../llm-provider.js";
 import { writeBenchmarkProgress } from "../progress.js";
 import { openResultCache, systemCodeVersion } from "../result-cache.js";
-import { runResumeLoop } from "../resume-run.js";
+import { calculateRetryDelayMs, runResumeLoop } from "../resume-run.js";
 import { takePerGroup } from "../sampling.js";
 import { parseBenchmarkSplit, parseBenchmarkSystem } from "../system.js";
 import { CONTEXT_TOKENIZER, countContextTokens } from "../tokens.js";
@@ -34,6 +42,70 @@ import {
 } from "../usage.js";
 
 describe("benchmark harness integrity", () => {
+  it("keeps every report artifact when --out is omitted", () => {
+    expect(parseReportArgs(["first.json", "second.json", "--draft"])).toEqual({
+      files: ["first.json", "second.json"],
+      draft: true,
+    });
+    expect(
+      parseReportArgs([
+        "--",
+        "first.json",
+        "second.json",
+        "--out",
+        "report.md",
+      ]),
+    ).toEqual({
+      files: ["first.json", "second.json"],
+      draft: false,
+      out: "report.md",
+    });
+  });
+
+  it("separates durable quality evidence from incomplete process cost", () => {
+    const raw = JSON.stringify({
+      schemaVersion: "benchmark-resume-v1",
+      status: "complete",
+      attempts: [
+        { outcome: "failed", after: { error: "503 upstream" } },
+        { outcome: "success" },
+      ],
+    });
+    expect(
+      summarizeAttemptLedger(
+        "run.json",
+        "run.json.attempts.json",
+        Buffer.from(raw),
+        JSON.parse(raw),
+      ),
+    ).toMatchObject({
+      attempts: 2,
+      successful: 1,
+      failed: 1,
+      costAndWallTimeComplete: false,
+      errors: ["503 upstream"],
+    });
+  });
+
+  it("backs process retries off exponentially with a bounded jitter", () => {
+    expect(calculateRetryDelayMs(5_000, 60_000, 1_000, 1, () => 0)).toBe(5_000);
+    expect(calculateRetryDelayMs(5_000, 60_000, 1_000, 2, () => 1)).toBe(
+      11_000,
+    );
+    expect(calculateRetryDelayMs(5_000, 60_000, 1_000, 99, () => 1)).toBe(
+      60_000,
+    );
+  });
+
+  it("records a sanitized provider endpoint", () => {
+    expect(benchmarkProviderEndpoint()).toBe("https://api.openai.com/v1");
+    expect(
+      benchmarkProviderEndpoint(
+        "https://user:secret@example.com/openai/v1/?api-version=secret#token",
+      ),
+    ).toBe("https://example.com/openai/v1");
+  });
+
   it("bounds process-level resumes and persists an atomic attempt ledger", async () => {
     const dir = mkdtempSync(join(tmpdir(), "fishmem-resume-"));
     const progress = join(dir, "run.progress.json");
@@ -153,6 +225,95 @@ describe("benchmark harness integrity", () => {
     }
   });
 
+  it("meters Responses API token fields and current model pricing", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            model: "gpt-5.6-terra",
+            usage: {
+              input_tokens: 1_000,
+              input_tokens_details: { cached_tokens: 200 },
+              output_tokens: 100,
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    ) as typeof fetch;
+    const meter = installOpenAIUsageMeter();
+    try {
+      await meter.run("fishmem/answer", () =>
+        fetch("https://api.openai.com/v1/responses", { method: "POST" }),
+      );
+      expect(meter.summary("fishmem")).toMatchObject({
+        llmCalls: 1,
+        inputTokens: 1_000,
+        cachedInputTokens: 200,
+        outputTokens: 100,
+        unmeteredCalls: 0,
+        unpricedCalls: 0,
+        estimatedUsd: 0.00284,
+      });
+    } finally {
+      meter.restore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("records subscription-backed Codex usage inside the active scope", () => {
+    const meter = installOpenAIUsageMeter();
+    try {
+      meter.run("fishmem/answer", () =>
+        meter.record({
+          kind: "chat",
+          model: "codex-cli:gpt-5.5",
+          inputTokens: 40,
+          outputTokens: 5,
+          failed: false,
+        }),
+      );
+      expect(meter.summary("fishmem")).toMatchObject({
+        llmCalls: 1,
+        inputTokens: 40,
+        outputTokens: 5,
+        unpricedCalls: 1,
+      });
+      expect(meter.summary("mem0").llmCalls).toBe(0);
+    } finally {
+      meter.restore();
+    }
+  });
+
+  it("keeps a priced API subtotal alongside unpriced Codex usage", () => {
+    const meter = installOpenAIUsageMeter();
+    try {
+      meter.run("fishmem/mixed", () => {
+        meter.record({
+          kind: "chat",
+          model: "gpt-5.6-luna",
+          inputTokens: 1_000,
+          outputTokens: 100,
+          failed: false,
+        });
+        meter.record({
+          kind: "chat",
+          model: "codex-cli:gpt-5.6-sol",
+          inputTokens: 10_000,
+          outputTokens: 100,
+          failed: false,
+        });
+      });
+      expect(meter.summary("fishmem")).toMatchObject({
+        llmCalls: 2,
+        unpricedCalls: 1,
+        estimatedUsd: 0.00032,
+      });
+    } finally {
+      meter.restore();
+    }
+  });
+
   it("separates failed provider attempts from billable usage", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(
@@ -215,6 +376,27 @@ describe("benchmark harness integrity", () => {
       "--retries must be an integer >= 0",
     );
     expect(() => parseIntegerOption("-1", "--retries", 0)).toThrow();
+  });
+
+  it("accepts only explicit benchmark answer providers and reasoning efforts", () => {
+    expect(parseBenchmarkAnswerProvider(undefined)).toBe("openai-chat");
+    expect(parseBenchmarkAnswerProvider("codex-cli")).toBe("codex-cli");
+    expect(parseBenchmarkAnswerProvider("openai-responses")).toBe(
+      "openai-responses",
+    );
+    expect(() => parseBenchmarkAnswerProvider("codex")).toThrow(
+      'unknown answer provider "codex"',
+    );
+    expect(parseBenchmarkReasoningEffort("medium")).toBe("medium");
+    expect(parseBenchmarkReasoningEffort(undefined)).toBeUndefined();
+    expect(() => parseBenchmarkReasoningEffort("ultra")).toThrow(
+      'unknown reasoning effort "ultra"',
+    );
+    expect(parseCodexTransport(undefined)).toBe("exec");
+    expect(parseCodexTransport("app-server")).toBe("app-server");
+    expect(() => parseCodexTransport("stdio")).toThrow(
+      'unknown Codex transport "stdio"',
+    );
   });
 
   it("takes a stable stratified sample without reordering items", () => {
@@ -529,6 +711,45 @@ describe("benchmark harness integrity", () => {
     });
   });
 
+  it("rejects tiny full-split samples as homepage evidence", () => {
+    const runs = [
+      ...portfolioPair("locomo", ["1", "2", "3", "4", "5"]),
+      ...portfolioPair("longmemeval:oracle", [
+        "knowledge-update",
+        "temporal-reasoning",
+        "multi-session",
+        "single-session-user",
+        "single-session-assistant",
+        "single-session-preference",
+      ]),
+      ...portfolioPair("beam:100k", [
+        "abstention",
+        "contradiction_resolution",
+        "event_ordering",
+        "information_extraction",
+        "instruction_following",
+        "knowledge_update",
+        "multi_session_reasoning",
+        "preference_following",
+        "summarization",
+        "temporal_reasoning",
+      ]),
+    ];
+    const audit = auditEvidencePortfolio(runs);
+
+    expect(audit.publishable).toBe(false);
+    expect(audit.gaps).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("at least 1,986 paired items"),
+        expect.stringContaining("at least 500 paired items"),
+        expect.stringContaining("at least 400 paired items"),
+      ]),
+    );
+    expect(renderScorecard(runs.slice(0, 2))).toContain(
+      "LOCOMO standard categories 1–4: 4 paired questions",
+    );
+  });
+
   it("accepts pnpm's argument separator before release-gate result paths", () => {
     expect(resultPathsFromArgs(["--", "fishmem.json", "mem0.json"])).toEqual([
       "fishmem.json",
@@ -598,6 +819,7 @@ describe("benchmark harness integrity", () => {
         split: "holdout",
         topK: 10,
         judge: "judge-v1",
+        providerEndpoint: "https://api.openai.com/v1",
         contextTokenizer: "o200k_base",
         usageSchema: "openai-response-v3",
       },
@@ -635,6 +857,35 @@ describe("benchmark harness integrity", () => {
     const comparison = compareEvalRuns(runs[0]!, runs[1]!);
     expect(comparison).toMatchObject({ n: 1, difference: 1 });
     expect(renderScorecard(runs)).toContain("Paired quality delta: +100.0 pt");
+    expect(renderScorecard(runs)).toContain(
+      "| 4 | 1 | 100.0% | 0.0% | +100.0 pt |",
+    );
+    expect(
+      renderScorecard(runs, {
+        sources: [{ path: "result.json", sha256: "abc123" }],
+      }),
+    ).toContain("`result.json` — SHA-256 `abc123`");
+    expect(
+      renderScorecard(runs, {
+        draft: true,
+        processAttempts: [
+          {
+            resultPath: "result.json",
+            ledgerPath: "result.json.attempts.json",
+            sha256: "ledger123",
+            status: "complete",
+            attempts: 2,
+            successful: 1,
+            failed: 1,
+            interrupted: 0,
+            recoveredInterruptions: 0,
+            incomplete: 0,
+            costAndWallTimeComplete: false,
+            errors: ["503 upstream"],
+          },
+        ],
+      }),
+    ).toContain("Do not publish cost or wall-clock claims");
     runs[0]!.summary.cost.unmeteredCalls = 1;
     expect(() => assertPublishableRun(runs[0]!)).toThrow(
       "has 1 unmetered provider calls",
@@ -652,6 +903,53 @@ describe("benchmark harness integrity", () => {
     expect(renderScorecard(runs, { draft: true })).toContain(
       "complete portfolio coverage and release gate are still required",
     );
+    runs[0]!.config.answerManifest = {
+      provider: "codex-cli",
+      model: "gpt-5.6-luna",
+      transport: "codex-app-server",
+      publishable: false,
+    };
+    expect(() => assertPublishableRun(runs[0]!)).toThrow(
+      "answer provider is marked non-publishable",
+    );
+  });
+
+  it("allows a disclosed low provider retry rate", () => {
+    const [run] = portfolioPair("locomo", ["1"]);
+    run!.summary.cost.llmCalls = 99;
+    run!.summary.cost.embeddingCalls = 1;
+    run!.summary.cost.failedCalls = 1;
+    expect(() => assertPublishableRun(run!)).not.toThrow();
+  });
+
+  it("allows exactly one reproducible subscription-backed Codex answer per item", () => {
+    const [run] = portfolioPair("locomo", ["1"]);
+    (run!.config as Record<string, unknown>).answerManifest = {
+      provider: "codex-cli",
+      model: "gpt-5.6-sol",
+      transport: "codex-app-server",
+      reasoningEffort: "none",
+      runtime: {
+        codexCli: "codex-cli 0.149.0",
+        codexProviderPackage: "ai-sdk-provider-codex-cli@1.3.1",
+        instructionsSha256: "abc123",
+      },
+      billing: "chatgpt-subscription",
+      isolation: {
+        cwd: "ephemeral",
+        threadMode: "stateless",
+        sandbox: "read-only",
+        tools: "disabled",
+      },
+      publishable: true,
+    };
+    run!.summary.cost.unpricedCalls = 1;
+    expect(() => assertPublishableRun(run!)).not.toThrow();
+    expect(
+      renderScorecard([run!, portfolioPair("locomo", ["1"])[1]!], {
+        draft: true,
+      }),
+    ).toContain("ChatGPT-subscription Codex answer call per item");
   });
 });
 
@@ -674,6 +972,60 @@ function completeUsage(
     priceSnapshot: PRICE_SNAPSHOT,
     byModel: {},
   };
+}
+
+function portfolioPair(dataset: string, categories: string[]) {
+  return (["fishmem", "mem0"] as const).map((system) => ({
+    dataset,
+    split: "full" as const,
+    system,
+    config: {
+      systemVersion: `${system}:test`,
+      usageSchema: "openai-response-v3",
+      providerEndpoint: "https://api.openai.com/v1",
+    },
+    items: categories.map((category, index) => ({
+      id: `${dataset}:${index}`,
+      category,
+      question: `question ${index}`,
+      answer: system === "fishmem" ? "correct" : "wrong",
+      score: system === "fishmem" ? 1 : 0,
+      correct: system === "fishmem",
+      searchMs: 1,
+      answerMs: 1,
+      contextChars: 1,
+      contextTokens: 1,
+      memoriesUsed: 1,
+      judgeErrors: 0,
+    })),
+    summary: {
+      quality: { overall: system === "fishmem" ? 1 : 0 },
+      cost: {
+        ingestMs: 1,
+        memoriesCreated: 1,
+        ...completeUsage(1, 1, 0.01),
+      },
+      latency: {
+        searchMsP50: 1,
+        searchMsP95: 1,
+        answerMsP50: 1,
+        answerMsP95: 1,
+      },
+      context: {
+        meanChars: 1,
+        meanTokens: 1,
+        tokenizer: "o200k_base",
+      },
+      reliability: {
+        failedAdds: 0,
+        judgeErrors: 0,
+        warningCounts: {},
+        retries: 0,
+        timeouts: 0,
+        degradationCount: 0,
+      },
+    },
+  }));
 }
 
 function longMemEvalRun(system: "fishmem" | "mem0") {

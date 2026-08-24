@@ -1425,6 +1425,22 @@ export class MemorySearch {
     }
     if (!record || !isRetrievalDoc(record)) return null;
     const retrievalDocument = retrievalDocToMemory(record);
+    if (retrievalDocument.metadata?.__retrievalDoc === "episode") {
+      const episodeId = retrievalDocument.episodeId;
+      const episode = episodeId ? await this.store.getEpisode(episodeId) : null;
+      // Episode vectors are rebuildable pointers, not authority. A stale
+      // vector must become invisible immediately after retention deletion.
+      // The authoritative Episode scope must also match its vector pointer so
+      // a corrupt payload can never widen tenant/user visibility.
+      if (
+        !episode ||
+        episode.namespaceId !== retrievalDocument.namespaceId ||
+        episode.userId !== retrievalDocument.userId ||
+        episode.agentId !== retrievalDocument.agentId ||
+        episode.runId !== retrievalDocument.runId
+      )
+        return null;
+    }
     return memoryMatchesFilters(retrievalDocument, filters)
       ? retrievalDocument
       : null;
@@ -1453,7 +1469,10 @@ function memoryMatchesFilters(
 
 function isRetrievalDoc(record: VectorRecord): boolean {
   const metadata = (record.payload.metadata ?? {}) as Record<string, unknown>;
-  return metadata.__retrievalDoc === "slot_summary";
+  return (
+    metadata.__retrievalDoc === "slot_summary" ||
+    metadata.__retrievalDoc === "episode"
+  );
 }
 
 function retrievalDocToMemory(record: VectorRecord): Memory {
@@ -1469,10 +1488,17 @@ function retrievalDocToMemory(record: VectorRecord): Memory {
         ? Math.max(0, Math.min(1, payload.importance))
         : 0.7,
     hash: contentHash(record.content),
+    namespaceId:
+      typeof payload.namespaceId === "string" ? payload.namespaceId : undefined,
     userId: typeof payload.userId === "string" ? payload.userId : undefined,
     agentId: typeof payload.agentId === "string" ? payload.agentId : undefined,
     runId: typeof payload.runId === "string" ? payload.runId : undefined,
-    source: typeof payload.source === "string" ? payload.source : "belief_slot",
+    source:
+      typeof payload.source === "string"
+        ? payload.source
+        : metadata.__retrievalDoc === "episode"
+          ? "episode"
+          : "belief_slot",
     metadata,
     createdAt: parsePayloadDate(payload.createdAt) ?? now,
     updatedAt: now,
@@ -1485,6 +1511,12 @@ function retrievalDocToMemory(record: VectorRecord): Memory {
     subject: typeof payload.subject === "string" ? payload.subject : undefined,
     attribute:
       typeof payload.attribute === "string" ? payload.attribute : undefined,
+    episodeId:
+      typeof payload.episodeId === "string"
+        ? payload.episodeId
+        : typeof metadata.__episodeId === "string"
+          ? metadata.__episodeId
+          : undefined,
   };
 }
 

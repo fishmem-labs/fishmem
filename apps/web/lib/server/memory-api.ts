@@ -48,6 +48,7 @@ import {
   engineConfig,
   observabilityEvents,
   operationTasks,
+  projectSettings,
   requestLogs,
 } from "@/db/schema";
 import { hashToken } from "@/lib/server/token";
@@ -75,6 +76,10 @@ import {
   enqueueMemoryInferenceTask,
   type MemoryInferenceUsageAuthorization,
 } from "@/lib/server/memory-inference-tasks";
+import {
+  createMemoryInferencePolicySnapshot,
+  type MemoryInferencePolicySnapshot,
+} from "@/lib/server/memory-inference-policy";
 import {
   getMemoryEvent,
   listMemoryEvents,
@@ -770,6 +775,7 @@ export type PublicMemoryApiDependencies = {
   getEngine: typeof getMemoryEngine;
   notifyTask: typeof notifyOperationTask;
   recordRequest: typeof recordPublicRequestLog;
+  resolveInferencePolicy: typeof resolveMemoryInferencePolicy;
   reserveUsage: (input: {
     asynchronous?: boolean;
     auth: AuthenticatedMemoryApi;
@@ -802,6 +808,26 @@ export type PublicMemoryUsageReservation = {
   metadata?: Record<string, unknown>;
 };
 
+export async function resolveMemoryInferencePolicy(
+  db: AppDb,
+  workspaceId: string,
+): Promise<MemoryInferencePolicySnapshot> {
+  const [row] = await db
+    .select({
+      instructions: projectSettings.instructions,
+      categories: projectSettings.categories,
+      updatedAt: projectSettings.updatedAt,
+    })
+    .from(projectSettings)
+    .where(eq(projectSettings.workspaceId, workspaceId))
+    .limit(1);
+  return createMemoryInferencePolicySnapshot({
+    instructions: row?.instructions,
+    categories: row?.categories,
+    updatedAt: row?.updatedAt,
+  });
+}
+
 export function createPublicMemoryApiDependencies(
   overrides: Partial<PublicMemoryApiDependencies> = {},
 ): PublicMemoryApiDependencies {
@@ -814,6 +840,7 @@ export function createPublicMemoryApiDependencies(
     getEngine: getMemoryEngine,
     notifyTask: notifyOperationTask,
     recordRequest: recordPublicRequestLog,
+    resolveInferencePolicy: resolveMemoryInferencePolicy,
     reserveUsage: async () => ({ credits: 0 }),
     settleUsage: async () => {},
     ...overrides,
@@ -881,11 +908,16 @@ export async function addMemories(
       request,
     });
     if (infer) {
+      const policy = await dependencies.resolveInferencePolicy(
+        auth.db,
+        auth.apiToken.workspaceId,
+      );
       const task = await dependencies.enqueueInference(auth.db, {
         workspaceId: auth.apiToken.workspaceId,
         command,
         idempotencyKey: idempotencyKey!,
         derivationEnabled: await dependencies.derivationEnabled(),
+        policy,
         ...(reservation.credits > 0 || reservation.metadata
           ? {
               usage: {
@@ -2545,6 +2577,7 @@ export type DashboardMemoryInferenceAuthorization = {
 export type DashboardMemoryInferenceQueue = {
   enqueue: typeof enqueueMemoryInferenceTask;
   notify: typeof notifyOperationTask;
+  resolvePolicy: typeof resolveMemoryInferencePolicy;
   authorize?: (input: {
     command: AddMemoryCommand;
     db: AppDb;
@@ -2582,6 +2615,7 @@ export async function appMemoriesHandler(
   inferenceTaskQueue: DashboardMemoryInferenceQueue = {
     enqueue: enqueueMemoryInferenceTask,
     notify: notifyOperationTask,
+    resolvePolicy: resolveMemoryInferencePolicy,
   },
   dashboardStatsQuery: (
     db: AppDb,
@@ -2743,11 +2777,16 @@ export async function appMemoriesHandler(
           ReturnType<typeof enqueueMemoryInferenceTask>
         >;
         try {
+          const policy = await inferenceTaskQueue.resolvePolicy(
+            db,
+            selectedWorkspaceId,
+          );
           task = await inferenceTaskQueue.enqueue(db, {
             workspaceId: selectedWorkspaceId,
             command,
             idempotencyKey: idempotencyKey!,
             derivationEnabled: await derivationEnabled(),
+            policy,
             ...(authorization?.usage ? { usage: authorization.usage } : {}),
           });
         } catch (error) {

@@ -65,6 +65,8 @@ describe("benchmark structure contract", () => {
     expect(runner).toContain("questionCp.record");
     expect(runner).toContain("locomo-question-attempts-v1");
     expect(runner).toContain("questionRetries: QUESTION_RETRIES");
+    expect(runner).toContain("questionConcurrency: QUESTION_CONCURRENCY");
+    expect(runner).toContain("mapWithConcurrency(");
   });
 
   it("keeps every offline benchmark smoke in CI", () => {

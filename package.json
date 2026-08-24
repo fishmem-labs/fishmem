@@ -28,11 +28,15 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.0",
 		"@types/node": "^22.19.20",
+		"ai": "6.0.199",
+		"ai-sdk-provider-codex-cli": "1.3.1",
 		"gpt-tokenizer": "3.4.0",
 		"mem0ai": "3.1.2",
+		"openai": "6.42.0",
 		"tsx": "^4.22.4",
 		"typescript": "^5.7.2",
-		"vitest": "3.2.7"
+		"vitest": "3.2.7",
+		"zod": "4.3.6"
 	},
 	"engines": {
 		"node": ">=20"

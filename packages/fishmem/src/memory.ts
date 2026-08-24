@@ -52,11 +52,14 @@ import { parseEventDate } from "./core/temporal.js";
 import { contentHash, uuid } from "./core/util.js";
 import type { Embedder } from "./embeddings/base.js";
 import type { GraphStore } from "./graph/base.js";
-import type { LLM } from "./llms/base.js";
+import type { LLM, LLMJsonSchema } from "./llms/base.js";
 import {
+  applyMemoryExtractionPolicy,
   BELIEF_FACT_EXTRACTION_SYSTEM,
   buildExtractionMessages,
   EPISODE_GIST_SYSTEM,
+  FACT_EXTRACTION_SYSTEM,
+  type MemoryExtractionPolicy,
   messagesToTranscript,
 } from "./prompts/index.js";
 import {
@@ -67,6 +70,7 @@ import {
   DEFAULT_IMPORTANCE,
   type DocumentFilters,
   type DocumentSource,
+  type Episode,
   type HistoryEntry,
   MEMORY_TYPES,
   type MemoryFeedback,
@@ -93,6 +97,11 @@ import {
 const OPERATION_LEASE_MS = 5 * 60 * 1_000;
 export const DELETE_ALL_MAX_TARGETS = 25_000;
 const DELETE_ALL_MAX_PLAN_BYTES = 1_024 * 1_024;
+// Conservative character cap for embedding providers with an 8k-token input
+// ceiling. Fixed (rather than configurable) so retrieval-document ids remain
+// deterministically deletable and rebuildable across deployments.
+const EPISODE_INDEX_MAX_CHARS = 16_000;
+const EPISODE_INDEX_OVERLAP_CHARS = 512;
 
 export class DeleteAllLimitError extends Error {
   readonly code = "DELETE_ALL_TOO_LARGE";
@@ -213,6 +222,13 @@ export interface AddOptions extends Scope {
   evidenceContextId?: string;
   /** Optional evidence weight in (0, 1]. Default 1. */
   evidenceWeight?: number;
+  /** Project-level retention and categorization policy for inferred records. */
+  extractionPolicy?: MemoryExtractionPolicy;
+  /**
+   * Per-add override for the opt-in raw episode archive. Set false for a
+   * sensitive conversation even when the project default archives episodes.
+   */
+  archiveEpisode?: boolean;
 }
 
 export interface SearchOptions extends Scope {
@@ -275,6 +291,8 @@ interface MutationOutcome<T> {
 /** A fact extracted by the LLM, with time and structure annotations. */
 interface ExtractedFact {
   text: string;
+  /** Project-defined bucket selected during extraction. */
+  categories: string[];
   /** Semantic assertion value used only by governed belief competition. */
   beliefValue: string | null;
   eventDate: Date | null;
@@ -295,6 +313,7 @@ interface ExtractedFact {
 /** JSON-safe canonical record frozen into an idempotent add operation. */
 interface PreparedAddRecord {
   content: string;
+  categories: string[];
   beliefValue: string | null;
   eventDate: string | null;
   entities: string[];
@@ -302,12 +321,22 @@ interface PreparedAddRecord {
   attribute: string | null;
   memoryType: MemoryType | null;
   cardinality: "single" | "multi" | null;
+  /** Raw episode provenance when the opt-in archive is enabled. */
+  episodeId: string | null;
 }
 
 interface AddExecutionPlan {
   records: PreparedAddRecord[];
   memoryIds: string[];
   createdAt: Date;
+  episodeId?: string;
+}
+
+interface EpisodeIndexChunk {
+  id: string;
+  content: string;
+  index: number;
+  count: number;
 }
 
 /**
@@ -392,6 +421,7 @@ export class Memory {
   private readonly entitySynonymThreshold: number;
   private readonly beliefChains: boolean;
   private readonly retrievalDocs: { slotSummary: boolean };
+  private readonly episodeArchive: { archive: boolean; searchable: boolean };
   /** Derived-structure layer: enabled flag + schedule (see config.derivation). */
   private readonly derivationEnabled: boolean;
   /** Derived-structure sidecar (state slots) — populated when derivation is on. */
@@ -482,6 +512,10 @@ export class Memory {
     this.beliefChains = config.beliefChains ?? true;
     this.retrievalDocs = {
       slotSummary: config.retrievalDocs?.slotSummary ?? false,
+    };
+    this.episodeArchive = {
+      archive: config.episodes?.archive ?? false,
+      searchable: config.episodes?.searchable ?? false,
     };
     // One architecture: add defaults to a single extraction pass whose
     // refined facts become canonical records. `infer: false` is the explicit,
@@ -826,11 +860,15 @@ export class Memory {
     }
     try {
       let records = readAddPlan(operation.command);
+      const episodeId = this.shouldArchiveEpisode(options, messages)
+        ? `episode:${operation.id}`
+        : undefined;
       if (records === null) {
         records = await this.prepareAddRecords(
           messages,
           options,
           scopeOf(options),
+          episodeId,
         );
         const memoryIds = records.map(() => uuid());
         operation = await this.store.planOperation(
@@ -857,6 +895,7 @@ export class Memory {
           records,
           memoryIds: operation.memoryIds,
           createdAt: operation.createdAt,
+          ...(episodeId ? { episodeId } : {}),
         },
         projection,
       );
@@ -926,9 +965,57 @@ export class Memory {
     const messages = normalizeInput(input);
     const infer = options.infer !== false;
     const derive = this.derivationEnabled && infer;
+    const episodeId = plan
+      ? plan.episodeId
+      : this.shouldArchiveEpisode(options, messages)
+        ? uuid()
+        : undefined;
     const records =
-      plan?.records ?? (await this.prepareAddRecords(messages, options, scope));
+      plan?.records ??
+      (await this.prepareAddRecords(messages, options, scope, episodeId));
+    const episodeCreatedAt = plan?.createdAt ?? new Date();
+    const episode = episodeId
+      ? this.prepareEpisode(
+          episodeId,
+          messages,
+          options,
+          scope,
+          episodeCreatedAt,
+        )
+      : undefined;
+    const episodeChunks =
+      episode && this.episodeArchive.searchable
+        ? buildEpisodeIndexChunks(episode)
+        : [];
     const beliefBatchId = plan?.memoryIds[0] ?? uuid();
+    // One add commonly yields several refined facts. Embed them in one provider
+    // request, then preserve the existing sequential store/auto-link order.
+    // This changes only network batching: every record keeps its own vector and
+    // associations still see exactly the previously committed records.
+    const projectionContents = [
+      ...records.map((record) => record.content),
+      ...episodeChunks.map((chunk) => chunk.content),
+    ];
+    const projectionVectors =
+      this.vectorProjectionSchedule === "inline" &&
+      projectionContents.length > 0
+        ? await this.embedder.embedBatch(projectionContents, {
+            context: {
+              namespaceId: scope.namespaceId,
+              operation: "memory.embedding",
+            },
+          })
+        : [];
+    if (
+      this.vectorProjectionSchedule === "inline" &&
+      projectionVectors.length !== projectionContents.length
+    ) {
+      throw new Error(
+        `embedding batch returned ${projectionVectors.length} vectors for ${projectionContents.length} records`,
+      );
+    }
+    const recordVectors = projectionVectors.slice(0, records.length);
+    const episodeVectors = projectionVectors.slice(records.length);
 
     const results: AddResultItem[] = [];
     const entityIdsBySource = new Map<string, string[]>();
@@ -937,15 +1024,25 @@ export class Memory {
       const plannedId = plan?.memoryIds[index];
       if (plan && !plannedId)
         throw new Error("idempotent add plan does not match record count");
+      const recordOptions = prepared.categories.length
+        ? {
+            ...options,
+            metadata: {
+              ...(options.metadata ?? {}),
+              categories: [...prepared.categories],
+            },
+          }
+        : options;
       const record = await this.createRecord(
         prepared.content,
-        options,
+        recordOptions,
         scope,
         prepared.eventDate ? new Date(prepared.eventDate) : undefined,
         {
           subject: prepared.subject,
           attribute: prepared.attribute,
           memoryType: prepared.memoryType,
+          episodeId: prepared.episodeId ?? undefined,
           projectionHints: this.prepareBeliefProjectionHints(
             prepared.memoryType,
             prepared.beliefValue ?? prepared.content,
@@ -956,6 +1053,7 @@ export class Memory {
           ),
         },
         plannedId ? { id: plannedId, createdAt: plan.createdAt } : undefined,
+        recordVectors[index],
       );
       await this.linkAssociations(record.id, options.associations);
       const extractedNames = infer
@@ -1016,6 +1114,16 @@ export class Memory {
         this.derivationHook?.(p);
       }
     }
+    // Raw Episode authority is deliberately committed last. Extraction,
+    // canonical storage, linking, and any inline derived projection must all
+    // succeed before an opt-in raw transcript is retained. This prevents a
+    // failed canonical add from leaving privacy-sensitive history behind.
+    if (episode) {
+      await this.saveEpisodeIdempotently(episode);
+      if (episodeChunks.length) {
+        await this.projectEpisodeChunks(episode, episodeChunks, episodeVectors);
+      }
+    }
     return { results };
   }
 
@@ -1023,6 +1131,7 @@ export class Memory {
     messages: Message[],
     options: AddOptions,
     scope: Scope,
+    episodeId?: string,
   ): Promise<PreparedAddRecord[]> {
     if (options.infer === false) {
       return messages
@@ -1030,6 +1139,7 @@ export class Memory {
         .map((message) => ({
           // Keep the input byte-for-byte; trim is only the emptiness check.
           content: message.content,
+          categories: [],
           beliefValue: null,
           eventDate: options.eventDate?.toISOString() ?? null,
           entities: [],
@@ -1037,12 +1147,14 @@ export class Memory {
           attribute: null,
           memoryType: options.memoryType ?? null,
           cardinality: null,
+          episodeId: episodeId ?? null,
         }));
     }
 
     const facts = await this.extractFacts(
       messagesToTranscript(messages),
       scope,
+      options.extractionPolicy,
     );
     const seen = new Set<string>();
     const records: PreparedAddRecord[] = [];
@@ -1051,6 +1163,7 @@ export class Memory {
       seen.add(fact.text);
       records.push({
         content: fact.text,
+        categories: [...fact.categories],
         beliefValue: fact.beliefValue,
         eventDate: (fact.eventDate ?? options.eventDate)?.toISOString() ?? null,
         entities: [...new Set(fact.entities.map((name) => name.trim()))].filter(
@@ -1060,9 +1173,119 @@ export class Memory {
         attribute: fact.attribute,
         memoryType: fact.memoryType,
         cardinality: fact.cardinality,
+        episodeId: episodeId ?? null,
       });
     }
     return records;
+  }
+
+  private shouldArchiveEpisode(
+    options: AddOptions,
+    messages: Message[],
+  ): boolean {
+    return (
+      (options.archiveEpisode ?? this.episodeArchive.archive) &&
+      episodeConversationMessages(messages).length > 0
+    );
+  }
+
+  private prepareEpisode(
+    id: string,
+    messages: Message[],
+    options: AddOptions,
+    scope: Scope,
+    createdAt: Date,
+  ): Episode {
+    return {
+      id,
+      namespaceId: scope.namespaceId,
+      userId: scope.userId,
+      agentId: scope.agentId,
+      runId: scope.runId,
+      messages: episodeConversationMessages(messages),
+      source: options.source,
+      createdAt,
+    };
+  }
+
+  private async saveEpisodeIdempotently(episode: Episode): Promise<void> {
+    const existing = await this.store.getEpisode(episode.id);
+    if (existing) {
+      if (
+        stableJson({ ...existing, createdAt: existing.createdAt }) !==
+        stableJson({ ...episode, createdAt: episode.createdAt })
+      ) {
+        throw new Error(`idempotent episode collision: ${episode.id}`);
+      }
+      return;
+    }
+    await this.store.saveEpisode(episode);
+  }
+
+  private async projectEpisodeChunks(
+    episode: Episode,
+    chunks: EpisodeIndexChunk[],
+    precomputedVectors: number[][],
+  ): Promise<void> {
+    const payloads = chunks.map((chunk) => ({
+      id: chunk.id,
+      content: chunk.content,
+      payload: episodeIndexPayload(episode, chunk),
+    }));
+    if (this.vectorProjectionSchedule === "inline") {
+      if (precomputedVectors.length !== chunks.length) {
+        throw new Error(
+          `episode projection received ${precomputedVectors.length} vectors for ${chunks.length} chunks`,
+        );
+      }
+      await this.vectors.upsert(
+        payloads.map((record, index) => ({
+          ...record,
+          vector: precomputedVectors[index]!,
+        })),
+      );
+      return;
+    }
+
+    await this.vectors.upsertText!(payloads);
+    const projection = this.embedder
+      .embedBatch(
+        chunks.map((chunk) => chunk.content),
+        {
+          context: {
+            namespaceId: episode.namespaceId,
+            operation: "episode.embedding",
+          },
+        },
+      )
+      .then(async (vectors) => {
+        if (vectors.length !== chunks.length) {
+          throw new Error(
+            `episode embedding batch returned ${vectors.length} vectors for ${chunks.length} chunks`,
+          );
+        }
+        await this.vectors.upsert(
+          payloads.map((record, index) => ({
+            ...record,
+            vector: vectors[index]!,
+          })),
+        );
+      })
+      .catch((error: unknown) => {
+        this.warn(
+          "episode_index_failed",
+          "Deferred episode semantic indexing failed; the archived episode and lexical index remain available.",
+          error,
+          { episodeId: episode.id, ...scopeOf(episode) },
+        );
+      });
+    this.pendingVectorProjections.push(projection);
+    projection.finally(() => {
+      this.pendingVectorProjections = this.pendingVectorProjections.filter(
+        (candidate) => candidate !== projection,
+      );
+    });
+    this.vectorProjectionHook?.(projection);
   }
 
   private async executeMutation<T>(spec: {
@@ -1893,7 +2116,7 @@ export class Memory {
       }
       try {
         if (operation.command.planned !== true) {
-          const [records, slotKeys] = await Promise.all([
+          const [records, slotKeys, episodes] = await Promise.all([
             this.store.listMemories(filters, {
               limit: DELETE_ALL_MAX_TARGETS + 1,
               sort: "recent",
@@ -1901,15 +2124,20 @@ export class Memory {
             this.retrievalDocs.slotSummary
               ? this.slotKeysFor(filters)
               : Promise.resolve([]),
+            this.store.listEpisodes(filters, {
+              limit: DELETE_ALL_MAX_TARGETS + 1,
+            }),
           ]);
-          if (records.length > DELETE_ALL_MAX_TARGETS) {
-            throw new DeleteAllLimitError(records.length);
+          if (records.length + episodes.length > DELETE_ALL_MAX_TARGETS) {
+            throw new DeleteAllLimitError(records.length + episodes.length);
           }
           const memoryIds = records.map((record) => record.id);
           const plannedCommand = {
             ...operation.command,
             planned: true,
             slotKeys,
+            episodeIds: episodes.map((episode) => episode.id),
+            episodeVectorIds: episodes.flatMap(episodeIndexIds),
           };
           if (
             new TextEncoder().encode(
@@ -1925,12 +2153,18 @@ export class Memory {
           );
         }
         await this.store.deleteMemories(operation.memoryIds);
+        await this.store.deleteEpisodes(
+          readDeleteAllStringList(operation.command, "episodeIds"),
+        );
         const beliefReady = await this.removeBeliefEvidenceMany(
           operation.memoryIds,
           "deleteAll",
         );
         const vectorReady = await this.deleteVectorIndexEntries(
-          operation.memoryIds,
+          [
+            ...operation.memoryIds,
+            ...readDeleteAllStringList(operation.command, "episodeVectorIds"),
+          ],
           {
             operation: "deleteAll",
             operationId: operation.id,
@@ -1987,12 +2221,22 @@ export class Memory {
     const slotKeys = this.retrievalDocs.slotSummary
       ? await this.slotKeysFor(filters)
       : [];
-    const ids = await this.store.deleteAll(filters);
-    await this.removeBeliefEvidenceMany(ids, "deleteAll");
-    await this.deleteVectorIndexEntries(ids, {
-      operation: "deleteAll",
-      filters,
+    const episodes = await this.store.listEpisodes(filters, {
+      limit: DELETE_ALL_MAX_TARGETS + 1,
     });
+    if (episodes.length > DELETE_ALL_MAX_TARGETS) {
+      throw new DeleteAllLimitError(episodes.length);
+    }
+    const ids = await this.store.deleteAll(filters);
+    await this.store.deleteEpisodes(episodes.map((episode) => episode.id));
+    await this.removeBeliefEvidenceMany(ids, "deleteAll");
+    await this.deleteVectorIndexEntries(
+      [...ids, ...episodes.flatMap(episodeIndexIds)],
+      {
+        operation: "deleteAll",
+        filters,
+      },
+    );
     for (const key of slotKeys) {
       await this.refreshSlotSummary(key.subject, key.attribute, key.scope);
     }
@@ -2014,6 +2258,7 @@ export class Memory {
     const ids = [
       ...snapshot.memories.map((memory) => memory.id),
       ...snapshot.documentChunks.map((chunk) => chunk.id),
+      ...snapshot.episodes.flatMap(episodeIndexIds),
     ];
     await deleteVectorRecords(this.vectors, ids);
     await this.sidecar.clear({ namespaceId });
@@ -2506,6 +2751,12 @@ export class Memory {
         documents.map((document) => this.store.listDocumentChunks(document.id)),
       )
     ).flat();
+    const episodes = this.episodeArchive.searchable
+      ? await this.store.listEpisodes(filters, { limit: 1_000_000 })
+      : [];
+    const episodeChunks = episodes.flatMap((episode) =>
+      buildEpisodeIndexChunks(episode).map((chunk) => ({ episode, chunk })),
+    );
     // Vectorize cannot delete by filter or enumerate. Search results are
     // always rehydrated through the canonical graph/document store, so unknown
     // orphan ids remain invisible; rebuild known canonical ids in place and
@@ -2517,16 +2768,43 @@ export class Memory {
     for (const document of documents) {
       await this.documents_.rebuild(document.id, namespaceId);
     }
+    for (const episode of episodes) {
+      const chunks = buildEpisodeIndexChunks(episode);
+      if (!chunks.length) continue;
+      const vectors = await this.embedder.embedBatch(
+        chunks.map((chunk) => chunk.content),
+        {
+          context: {
+            namespaceId,
+            operation: "episode.embedding.rebuild",
+          },
+        },
+      );
+      if (vectors.length !== chunks.length) {
+        throw new Error(
+          `episode embedding batch returned ${vectors.length} vectors for ${chunks.length} chunks`,
+        );
+      }
+      await this.vectors.upsert(
+        chunks.map((chunk, index) => ({
+          id: chunk.id,
+          content: chunk.content,
+          payload: episodeIndexPayload(episode, chunk),
+          vector: vectors[index]!,
+        })),
+      );
+    }
     const expected = new Map([
       ...records.map((record) => [record.id, record.content] as const),
       ...documentChunks.map((chunk) => [chunk.id, chunk.content] as const),
+      ...episodeChunks.map(({ chunk }) => [chunk.id, chunk.content] as const),
     ]);
     const rebuilt =
       this.vectors.capabilities?.enumeration === false
         ? await getVectorRecords(this.vectors, [...expected.keys()])
         : await this.vectors.list(
             filters,
-            records.length + documentChunks.length + 1,
+            records.length + documentChunks.length + episodeChunks.length + 1,
           );
     const verificationFailed =
       rebuilt.length !== expected.size ||
@@ -2580,6 +2858,20 @@ export class Memory {
   ) {
     await this.init();
     return this.store.listEpisodes(scopeOf(scope), options);
+  }
+
+  /** Permanently delete one archived episode and its hidden retrieval docs. */
+  async deleteEpisode(episodeId: string, scope: Scope = {}): Promise<boolean> {
+    await this.init();
+    const episode = await this.store.getEpisode(episodeId);
+    if (!episode || !episodeInScope(episode, scope)) return false;
+    await this.store.deleteEpisodes([episodeId]);
+    await this.deleteVectorIndexEntries(episodeIndexIds(episode), {
+      operation: "deleteEpisode",
+      episodeId,
+      ...scopeOf(scope),
+    });
+    return true;
   }
 
   /** Export the complete authoritative graph state for one namespace. Vector
@@ -2940,6 +3232,7 @@ export class Memory {
       projectionHints?: MemoryProjectionHints;
     },
     identity?: { id: string; createdAt: Date },
+    precomputedVector?: number[],
   ): Promise<MemoryRecord> {
     const now = identity?.createdAt ?? new Date();
     const resolvedEventDate = eventDate ?? options.eventDate;
@@ -2972,7 +3265,7 @@ export class Memory {
         ) {
           throw new Error(`idempotent memory collision: ${identity.id}`);
         }
-        await this.projectRecord(existing, scope);
+        await this.projectRecord(existing, scope, precomputedVector);
         const history = await this.store.getHistory(existing.id);
         if (!history.some((entry) => entry.event === "ADD")) {
           await this.store.addHistory({
@@ -3016,7 +3309,7 @@ export class Memory {
       episodeId: structured?.episodeId,
     };
     await this.store.saveMemory(record);
-    await this.projectRecord(record, scope);
+    await this.projectRecord(record, scope, precomputedVector);
     await this.store.addHistory({
       memoryId: record.id,
       event: "ADD",
@@ -3252,6 +3545,14 @@ export class Memory {
         operation: "memory.embedding",
       },
     });
+    await this.storeVector(record, vector);
+    return vector;
+  }
+
+  private async storeVector(
+    record: MemoryRecord,
+    vector: number[],
+  ): Promise<void> {
     await this.vectors.upsert([
       {
         id: record.id,
@@ -3269,15 +3570,16 @@ export class Memory {
         },
       },
     ]);
-    return vector;
   }
 
   private async projectRecord(
     record: MemoryRecord,
     scope: Scope,
+    precomputedVector?: number[],
   ): Promise<void> {
     if (this.vectorProjectionSchedule === "inline") {
-      const vector = await this.embedAndStore(record);
+      const vector = precomputedVector ?? (await this.embedAndStore(record));
+      if (precomputedVector) await this.storeVector(record, precomputedVector);
       await this.autoLink(record, vector, scope);
       return;
     }
@@ -3331,6 +3633,36 @@ export class Memory {
     try {
       const scoped = await this.store.listEntities(scopeOf(scope));
       const byNorm = new Map(scoped.map((e) => [e.normalized, e]));
+      const missingNames: Array<{ name: string; normalized: string }> = [];
+      const queued = new Set<string>();
+      for (const raw of names) {
+        const name = raw.trim();
+        const normalized = name.toLowerCase();
+        if (name && !byNorm.has(normalized) && !queued.has(normalized)) {
+          queued.add(normalized);
+          missingNames.push({ name, normalized });
+        }
+      }
+      const missingVectors = await this.embedder.embedBatch(
+        missingNames.map(({ name }) => name),
+        {
+          context: {
+            namespaceId: scope.namespaceId,
+            operation: "memory.entity_embedding",
+          },
+        },
+      );
+      if (missingVectors.length !== missingNames.length) {
+        throw new Error(
+          `entity embedding batch returned ${missingVectors.length} vectors for ${missingNames.length} names`,
+        );
+      }
+      const vectorByNorm = new Map(
+        missingNames.map(({ normalized }, index) => [
+          normalized,
+          missingVectors[index]!,
+        ]),
+      );
       const ids: string[] = [];
       for (const raw of names) {
         const name = raw.trim();
@@ -3338,7 +3670,10 @@ export class Memory {
         const normalized = name.toLowerCase();
         let entity = byNorm.get(normalized);
         if (!entity) {
-          const embedding = await this.embedder.embed(name);
+          const embedding = vectorByNorm.get(normalized);
+          if (!embedding) {
+            throw new Error(`missing entity embedding for ${name}`);
+          }
           // Synonym resolution: nearest existing entity name in scope.
           let best: { e: (typeof scoped)[number]; sim: number } | null = null;
           for (const candidate of scoped) {
@@ -3854,16 +4189,32 @@ export class Memory {
   private async extractFacts(
     transcript: string,
     scope: Scope,
+    extractionPolicy?: MemoryExtractionPolicy,
   ): Promise<ExtractedFact[]> {
-    const systemPrompt =
+    const projectBeliefs = this.beliefProjectionEnabled(scope);
+    const baseSystemPrompt =
       this.factExtractionPrompt ??
-      (this.beliefProjectionEnabled(scope)
-        ? BELIEF_FACT_EXTRACTION_SYSTEM
-        : undefined);
+      (projectBeliefs ? BELIEF_FACT_EXTRACTION_SYSTEM : FACT_EXTRACTION_SYSTEM);
+    const systemPrompt = applyMemoryExtractionPolicy(
+      baseSystemPrompt,
+      extractionPolicy,
+    );
+    const allowedCategories = new Map<string, string>();
+    for (const value of extractionPolicy?.categories ?? []) {
+      const category = value.trim();
+      const key = category.toLowerCase();
+      if (category && !allowedCategories.has(key)) {
+        allowedCategories.set(key, category);
+      }
+    }
     const raw = await this.llm.chat(
       buildExtractionMessages(transcript, systemPrompt),
       {
         responseFormat: "json",
+        jsonSchema: factExtractionJsonSchema(
+          [...allowedCategories.values()],
+          projectBeliefs,
+        ),
         context: {
           namespaceId: scope.namespaceId,
           operation: "memory.extract",
@@ -3874,7 +4225,7 @@ export class Memory {
     const facts = parsed?.facts;
     if (!Array.isArray(facts)) {
       throw new Error(
-        "fact extraction returned invalid JSON: expected facts[]",
+        `fact extraction returned invalid JSON: expected facts[] (${describeExtractionShape(raw, parsed)})`,
       );
     }
     const out: ExtractedFact[] = [];
@@ -3883,8 +4234,14 @@ export class Memory {
       // Accept both plain strings and {text, event_date} objects.
       if (typeof f === "string") {
         if (f.trim()) {
+          if (allowedCategories.size) {
+            throw new Error(
+              `fact extraction returned invalid facts[${index}]: expected a project category`,
+            );
+          }
           out.push({
             text: f.trim(),
+            categories: [],
             beliefValue: null,
             eventDate: null,
             entities: [],
@@ -3896,8 +4253,18 @@ export class Memory {
         }
       } else if (f && typeof f === "object" && typeof f.text === "string") {
         if (f.text.trim()) {
+          const category =
+            typeof f.category === "string"
+              ? allowedCategories.get(f.category.trim().toLowerCase())
+              : undefined;
+          if (allowedCategories.size && !category) {
+            throw new Error(
+              `fact extraction returned invalid facts[${index}].category`,
+            );
+          }
           out.push({
             text: f.text.trim(),
+            categories: category ? [category] : [],
             beliefValue:
               typeof f.value === "string" && f.value.trim()
                 ? f.value.trim()
@@ -4236,6 +4603,12 @@ export class NamespacedMemory {
     return this.memory.episodes(this.scope(scope), options);
   }
 
+  deleteEpisode(episodeId: string) {
+    return this.memory.deleteEpisode(episodeId, {
+      namespaceId: this.namespaceId,
+    });
+  }
+
   exportSnapshot() {
     return this.memory.exportSnapshot({ namespaceId: this.namespaceId });
   }
@@ -4444,6 +4817,20 @@ function memoryInScope(record: MemoryRecord, scope: Scope): boolean {
   return true;
 }
 
+function episodeInScope(episode: Episode, scope: Scope): boolean {
+  if (
+    scope.namespaceId !== undefined &&
+    episode.namespaceId !== scope.namespaceId
+  )
+    return false;
+  if (scope.userId !== undefined && episode.userId !== scope.userId)
+    return false;
+  if (scope.agentId !== undefined && episode.agentId !== scope.agentId)
+    return false;
+  if (scope.runId !== undefined && episode.runId !== scope.runId) return false;
+  return true;
+}
+
 function vectorProjectsContent(
   record: { content: string; payload: Record<string, unknown> },
   expectedContent: string,
@@ -4524,13 +4911,84 @@ function buildSlotSummaryContent(
 }
 
 function isRetrievalDocMemory(record: MemoryRecord): boolean {
-  return record.metadata?.__retrievalDoc === "slot_summary";
+  return typeof record.metadata?.__retrievalDoc === "string";
 }
 
 function normalizeInput(input: AddInput): Message[] {
   if (typeof input === "string") return [{ role: "user", content: input }];
   if (Array.isArray(input)) return input;
   return [input];
+}
+
+function episodeConversationMessages(messages: Message[]): Message[] {
+  return messages
+    .filter(
+      (message) =>
+        (message.role === "user" || message.role === "assistant") &&
+        message.content.trim().length > 0,
+    )
+    .map((message) => ({ ...message }));
+}
+
+function buildEpisodeIndexChunks(episode: Episode): EpisodeIndexChunk[] {
+  const transcript = messagesToTranscript(episode.messages);
+  if (!transcript) return [];
+  const contents: string[] = [];
+  let start = 0;
+  while (start < transcript.length) {
+    let end = Math.min(start + EPISODE_INDEX_MAX_CHARS, transcript.length);
+    if (end < transcript.length) {
+      const boundary = transcript.lastIndexOf("\n", end);
+      if (boundary > start + Math.floor(EPISODE_INDEX_MAX_CHARS / 2)) {
+        end = boundary;
+      }
+    }
+    contents.push(transcript.slice(start, end));
+    if (end >= transcript.length) break;
+    const overlapStart = Math.max(start + 1, end - EPISODE_INDEX_OVERLAP_CHARS);
+    const nextBoundary = transcript.indexOf("\n", overlapStart);
+    start =
+      nextBoundary >= overlapStart && nextBoundary < end
+        ? nextBoundary + 1
+        : overlapStart;
+  }
+  return contents.map((content, index) => ({
+    id: `episode-index:${episode.id}:${index}`,
+    content,
+    index,
+    count: contents.length,
+  }));
+}
+
+function episodeIndexPayload(
+  episode: Episode,
+  chunk: EpisodeIndexChunk,
+): Record<string, unknown> {
+  return {
+    namespaceId: episode.namespaceId,
+    recordKind: "memory",
+    userId: episode.userId,
+    agentId: episode.agentId,
+    runId: episode.runId,
+    memoryType: "observation",
+    source: episode.source ?? "episode",
+    episodeId: episode.id,
+    eventDate: episode.createdAt.toISOString(),
+    validFrom: episode.createdAt.toISOString(),
+    createdAt: episode.createdAt.toISOString(),
+    updatedAt: episode.createdAt.toISOString(),
+    importance: 0.7,
+    metadata: {
+      __retrievalDoc: "episode",
+      __episodeId: episode.id,
+      __episodeChunk: chunk.index,
+      __episodeChunkCount: chunk.count,
+    },
+  };
+}
+
+function episodeIndexIds(episode: Episode): string[] {
+  return buildEpisodeIndexChunks(episode).map((chunk) => chunk.id);
 }
 
 function stableJson(value: unknown): string {
@@ -4614,6 +5072,21 @@ function readDeleteAllSlotKeys(
   });
 }
 
+function readDeleteAllStringList(
+  command: Record<string, unknown>,
+  key: "episodeIds" | "episodeVectorIds",
+): string[] {
+  const value = command[key];
+  if (value === undefined) return [];
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => typeof item === "string" && item.length > 0)
+  ) {
+    throw new Error(`idempotent delete-all ${key} plan is corrupt`);
+  }
+  return [...new Set(value)];
+}
+
 function hasAddPlan(command: Record<string, unknown>): boolean {
   return Object.hasOwn(command, "addPlan");
 }
@@ -4695,8 +5168,32 @@ function readAddPlan(
         `idempotent add plan record ${index} has invalid cardinality`,
       );
     }
+    const episodeId =
+      record.episodeId === undefined || record.episodeId === null
+        ? null
+        : typeof record.episodeId === "string" && record.episodeId.trim()
+          ? record.episodeId
+          : undefined;
+    if (episodeId === undefined) {
+      throw new Error(
+        `idempotent add plan record ${index} has invalid episodeId`,
+      );
+    }
+    const categories = record.categories ?? [];
+    if (
+      !Array.isArray(categories) ||
+      !categories.every(
+        (category) =>
+          typeof category === "string" && category.trim().length > 0,
+      )
+    ) {
+      throw new Error(
+        `idempotent add plan record ${index} has invalid categories`,
+      );
+    }
     return {
       content: record.content,
+      categories: [...categories],
       beliefValue,
       eventDate: record.eventDate,
       entities: [...record.entities],
@@ -4704,6 +5201,7 @@ function readAddPlan(
       attribute: record.attribute,
       memoryType,
       cardinality: record.cardinality,
+      episodeId,
     } as PreparedAddRecord;
   });
 }
@@ -4711,6 +5209,7 @@ function readAddPlan(
 function preparedRecordsToFacts(records: PreparedAddRecord[]): ExtractedFact[] {
   return records.map((record) => ({
     text: record.content,
+    categories: [...record.categories],
     beliefValue: record.beliefValue,
     eventDate: record.eventDate ? new Date(record.eventDate) : null,
     entities: [...record.entities],
@@ -4746,6 +5245,67 @@ function safeJson(text: string): any {
     }
     return null;
   }
+}
+
+function factExtractionJsonSchema(
+  categories: string[],
+  includeBeliefValue: boolean,
+): LLMJsonSchema {
+  const properties: Record<string, unknown> = {
+    text: { type: "string" },
+    event_date: { type: ["string", "null"] },
+    entities: { type: "array", items: { type: "string" } },
+    subject: { type: ["string", "null"] },
+    attribute: { type: ["string", "null"] },
+    type: { type: "string", enum: [...MEMORY_TYPES] },
+    cardinality: { type: "string", enum: ["single", "multi"] },
+  };
+  const required = Object.keys(properties);
+  if (includeBeliefValue) {
+    properties.value = { type: ["string", "null"] };
+    required.push("value");
+  }
+  if (categories.length > 0) {
+    properties.category = { type: "string", enum: categories };
+    required.push("category");
+  }
+  return {
+    name: "fishmem_fact_extraction",
+    description:
+      "Atomic durable memories extracted from one conversation chunk.",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        facts: {
+          type: "array",
+          items: {
+            type: "object",
+            properties,
+            required,
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["facts"],
+      additionalProperties: false,
+    },
+  };
+}
+
+function describeExtractionShape(raw: string, parsed: unknown): string {
+  if (parsed === null || parsed === undefined) {
+    const trimmed = raw.trim();
+    return `shape=unparseable,chars=${raw.length},objectBoundaries=${trimmed.startsWith("{") && trimmed.endsWith("}")}`;
+  }
+  if (Array.isArray(parsed)) {
+    return `shape=array,items=${parsed.length},chars=${raw.length}`;
+  }
+  if (typeof parsed !== "object") {
+    return `shape=${typeof parsed},chars=${raw.length}`;
+  }
+  const facts = (parsed as { facts?: unknown }).facts;
+  return `shape=object,facts=${Array.isArray(facts) ? "array" : typeof facts},chars=${raw.length}`;
 }
 
 function cosineSim(a: number[], b: number[]): number {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  EXHAUSTIVE_FACT_EXTRACTION_SYSTEM,
   FACT_EXTRACTION_SYSTEM,
   SELECTIVE_FACT_EXTRACTION_SYSTEM,
 } from "../../packages/fishmem/src/index.js";
@@ -23,10 +24,11 @@ import { countContextTokens } from "../tokens.js";
 
 describe("selective inference scorer", () => {
   it("keeps the revised one-call candidate within its disclosed token budget", () => {
-    expect(countContextTokens(FACT_EXTRACTION_SYSTEM)).toBe(986);
+    expect(countContextTokens(EXHAUSTIVE_FACT_EXTRACTION_SYSTEM)).toBe(1_031);
     expect(
       countContextTokens(SELECTIVE_FACT_EXTRACTION_SYSTEM),
-    ).toBeLessThanOrEqual(1_350);
+    ).toBeLessThanOrEqual(1_450);
+    expect(FACT_EXTRACTION_SYSTEM).toBe(SELECTIVE_FACT_EXTRACTION_SYSTEM);
   });
 
   it("matches normalized text and structured fields", () => {
@@ -96,6 +98,45 @@ describe("selective inference scorer", () => {
     expect(summary.criticalLeakCount).toBe(1);
     expect(summary.noMemoryAccuracy).toBe(0);
     expect(summary.unwantedFacts).toBe(1);
+  });
+
+  it("keeps an unaccepted assistant recommendation out of canonical facts", () => {
+    const testCase = INFERENCE_QUALITY_CASES.find(
+      (candidate) => candidate.id === "unconfirmed-assistant-suggestion",
+    )!;
+    const episodicOnly = evaluateInferenceCase({
+      testCase,
+      facts: [],
+      latencyMs: 1,
+    });
+    expect(episodicOnly.passed).toBe(true);
+
+    const promotedRecommendation = evaluateInferenceCase({
+      testCase,
+      facts: [
+        {
+          text: "The assistant recommended that Atlas migrate its cache to Redis.",
+          memoryType: "fact",
+          subject: "assistant",
+        },
+      ],
+      latencyMs: 1,
+    });
+    expect(promotedRecommendation.passed).toBe(false);
+
+    const falseDecision = evaluateInferenceCase({
+      testCase,
+      facts: [
+        {
+          text: "The user accepted Redis as Atlas's cache backend.",
+          memoryType: "decision",
+          subject: "user",
+        },
+      ],
+      latencyMs: 1,
+    });
+    expect(falseDecision.passed).toBe(false);
+    expect(falseDecision.forbiddenMatched).toBe(1);
   });
 });
 

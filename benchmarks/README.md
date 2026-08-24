@@ -4,6 +4,23 @@ See [EVAL-PLAN.md](./EVAL-PLAN.md) for the full evidence plan: public
 benchmarks, realistic FishBench scenarios, mem0 comparison protocol, cost and
 latency metrics, and release-readiness rules.
 
+## Current frozen portfolio
+
+The [2026-08-24 full scorecard](./reports/evidence-2026-08-24.md) passed the
+quality release gate with two statistically supported wins and one reported
+loss against mem0 OSS `3.1.2`:
+
+| Benchmark | Paired items | FishMem | mem0 | Paired delta (95% CI) |
+| --- | ---: | ---: | ---: | ---: |
+| LongMemEval `oracle` | 500 | 88.2% | 83.8% | +4.4 pt (+1.0 to +7.8) |
+| BEAM `100k` | 400 | 46.7% | 41.0% | +5.7 pt (+1.8 to +9.5) |
+| LOCOMO, categories 1–5 | 1,986 | 67.5% | 71.1% | -3.7 pt (-5.8 to -1.5) |
+
+This is LongMemEval `oracle`, not LongMemEval-S. Two baseline process ledgers
+contain recovered attempts, so the quality result is publishable but aggregate
+cost and wall-clock comparisons are not. FishMem's larger retrieved context on
+LongMemEval and BEAM is also disclosed in the scorecard.
+
 Strict paired scorecards across LOCOMO, LongMemEval, and BEAM are generated
 from native result JSON files:
 
@@ -20,6 +37,10 @@ judge errors, mismatched fairness configuration, different item sets, a
 missing fishmem/mem0 counterpart, or missing evidence metadata. Publishable
 runs must disclose the exact system version, fixed context tokenizer, provider
 call counts, estimated USD cost, and structured degradation diagnostics.
+Generated scorecards also include the SHA-256 of every native result artifact,
+the exact write/answer/embed/judge configuration, per-category paired results,
+and a separate LOCOMO categories 1–4 standard aggregate when category 5 is
+present.
 
 Use `--draft` for an explicitly non-publishable stage report. Draft reports
 still require paired item IDs and identical fairness configuration, and list
@@ -29,6 +50,54 @@ the publication blocker instead of hiding failed provider calls:
 pnpm bench:report -- benchmarks/results/canary.json --draft \
   --out benchmarks/reports/canary.md
 ```
+
+## Answer provider policy
+
+The three end-to-end runners can change the **answer generator** without
+changing either memory system or the benchmark judge:
+
+- `openai-chat` is the compatibility default.
+- `openai-responses` is the reproducible path for evidence runs. It uses the
+  OpenAI Responses API, records response usage, and can be published when the
+  normal evidence gate passes.
+- `codex-cli` uses the community
+  [AI SDK Codex CLI provider](https://ai-sdk.dev/providers/community-providers/codex-cli)
+  with the local ChatGPT subscription. A stateless `app-server` run is eligible
+  for publication only when the result freezes the exact model, Codex CLI and
+  provider versions, isolated no-tools/read-only settings, and benchmark
+  instruction SHA-256. `exec` and incomplete manifests remain non-publishable.
+
+Codex runs still require the configured OpenAI-compatible endpoint key: memory
+writes, embeddings, and the official benchmark judge remain on their disclosed
+API models. Only answer generation moves to Codex. Keep the same answer
+provider, model, reasoning effort, transport, and runtime for both systems.
+The scorecard requires exactly one Codex answer call per item and labels USD as
+metered API cost; ChatGPT-subscription calls are retained in token/call evidence
+but excluded from USD.
+
+```bash
+# Reproducible API run suitable for publication after all other gates pass
+pnpm bench:locomo -- --systems fishmem,mem0 --conversations 1 \
+  --max-questions 20 --split dev \
+  --llm gpt-5.6-luna --write-reasoning none \
+  --answer-provider openai-responses \
+  --answer-model gpt-5.6-luna --answer-reasoning none
+
+# Subscription-backed reproducible run (Codex CLI >= 0.144.0)
+codex --version
+pnpm bench:locomo -- --systems fishmem,mem0 --conversations 1 \
+  --max-questions 5 --split dev \
+  --llm gpt-5.6-luna --write-reasoning none \
+  --answer-provider codex-cli \
+  --answer-model gpt-5.6-sol --answer-reasoning none \
+  --codex-transport app-server
+```
+
+`app-server` keeps one Codex process alive for the run and is preferred over
+spawning `codex exec` for every answer. Codex still has substantial fixed
+input-token and latency overhead, which the result records separately from
+memory ingest/search. The official Codex CLI install/update command is documented in
+[OpenAI's Codex CLI guide](https://learn.chatgpt.com/docs/codex/cli).
 
 Head-to-head evaluation of **fishmem** against **mem0 (OSS, `mem0ai/oss`)** on the
 [LOCOMO](https://github.com/snap-research/locomo) long-term conversational memory
@@ -74,6 +143,13 @@ earlier questions from the same long conversation. When `--question-retries`
 is non-zero, every failed workload attempt is atomically recorded in
 `<out>.question-attempts.json` and included in reliability diagnostics; failed
 attempt usage is never presented as a successful question's billable usage.
+`bench:resume` records every process attempt in `<out>.attempts.json` and uses
+exponential backoff with bounded jitter (5 seconds up to 60 seconds by
+default), so an upstream outage does not become a tight restart loop.
+`bench:report` hashes and summarizes that ledger. `bench:gate` reports a
+separate `operationalMetricsPublishable` decision: durable completed units can
+still support a quality comparison after a restart, but a run with failed or
+interrupted process attempts cannot support total-cost or wall-clock claims.
 
 Question categories (per LOCOMO): 1 multi-hop, 2 temporal, 3 open-domain,
 4 single-hop. Category 5 (adversarial) is excluded by default, matching the
@@ -121,8 +197,8 @@ pnpm bench:beam -- --systems fishmem,mem0 --variant 100k --instances 2 --split d
 # small-budget sample: cap questions per conversation
 pnpm bench:locomo -- --conversations 1 --max-questions 20 --split dev
 
-# full benchmark: all 10 conversations, all non-adversarial questions (~1540)
-pnpm bench:locomo -- --conversations 10 --split full
+# publishable full portfolio slice: all 10 conversations and all 1,986 questions
+pnpm bench:locomo -- --conversations 10 --categories 1,2,3,4,5 --split full
 ```
 
 Results print as a markdown table and are written in full (per-question
@@ -140,7 +216,13 @@ answers, judge labels, latencies) to `benchmarks/results/*.json`.
 | `--top-k` | `10` | memories retrieved per question |
 | `--chunk-size` | `4` | conversation turns per `add()` call |
 | `--max-sessions` | all | cap ingested sessions per conversation (quick validation runs) |
-| `--llm` / `--embedder` / `--judge` | `gpt-4o-mini` / `text-embedding-3-small` / `gpt-4o-mini` | |
+| `--llm` / `--embedder` / `--judge` | `gpt-4o-mini` / `text-embedding-3-small` / `gpt-4o-mini` | memory-write, embedding, and judge models |
+| `--write-reasoning` | off | explicit reasoning effort for supported write/extraction models; evidence runs must disclose it |
+| `--answer-provider` | `openai-chat` | `openai-chat`, `openai-responses`, or version-pinned `codex-cli` |
+| `--answer-model` | = `--llm` | answer generator only; set an available Codex model explicitly for `codex-cli` |
+| `--answer-reasoning` | off | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; Chat Completions rejects it and Codex rejects `max` |
+| `--codex-path` | `CODEX_PATH` or `codex` | exact CLI binary recorded in the answer manifest |
+| `--codex-transport` | `exec` | `app-server` is preferred for more than one answer |
 | `--provider-timeout-ms` / `--provider-retries` | `120000` / `2` | individual provider request policy |
 | `--operation-timeout-ms` / `--operation-retries` | `300000` / `0` | complete adapter `add`/`search` policy |
 | `--question-retries` | `0` | complete LOCOMO search/answer/judge retries; failures remain audited |
@@ -153,15 +235,18 @@ LLM calls per question (answer + judge). One conversation end-to-end for both
 systems is typically well under $1; the full 10-conversation run for both
 systems is on the order of a few dollars. Use `--max-questions` to sample.
 
-Strict evidence runs use zero retries at both layers and resume failed units
-from checkpoints with a fresh adapter. A provider request deadline is never
-reused as the deadline for a complete multi-request memory operation.
+Strict evidence runs use no whole-operation retries. A small, identical
+provider retry budget may recover transient HTTP failures; every failed attempt
+remains metered and the publication gate limits the recovered provider failure
+rate. Failed units resume from checkpoints with a fresh adapter. A provider
+request deadline is never reused as the deadline for a complete multi-request
+memory operation.
 
 ## Fairness protocol
 
 **Fixed for both systems (protocol symmetry):** identical chunked input
 messages with the session timestamp prepended to every chunk; identical
-`userId` scoping; identical models (extraction, embedding, answering,
+`userId` scoping; identical models and reasoning budgets (extraction, embedding, answering,
 judging); identical `topK`; one shared answer prompt and one shared blind
 judge; latencies and ingest costs measured and reported identically.
 

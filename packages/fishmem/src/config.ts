@@ -60,6 +60,7 @@ export type GraphStoreSpec =
 
 export type MemoryWarningCode =
   | "episode_gist_failed"
+  | "episode_index_failed"
   | "slot_summary_failed"
   | "slot_summary_delete_failed"
   | "entity_link_failed"
@@ -213,6 +214,20 @@ export interface MemoryConfig {
   retrievalDocs?: {
     /** Deterministic summary per (scope, subject, attribute) belief slot. */
     slotSummary?: boolean;
+  };
+  /**
+   * Optional non-lossy conversation episodes. Disabled by default because the
+   * archive preserves the original user/assistant text and therefore has a
+   * different privacy/retention contract from selective fact extraction.
+   *
+   * `archive` stores the role-preserving episode after extraction succeeds.
+   * `searchable` additionally builds hidden, rebuildable retrieval documents
+   * over the transcript; they can be returned by `search()` but never appear
+   * in `getAll()` or canonical memory counts.
+   */
+  episodes?: {
+    archive?: boolean;
+    searchable?: boolean;
   };
   /** Default memory type for inferred/raw adds (default "fact"). */
   defaultMemoryType?: MemoryType;
