@@ -56,6 +56,7 @@ const server = createServer(async (request, response) => {
         facts: [
           {
             text: "Ada prefers oolong tea",
+            category: "User preferences",
             event_date: null,
             entities: ["Ada", "oolong tea"],
             subject: "Ada",
@@ -65,6 +66,7 @@ const server = createServer(async (request, response) => {
           },
           {
             text: "Ada avoids coffee",
+            category: "User preferences",
             event_date: null,
             entities: ["Ada", "coffee"],
             subject: "Ada",

@@ -368,6 +368,31 @@ export function parseNamespaceSnapshot(
       id(record(row, `memory[${index}]`).id, `memory[${index}].id`),
     ),
   );
+  const operationRows = data.operations.map((row, index) =>
+    record(row, `operation[${index}]`),
+  );
+  const operationById = new Map(
+    operationRows.map((operation, index) => [
+      id(operation.id, `operation[${index}].id`),
+      operation,
+    ]),
+  );
+  const journalMemoryIds = new Set(memoryIds);
+  for (const [index, operation] of operationRows.entries()) {
+    if (!Array.isArray(operation.memoryIds)) {
+      throw new TypeError(
+        `snapshot operation[${index}].memoryIds must be an array`,
+      );
+    }
+    if (
+      (operation.kind === "purge" || operation.kind === "delete_all") &&
+      operation.status === "committed"
+    ) {
+      for (const memoryId of operation.memoryIds) {
+        journalMemoryIds.add(id(memoryId, `operation[${index}].memoryIds`));
+      }
+    }
+  }
   const entityIds = new Set(
     data.entities.map((row, index) =>
       id(record(row, `entity[${index}]`).id, `entity[${index}].id`),
@@ -556,13 +581,15 @@ export function parseNamespaceSnapshot(
         createdAt: date(episode.createdAt, "episode.createdAt"),
       };
     }) as Episode[],
-    operations: data.operations.map((row, index) => {
+    operations: data.operations.map((_row, index) => {
       const operation = namespaced(
-        record(row, `operation[${index}]`) as unknown as SnapshotOperation,
+        operationRows[index] as unknown as SnapshotOperation,
         `operation[${index}]`,
       );
       for (const memoryId of operation.memoryIds) {
-        if (!memoryIds.has(id(memoryId, `operation[${index}].memoryIds`))) {
+        if (
+          !journalMemoryIds.has(id(memoryId, `operation[${index}].memoryIds`))
+        ) {
           throw new TypeError(
             `snapshot operation[${index}] must reference imported memories`,
           );
@@ -583,7 +610,17 @@ export function parseNamespaceSnapshot(
         record(row, `event[${index}]`) as unknown as SnapshotJournalEvent,
         `event[${index}]`,
       );
-      if (!memoryIds.has(id(event.memoryId, `event[${index}].memoryId`))) {
+      const operationId = id(event.operationId, `event[${index}].operationId`);
+      const operation = operationById.get(operationId);
+      if (!operation) {
+        throw new TypeError(
+          `snapshot event[${index}] must reference an imported operation`,
+        );
+      }
+      const memoryId = id(event.memoryId, `event[${index}].memoryId`);
+      const emptyBulkTombstone =
+        operation.kind === "delete_all" && memoryId === operationId;
+      if (!journalMemoryIds.has(memoryId) && !emptyBulkTombstone) {
         throw new TypeError(
           `snapshot event[${index}] must reference an imported memory`,
         );

@@ -28,5 +28,27 @@ Export a representative namespace, restore it into staging, rebuild
 projections, and run recall/document checks. For Node self-hosting, back up the
 libSQL database and asset directory as one retention unit.
 
+FishMem Cloud performs this portable restore drill during every release using
+two disposable Projects. It also records a D1 Time Travel bookmark before
+migrations and rolls a failed Worker canary back to the prior version. Treat D1
+restore as a separate, operator-led incident action: confirm the bookmark and
+blast radius before changing production data.
+
+## Continuous synthetic recall
+
+Run a governed write and retrieval loop on a schedule using a dedicated Project
+with no customer data. Use one stable synthetic `user_id`, clear it before and
+after each run, record inference and search-visibility latency, and page a named
+owner when the loop fails. FishMem Cloud ships this as a six-hour GitHub Actions
+workflow; it needs the `FISHMEM_MONITOR_API_KEY` repository secret and should
+also have `FISHMEM_MONITOR_ALERT_WEBHOOK` configured.
+
+## Provider cost integrity
+
+Price every provider usage event from an immutable provider/model price
+snapshot. Fail a release when the effective model has no current price or when
+recent provider calls are unpriced. Review the resulting cost-to-credit ratio
+before changing quotas or plan prices.
+
 Use the [Cloud production checklist](/cloud/production-checklist) as the final
 release gate.

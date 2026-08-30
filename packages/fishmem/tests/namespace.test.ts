@@ -766,6 +766,67 @@ describe("Memory.forNamespace", () => {
     );
   });
 
+  it("exports a restorable journal after a memory is hard deleted", async () => {
+    const source = await createMemory();
+    const sourceAlpha = source.forNamespace("alpha");
+    const kept = await sourceAlpha.add("keep this memory", {
+      idempotencyKey: "keep-source",
+      infer: false,
+      userId: "ada",
+    });
+    const removed = await sourceAlpha.add("delete this memory", {
+      idempotencyKey: "delete-source",
+      infer: false,
+      userId: "ada",
+    });
+    await sourceAlpha.purge(removed.results[0]!.id, {
+      idempotencyKey: "purge-memory",
+    });
+
+    const snapshot = await sourceAlpha.exportSnapshot();
+    const exportedMemoryIds = new Set(
+      snapshot.data.memories.map((memory) => memory.id),
+    );
+    const journalMemoryIds = new Set(exportedMemoryIds);
+    for (const operation of snapshot.data.operations) {
+      if (
+        (operation.kind === "purge" || operation.kind === "delete_all") &&
+        operation.status === "committed"
+      ) {
+        for (const memoryId of operation.memoryIds) {
+          journalMemoryIds.add(memoryId);
+        }
+      }
+    }
+    const exportedOperationIds = new Set(
+      snapshot.data.operations.map((operation) => operation.id),
+    );
+    expect(
+      snapshot.data.operations.every((operation) =>
+        operation.memoryIds.every((memoryId) => journalMemoryIds.has(memoryId)),
+      ),
+    ).toBe(true);
+    expect(
+      snapshot.data.events.every(
+        (event) =>
+          journalMemoryIds.has(event.memoryId) &&
+          exportedOperationIds.has(event.operationId),
+      ),
+    ).toBe(true);
+
+    const target = await createMemory();
+    await expect(
+      target
+        .forNamespace("restored")
+        .importSnapshot(snapshot, { idempotencyKey: "restore-after-delete" }),
+    ).resolves.toEqual({ imported: 1, documents: 0, vectors: 1 });
+    expect(
+      (
+        await target.forNamespace("restored").getAll({ userId: "ada" })
+      ).results.map((memory) => memory.id),
+    ).toEqual([kept.results[0]!.id]);
+  });
+
   it("restores a portable snapshot into a different empty namespace", async () => {
     const source = await createMemory();
     const sourceAlpha = source.forNamespace("alpha");

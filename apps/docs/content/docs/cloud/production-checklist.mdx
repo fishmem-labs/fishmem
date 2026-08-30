@@ -6,12 +6,20 @@ description: Validate contracts, secrets, operations, recovery, and recall befor
 Use this checklist against the deployment that will receive production traffic.
 A local fixture or successful TCP connection is not production evidence.
 
+FishMem Cloud's release command automates the checks marked **release gate**.
+The remaining boxes require an operator, a real inbox/payment method, or an
+external incident destination; do not treat a successful Worker deploy as
+evidence for those items.
+
 ## Identity and scope
 
 - [ ] Dashboard sign-in and account deletion work with the configured email or OAuth provider.
 - [ ] Organization invitations are delivered without logging acceptance links.
 - [ ] API keys remain server-side, are project-scoped, and can be revoked.
 - [ ] `user_id`, `agent_id`, and `run_id` derive from authenticated application state.
+- **Release gate:** the configured sender domain has Cloudflare Email Service
+  MX, SPF, DKIM, and an enforcing DMARC policy before staging or production can
+  deploy.
 
 ## Memory loop
 
@@ -19,6 +27,10 @@ A local fixture or successful TCP connection is not production evidence.
 - [ ] Inferred add returns one durable event and safe replay returns the same command.
 - [ ] Terminal provider failure leaves no partial canonical record and refunds reserved usage.
 - [ ] Representative filters, temporal correction, and search traces pass your acceptance set.
+- **Release gate:** disposable staging and production Projects exercise exact
+  writes, governed asynchronous extraction, idempotency, filters, entities,
+  history, feedback, batch operations, and delete replay against the deployed
+  custom domain.
 
 ## Documents
 
@@ -26,6 +38,8 @@ A local fixture or successful TCP connection is not production evidence.
 - [ ] Byte-length and checksum mismatch fail closed.
 - [ ] Retry, cancellation, timeout, and dead-letter behavior are observable.
 - [ ] Source assets, extracted artifacts, D1 rows, and vectors delete as one source family.
+- **Release gate:** a real uploaded file completes extraction, exact-content
+  retrieval, semantic search, and deletion in both staging and production.
 
 ## Recovery and release
 
@@ -34,6 +48,13 @@ A local fixture or successful TCP connection is not production evidence.
 - [ ] Dependency audit, tests, type checks, lint, Worker dry-run, and staging smoke pass.
 - [ ] Security headers are present on HTML, API, redirect, and rate-limit responses.
 - [ ] Deployment secrets are present, distinct, and rotated after any suspected exposure.
+- **Release gate:** production accepts only the exact commit that passed staging;
+  each environment records a D1 Time Travel bookmark before migrations.
+- **Release gate:** the canary exports a populated namespace, removes the source,
+  restores into an empty Project, and waits for rebuilt vector search visibility.
+- **Release gate:** a failed post-deploy canary rolls the Worker back to the prior
+  100% version. Database restore remains an explicit operator action using the
+  recorded bookmark.
 
 ## Operations
 
@@ -41,3 +62,7 @@ A local fixture or successful TCP connection is not production evidence.
 - [ ] Request IDs connect application errors to hosted request/operation state.
 - [ ] Usage and billing settlement reconcile across success, retry, and terminal failure.
 - [ ] Rollback owner, incident contact, and release observation window are assigned.
+- [ ] The six-hour production synthetic workflow has a dedicated Project/API key
+  and a tested incident webhook or an explicitly owned GitHub Actions alert path.
+- **Release gate:** current production provider/model prices are present and no
+  unpriced provider call appears in the preceding 24 hours.

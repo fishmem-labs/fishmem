@@ -361,6 +361,12 @@ describe("namespace snapshot validation", () => {
       },
       {
         mutate: (snapshot) => {
+          snapshot.data.events[0]!.operationId = "missing";
+        },
+        message: "event[0] must reference an imported operation",
+      },
+      {
+        mutate: (snapshot) => {
           snapshot.data.documents[0]!.namespaceId = "other";
         },
         message: "document[0].namespaceId must match sourceNamespaceId",
