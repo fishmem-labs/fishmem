@@ -65,6 +65,11 @@ interface Tables {
   documentChunks: any;
 }
 
+// D1 rejects statements with more than 100 bound parameters. Snapshot rows
+// can be wide (operations currently bind 18 columns), so keep each insert
+// below the platform limit instead of batching by row count alone.
+const MAX_SNAPSHOT_INSERT_BOUND_PARAMETERS = 90;
+
 export interface DrizzleGraphStoreOptions {
   /** A Drizzle database handle (node-postgres, libSQL, or D1). */
   db: any;
@@ -873,90 +878,37 @@ export class DrizzleGraphStore implements GraphStore {
     const events = data.events.map((row) =>
       journalEventToRow({ ...row, namespaceId: stagingNamespaceId }),
     );
-    if (memories.length) {
-      await this.db
-        .insert(this.t.memories)
-        .values(memories)
-        .onConflictDoNothing();
-    }
-    if (entities.length) {
-      await this.db
-        .insert(this.t.entities)
-        .values(entities)
-        .onConflictDoNothing();
-    }
-    if (episodes.length) {
-      await this.db
-        .insert(this.t.episodes)
-        .values(episodes)
-        .onConflictDoNothing();
-    }
-    if (documents.length) {
-      await this.db
-        .insert(this.t.documents)
-        .values(documents)
-        .onConflictDoNothing();
-    }
-    if (documentChunks.length) {
-      await this.db
-        .insert(this.t.documentChunks)
-        .values(documentChunks)
-        .onConflictDoNothing();
-    }
-    if (documentHeads.length) {
-      await this.db
-        .insert(this.t.documentHeads)
-        .values(documentHeads)
-        .onConflictDoNothing();
-    }
-    if (data.associations.length) {
-      await this.db
-        .insert(this.t.associations)
-        .values(
-          data.associations.map((row) => ({
-            id: row.id,
-            sourceId: row.sourceId,
-            targetId: row.targetId,
-            relationType: row.relationType,
-            weight: row.weight,
-            createdAt: row.createdAt,
-          })),
-        )
-        .onConflictDoNothing();
-    }
-    if (data.history.length) {
-      await this.db
-        .insert(this.t.history)
-        .values(
-          data.history.map((row) => ({
-            id: row.id,
-            memoryId: row.memoryId,
-            event: row.event,
-            previousValue: row.previousValue,
-            newValue: row.newValue,
-            createdAt: row.createdAt,
-          })),
-        )
-        .onConflictDoNothing();
-    }
-    if (data.memoryEntities.length) {
-      await this.db
-        .insert(this.t.memoryEntities)
-        .values(data.memoryEntities)
-        .onConflictDoNothing();
-    }
-    if (operations.length) {
-      await this.db
-        .insert(this.t.memoryOperations)
-        .values(operations)
-        .onConflictDoNothing();
-    }
-    if (events.length) {
-      await this.db
-        .insert(this.t.memoryEvents)
-        .values(events)
-        .onConflictDoNothing();
-    }
+    await this.insertSnapshotRows(this.t.memories, memories);
+    await this.insertSnapshotRows(this.t.entities, entities);
+    await this.insertSnapshotRows(this.t.episodes, episodes);
+    await this.insertSnapshotRows(this.t.documents, documents);
+    await this.insertSnapshotRows(this.t.documentChunks, documentChunks);
+    await this.insertSnapshotRows(this.t.documentHeads, documentHeads);
+    await this.insertSnapshotRows(
+      this.t.associations,
+      data.associations.map((row) => ({
+        id: row.id,
+        sourceId: row.sourceId,
+        targetId: row.targetId,
+        relationType: row.relationType,
+        weight: row.weight,
+        createdAt: row.createdAt,
+      })),
+    );
+    await this.insertSnapshotRows(
+      this.t.history,
+      data.history.map((row) => ({
+        id: row.id,
+        memoryId: row.memoryId,
+        event: row.event,
+        previousValue: row.previousValue,
+        newValue: row.newValue,
+        createdAt: row.createdAt,
+      })),
+    );
+    await this.insertSnapshotRows(this.t.memoryEntities, data.memoryEntities);
+    await this.insertSnapshotRows(this.t.memoryOperations, operations);
+    await this.insertSnapshotRows(this.t.memoryEvents, events);
     const staged = await this.exportNamespace(stagingNamespaceId);
     assertSnapshotRows(data, staged);
   }
@@ -1589,6 +1541,23 @@ export class DrizzleGraphStore implements GraphStore {
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────
+
+  private async insertSnapshotRows(
+    table: any,
+    rows: Array<Record<string, unknown>>,
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    const boundParametersPerRow = Math.max(
+      ...rows.map((row) => Object.keys(row).length),
+    );
+    const rowsPerInsert = Math.max(
+      1,
+      Math.floor(MAX_SNAPSHOT_INSERT_BOUND_PARAMETERS / boundParametersPerRow),
+    );
+    for (const batch of chunkArray(rows, rowsPerInsert)) {
+      await this.db.insert(table).values(batch).onConflictDoNothing();
+    }
+  }
 
   private scopeConds(filters: MemoryFilters): any[] {
     const conds: any[] = [];

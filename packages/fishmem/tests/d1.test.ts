@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type { GraphSnapshotData, MemoryOperation } from "../src/index.js";
 import { chunkDocumentText, createD1GraphStore } from "../src/index.js";
 import type {
   Association,
@@ -11,6 +12,70 @@ import type {
 } from "../src/types.js";
 
 describe("D1 document persistence", () => {
+  it("stages wide snapshot rows below D1's bound-parameter limit", async () => {
+    const { Miniflare } = await import("miniflare");
+    const miniflare = new Miniflare({
+      d1Databases: { DB: randomUUID() },
+      modules: true,
+      script: "export default { fetch() { return new Response('ok') } }",
+    });
+    const database = await miniflare.getD1Database("DB");
+    const store = await createD1GraphStore({
+      binding: database,
+      autoMigrate: true,
+    });
+
+    try {
+      await store.init();
+      const createdAt = new Date("2026-08-30T00:00:00.000Z");
+      const operations: MemoryOperation[] = Array.from(
+        { length: 11 },
+        (_, index) => ({
+          id: randomUUID(),
+          namespaceId: "snapshot-source",
+          idempotencyKey: `snapshot-operation-${index}`,
+          kind: "add",
+          requestHash: `snapshot-hash-${index}`,
+          command: { content: `durable preference ${index}` },
+          memoryIds: [],
+          status: "committed",
+          rawStatus: "ready",
+          vectorStatus: "ready",
+          derivedStatus: "not_requested",
+          result: { results: [] },
+          attempts: 1,
+          createdAt,
+          updatedAt: createdAt,
+        }),
+      );
+      const snapshot: GraphSnapshotData = {
+        memories: [],
+        documents: [],
+        documentHeads: [],
+        documentChunks: [],
+        associations: [],
+        history: [],
+        entities: [],
+        memoryEntities: [],
+        episodes: [],
+        operations,
+        events: [],
+      };
+
+      await expect(
+        store.stageNamespaceImport("snapshot-staging", snapshot),
+      ).resolves.toBeUndefined();
+      const staged = await store.exportNamespace("snapshot-staging");
+      expect(staged.operations).toHaveLength(11);
+      expect(staged.operations.map((operation) => operation.id).sort()).toEqual(
+        operations.map((operation) => operation.id).sort(),
+      );
+    } finally {
+      await store.close();
+      await miniflare.dispose();
+    }
+  });
+
   it("reconciles a legacy memory table before current writes", async () => {
     const { Miniflare } = await import("miniflare");
     const miniflare = new Miniflare({
