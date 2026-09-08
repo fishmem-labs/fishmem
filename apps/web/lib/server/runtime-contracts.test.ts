@@ -4,8 +4,23 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   apiTokenAuthFailure,
+  apiPermissionForRequest,
   memoryDerivationConfig,
 } from "./runtime-contracts";
+
+describe("API operation permissions", () => {
+  it("allows memory and document search with read scope despite POST transport", () => {
+    for (const path of ["/v1/memories/search", "/v1/documents/search/"]) {
+      expect(apiPermissionForRequest(new Request(`https://fishmem.test${path}`, { method: "POST" }))).toBe("memory:read");
+    }
+  });
+  it("requires write scope for mutations and operations scope for event reads", () => {
+    for (const path of ["/v1/memories", "/v1/memories/search/other", "/v1/operations/task/retry"]) {
+      expect(apiPermissionForRequest(new Request(`https://fishmem.test${path}`, { method: "POST" }))).toBe("memory:write");
+    }
+    expect(apiPermissionForRequest(new Request("https://fishmem.test/v1/events/event"))).toBe("operations:read");
+  });
+});
 
 describe("apiTokenAuthFailure", () => {
   const now = new Date("2026-07-13T00:00:00.000Z");

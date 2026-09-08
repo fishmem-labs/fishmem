@@ -63,6 +63,7 @@ import {
 } from "@/lib/server/document-ingestion";
 import {
   apiTokenAuthFailure,
+  apiPermissionForRequest,
   memoryDerivationConfig,
 } from "@/lib/server/runtime-contracts";
 import { sanitizePublicSnapshot } from "@/lib/server/public-snapshot";
@@ -251,20 +252,7 @@ export async function authenticateMemoryApi(request: Request) {
   if (authFailure) {
     return { error: apiError(401, "API key invalid", "INVALID_API_KEY") } as const;
   }
-  const path = new URL(request.url).pathname;
-  const readOnlyOperationsPath =
-    path.startsWith("/v1/operations") &&
-    request.method.toUpperCase() === "GET";
-  const requiredPermission =
-    readOnlyOperationsPath ||
-    path.startsWith("/v1/events") ||
-    path === "/v1/health"
-    ? "operations:read"
-    : ["POST", "PUT", "PATCH", "DELETE"].includes(
-          request.method.toUpperCase(),
-        )
-      ? "memory:write"
-      : "memory:read";
+  const requiredPermission = apiPermissionForRequest(request);
   if (!apiToken.permissions.includes(requiredPermission)) {
     return {
       error: apiError(
