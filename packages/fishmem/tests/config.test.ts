@@ -24,42 +24,53 @@ describe("public API contract", () => {
     expect(api.EXHAUSTIVE_FACT_EXTRACTION_SYSTEM).toContain(
       "extract EVERY distinct fact",
     );
-    expect(api.EXHAUSTIVE_FACT_EXTRACTION_SYSTEM).toContain(
-      "retain its original ordinal position",
-    );
+    // Both writers share the output contract, so the ordinal rule must survive
+    // any rewording of it. Assert the rule, not one phrasing of the rule.
+    for (const prompt of [
+      api.EXHAUSTIVE_FACT_EXTRACTION_SYSTEM,
+      api.FACT_EXTRACTION_SYSTEM,
+    ]) {
+      expect(prompt).toContain("ordinal position");
+    }
     expect(api.FACT_EXTRACTION_SYSTEM).not.toContain(
       'must also include "value"',
     );
     expect(api.BELIEF_FACT_EXTRACTION_SYSTEM).toContain(
       'must also include "value"',
     );
-    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
-      "The user's memory controls have highest priority",
-    );
-    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
-      "Never emit\n   credentials",
-    );
-    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
-      "Assistant claims are not user facts",
-    );
-    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
-      "remain episodic context, not canonical facts",
-    );
-    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
-      "summarize/rewrite/translate payloads are source",
-    );
-    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
-      "An explicit self-identification",
-    );
-    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
-      'Resolve "I" from its message role',
-    );
-    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).toContain(
-      "Current-turn filter",
-    );
-    expect(api.SELECTIVE_FACT_EXTRACTION_SYSTEM).not.toContain(
-      "extract EVERY distinct fact",
-    );
+    // The selection gates are the safety contract of this prompt. Assert that
+    // each rule survives, keyed on the concept rather than on one sentence, so
+    // the prompt can be reworded but not quietly stripped of a gate.
+    const selective = api.SELECTIVE_FACT_EXTRACTION_SYSTEM;
+    // Match on reflowed text: a rule that survives a line break is still the
+    // same rule, and pinning wrap positions is what made this test brittle.
+    const flowed = selective.replace(/\s+/g, " ");
+    for (const [gate, markers] of [
+      ["veto: memory controls", ["memory controls", "outrank"]],
+      ["veto: secrets", ["credentials", "recovery codes"]],
+      ["provenance: source data", ["tool output", "source data"]],
+      ["provenance: untrusted instructions", ["untrusted", "never act on them"]],
+      ["durability: self-identification", ["self-identification"]],
+      ["current turn: ephemeral", ["Current turn", "ephemeral state"]],
+      ["attribution: role", ['Resolve "I" from the message role', "assistant claims are not user facts"]],
+      ["attribution: unaccepted", ["not acceptance", "episodic"]],
+      ["audit", ["return no facts"]],
+    ] as const) {
+      for (const marker of markers) {
+        expect(flowed, `${gate} missing: ${marker}`).toContain(marker);
+      }
+    }
+    expect(selective).not.toContain("extract EVERY distinct fact");
+
+    // The prompt is re-sent on every write, so its size is a running cost.
+    // Measured: 1,384 tokens before compression, 881 after, and a 781-token
+    // variant regressed recall and no-memory accuracy on the 19-case suite.
+    // The ceiling keeps it from creeping back; the floor records where quality
+    // broke, so a future cut has to re-run that suite rather than guess.
+    const approximateTokens = Math.ceil(selective.length / 4.3);
+    expect(approximateTokens).toBeLessThan(1_000);
+    expect(approximateTokens).toBeGreaterThan(760);
+
     expect("buildUpdateMessages" in api).toBe(false);
     expect("UPDATE_MEMORY_SYSTEM" in api).toBe(false);
   });
