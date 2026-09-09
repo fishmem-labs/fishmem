@@ -30,8 +30,8 @@ Choose one runtime:
 
 | Runtime | Durable data | File extraction |
 | --- | --- | --- |
-| Node/Docker | libSQL plus a persistent asset volume | Poll worker plus pinned Docling container |
-| Cloudflare | D1, Vectorize, and R2 | Queue plus pinned Docling Container |
+| Node/Docker | libSQL plus a persistent asset volume | Poll worker; optional Docling container for OCR |
+| Cloudflare | D1, Vectorize, and R2 | Queue; optional Docling Container for OCR |
 
 Both use the same document-ingestion module, task states, retry rules, and
 artifact format. The open-source control plane leaves out managed billing,
@@ -118,7 +118,7 @@ The required variables:
 | `VECTORIZE` | Vectorize binding | The vector index. |
 | `R2` | R2 binding | Object storage bucket. |
 | `DOCUMENT_TASKS` | Queue binding | Low-latency extraction wakeups. |
-| `DOCUMENT_EXTRACTOR` | Durable Object binding | Routes work to the Docling Container. |
+| `DOCUMENT_EXTRACTOR` | optional Durable Object binding | Routes work to the Docling Container. Omit it to run extraction entirely inside the Worker, without OCR. |
 | `MEMORY_RATE_LIMITER` | Rate Limit binding | Per-key public API protection. |
 | `FISHMEM_TRUSTED_IP_HEADERS` | optional variable | Comma-separated client-IP headers trusted by auth. Cloudflare defaults to `cf-connecting-ip`; a Node reverse proxy must overwrite its configured header. |
 
@@ -270,10 +270,33 @@ extraction task per message with bounded concurrency. A `*/1 * * * *` trigger
 repairs lost wakeups and expired leases, while `0 4 * * *` also enqueues
 nightly maintenance. Keep both cron entries and `CRON_SECRET` configured.
 
-The container image is pinned in
-`apps/web/services/extractor/Dockerfile`. Extraction uses Docling's async
-submit/status/result endpoints. The D1 task row—not the Queue or Container
-instance—owns retries and terminal status.
+### Extraction without a container
+
+Structured text containers — Office and OpenDocument formats, RTF, EPUB, CSV,
+and PDFs that carry a text layer — convert inside the Worker or Node process
+through a WebAssembly converter. Sources that are already text (JSON, XML,
+YAML, `message/rfc822`, anything `text/*`) are decoded directly. Neither path
+needs a container, and a `.docx` converts in single-digit milliseconds.
+
+Two limits define that path. It performs **no OCR**, so scanned pages and
+images cannot be read; and conversion allocates several times the source in
+memory, so a Cloudflare Worker caps it at 4 MB per source. A deployment
+without an OCR extractor advertises the narrower set: an image upload is
+refused with `UNSUPPORTED_DOCUMENT_MEDIA_TYPE` at request time rather than
+accepted and failed later.
+
+### Adding OCR
+
+Configure `FISHMEM_EXTRACTOR_URL` (Node) or the `DOCUMENT_EXTRACTOR` Durable
+Object binding (Cloudflare) to run the pinned Docling image from
+`apps/web/services/extractor/Dockerfile`. The in-process converters stay in
+front of it, so the container only wakes for scanned pages, images, and
+sources above the in-process ceiling. Extraction then uses Docling's async
+submit/status/result endpoints, and the accepted media types and size limit
+widen to match.
+
+In both cases the D1 task row—not the Queue or Container instance—owns retries
+and terminal status.
 
 <Callout type="info">
 Self-hosting and [FishMem Cloud](/cloud) share the same memory engine and public

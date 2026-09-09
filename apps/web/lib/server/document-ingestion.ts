@@ -16,6 +16,15 @@ import {
 } from "@/db/schema";
 import { getRuntimeEnv } from "@/lib/cloudflare";
 import { IS_CLOUDFLARE } from "@/lib/platform";
+import { loadAnyDocModule } from "@/lib/anydoc-runtime";
+import {
+  AnyDocDocumentExtractor,
+  CONTAINER_EXTRACTION_CAPABILITY,
+  FallbackDocumentExtractor,
+  IN_PROCESS_EXTRACTION_CAPABILITY,
+  PlainTextDocumentExtractor,
+  type ExtractionCapability,
+} from "@/lib/server/anydoc-extractor";
 import {
   enqueueOperationTask,
   type OperationTask,
@@ -28,29 +37,6 @@ const EXTRACTION_TIMEOUT_MS = 10 * 60_000;
 const DOCLING_HTTP_TIMEOUT_MS = 30_000;
 const DOCLING_POLL_INTERVAL_MS = 1_000;
 
-const SUPPORTED_UPLOAD_MEDIA_TYPES = new Set([
-  "application/epub+zip",
-  "application/json",
-  "application/msword",
-  "application/pdf",
-  "application/rtf",
-  "application/vnd.ms-excel",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.oasis.opendocument.presentation",
-  "application/vnd.oasis.opendocument.spreadsheet",
-  "application/vnd.oasis.opendocument.text",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/xml",
-  "application/yaml",
-  "image/bmp",
-  "image/jpeg",
-  "image/png",
-  "image/tiff",
-  "image/webp",
-  "message/rfc822",
-]);
 
 type SourceAssetRow = typeof sourceAssets.$inferSelect;
 type ExtractionArtifactRow = typeof extractionArtifacts.$inferSelect;
@@ -434,6 +420,13 @@ export class DocumentIngestion {
   constructor(
     private readonly db: AppDb,
     private readonly objects: DocumentObjectStore,
+    /**
+     * What this deployment's extractor can actually convert. Uploads are
+     * refused up front against it, so a source is never accepted, stored, and
+     * billed only to fail when extraction reaches a format or a size no
+     * configured extractor handles.
+     */
+    private readonly capability: ExtractionCapability = IN_PROCESS_EXTRACTION_CAPABILITY,
   ) {}
 
   async create(
@@ -444,7 +437,8 @@ export class DocumentIngestion {
     now = new Date(),
   ) {
     const command = parseCreateCommand(body);
-    assertSupportedMediaType(command.content_type);
+    assertSupportedMediaType(command.content_type, this.capability);
+    assertSupportedSize(command.size_bytes, this.capability);
     const assetId = await deterministicId(
       "asset",
       `${workspaceId}\0${idempotencyKey}`,
@@ -522,7 +516,7 @@ export class DocumentIngestion {
         method: "PUT" as const,
         url: uploadUrl,
         headers: { "content-type": normalized.content_type },
-        max_bytes: MAX_DOCUMENT_UPLOAD_BYTES,
+        max_bytes: this.capability.maxSourceBytes,
       },
       operation: shapeTask(task),
     };
@@ -741,11 +735,11 @@ export class DocumentIngestion {
     now = new Date(),
   ) {
     const asset = await this.requireAsset(workspaceId, assetId);
-    if (bytes.byteLength > MAX_DOCUMENT_UPLOAD_BYTES) {
+    if (bytes.byteLength > this.capability.maxSourceBytes) {
       throw new DocumentIngestionError(
         413,
         "DOCUMENT_UPLOAD_TOO_LARGE",
-        `Document uploads must be at most ${MAX_DOCUMENT_UPLOAD_BYTES} bytes`,
+        `Document uploads must be at most ${this.capability.maxSourceBytes} bytes`,
       );
     }
     if (bytes.byteLength !== asset.sizeBytes) {
@@ -1262,43 +1256,127 @@ export async function processDocumentExtractionTask(
 }
 
 export async function createDocumentIngestion(db: AppDb) {
-  return new DocumentIngestion(db, await runtimeObjectStore());
+  const env = await getRuntimeEnv();
+  return new DocumentIngestion(
+    db,
+    await runtimeObjectStore(env),
+    resolveExtractionCapability(env),
+  );
+}
+
+/**
+ * Whether an out-of-process, OCR-capable extractor is configured.
+ *
+ * Without one the deployment needs no container at all: every format it
+ * advertises converts inside the isolate. With one it advertises the wider set
+ * that OCR unlocks.
+ */
+function containerExtractorConfigured(
+  env: Awaited<ReturnType<typeof getRuntimeEnv>>,
+): boolean {
+  const explicit = (env as unknown as { FISHMEM_EXTRACTOR_URL?: string })
+    .FISHMEM_EXTRACTOR_URL ?? process.env.FISHMEM_EXTRACTOR_URL;
+  if (explicit) return true;
+  return Boolean(
+    (env as unknown as { DOCUMENT_EXTRACTOR?: { getByName?: unknown } })
+      .DOCUMENT_EXTRACTOR?.getByName,
+  );
+}
+
+export function resolveExtractionCapability(
+  env: Awaited<ReturnType<typeof getRuntimeEnv>>,
+): ExtractionCapability {
+  return containerExtractorConfigured(env)
+    ? CONTAINER_EXTRACTION_CAPABILITY
+    : IN_PROCESS_EXTRACTION_CAPABILITY;
 }
 
 export async function createDocumentExtractionDependencies(taskId: string) {
   const env = await getRuntimeEnv();
   const objects = await runtimeObjectStore(env);
-  if (IS_CLOUDFLARE) {
-    const binding = env.DOCUMENT_EXTRACTOR as unknown as {
-      getByName(name: string): {
-        fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
-      };
-    };
-    if (!binding?.getByName) {
-      throw new Error("DOCUMENT_EXTRACTOR container binding is required");
+  const inProcess = await inProcessExtractor();
+
+  if (!containerExtractorConfigured(env)) {
+    if (!inProcess) {
+      throw new Error(
+        "No document extractor is available: this runtime cannot host the " +
+          "in-process converter and no FISHMEM_EXTRACTOR_URL or " +
+          "DOCUMENT_EXTRACTOR binding is configured",
+      );
     }
-    const pool = `extractor-${stableShard(taskId, 3)}`;
-    const stub = binding.getByName(pool);
-    return {
-      objects,
-      extractor: new DoclingDocumentExtractor(
-        (url, init) => stub.fetch(url, init),
-        "http://container",
-      ),
-    };
+    return { objects, extractor: inProcess };
   }
-  const endpoint =
-    (env as unknown as { FISHMEM_EXTRACTOR_URL?: string })
-      .FISHMEM_EXTRACTOR_URL ??
-    process.env.FISHMEM_EXTRACTOR_URL ??
-    "http://127.0.0.1:5001";
+
+  const container = IS_CLOUDFLARE
+    ? containerDoclingExtractor(env, taskId)
+    : new DoclingDocumentExtractor(
+        (url, init) => fetch(url, init),
+        (env as unknown as { FISHMEM_EXTRACTOR_URL?: string })
+          .FISHMEM_EXTRACTOR_URL ??
+          process.env.FISHMEM_EXTRACTOR_URL ??
+          "http://127.0.0.1:5001",
+      );
+  if (!inProcess) return { objects, extractor: container };
   return {
     objects,
-    extractor: new DoclingDocumentExtractor(
-      (url, init) => fetch(url, init),
-      endpoint,
+    extractor: new FallbackDocumentExtractor(
+      inProcess,
+      container,
+      (filename, mediaType, byteLength) =>
+        AnyDocDocumentExtractor.handles(filename, mediaType, byteLength) ||
+        PlainTextDocumentExtractor.handles(filename, mediaType, byteLength),
+      (reason, filename) => {
+        console.log(
+          JSON.stringify({
+            event: "fishmem.extraction.fallback",
+            filename,
+            reason,
+          }),
+        );
+      },
     ),
   };
+}
+
+function containerDoclingExtractor(
+  env: Awaited<ReturnType<typeof getRuntimeEnv>>,
+  taskId: string,
+) {
+  // The binding is optional: a deployment that retired the OCR container does
+  // not declare it, so this must not assume the field exists on the env type.
+  const binding = (
+    env as unknown as {
+      DOCUMENT_EXTRACTOR?: {
+        getByName(name: string): {
+          fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+        };
+      };
+    }
+  ).DOCUMENT_EXTRACTOR;
+  if (!binding?.getByName) {
+    throw new Error("DOCUMENT_EXTRACTOR container binding is required");
+  }
+  const stub = binding.getByName(`extractor-${stableShard(taskId, 3)}`);
+  return new DoclingDocumentExtractor(
+    (url, init) => stub.fetch(url, init),
+    "http://container",
+  );
+}
+
+/**
+ * The converters that run inside the request isolate: structured text
+ * containers through anydoc, already-textual sources decoded directly.
+ * Returns undefined when this runtime cannot host the WebAssembly module.
+ */
+async function inProcessExtractor(): Promise<DocumentExtractor | undefined> {
+  const load = await loadAnyDocModule();
+  const plainText = new PlainTextDocumentExtractor();
+  if (!load) return undefined;
+  return new FallbackDocumentExtractor(
+    new AnyDocDocumentExtractor(load),
+    plainText,
+    AnyDocDocumentExtractor.handles,
+  );
 }
 
 async function runtimeObjectStore(
@@ -1448,13 +1526,33 @@ function assertCreateReplay(
   }
 }
 
-function assertSupportedMediaType(value: string) {
+/**
+ * A declared size above what the extractor can convert is refused here rather
+ * than after the bytes have been uploaded and stored.
+ */
+function assertSupportedSize(
+  sizeBytes: number | undefined,
+  capability: ExtractionCapability,
+) {
+  if (sizeBytes !== undefined && sizeBytes > capability.maxSourceBytes) {
+    throw new DocumentIngestionError(
+      413,
+      "DOCUMENT_UPLOAD_TOO_LARGE",
+      `Document uploads must be at most ${capability.maxSourceBytes} bytes`,
+    );
+  }
+}
+
+function assertSupportedMediaType(
+  value: string,
+  capability: ExtractionCapability,
+) {
   const mediaType = normalizeMediaType(value);
   if (
     mediaType.startsWith("text/") ||
     mediaType.endsWith("+json") ||
     mediaType.endsWith("+xml") ||
-    SUPPORTED_UPLOAD_MEDIA_TYPES.has(mediaType)
+    capability.mediaTypes.has(mediaType)
   ) {
     return;
   }

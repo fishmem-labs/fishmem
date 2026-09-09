@@ -86,5 +86,8 @@
 	"exports": {
 		"./package.json": "./package.json",
 		"./*": "./*"
+	},
+	"optionalDependencies": {
+		"@firecrawl/anydoc-wasm": "0.2.4"
 	}
 }
