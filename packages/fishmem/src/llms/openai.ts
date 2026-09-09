@@ -23,6 +23,36 @@ export type OpenAIReasoningEffort =
   | "max";
 
 /**
+ * Extra completion budget handed to reasoning models so hidden reasoning
+ * tokens cannot starve the visible answer the caller asked for.
+ */
+const REASONING_TOKEN_HEADROOM = 2_048;
+
+/**
+ * Reasoning budget applied to a reasoning model when the caller names none.
+ *
+ * Every call this class makes is a bounded structured-output task — extract
+ * facts, merge two memories, rank candidates — where the answer is short and
+ * schema-constrained. Left at its default effort, a reasoning model spends
+ * hundreds of hidden tokens on such a task: measured on one small extraction,
+ * 896 reasoning tokens and 7.6s versus 0 tokens and 2.6s at the floor. Those
+ * tokens bill as output, so the default quietly costs several times what the
+ * visible answer does. Callers with a genuinely hard task set `reasoningEffort`
+ * explicitly.
+ */
+const DEFAULT_REASONING_EFFORT: OpenAIReasoningEffort = "minimal";
+
+/**
+ * Whether a model id belongs to a reasoning family, which constrains sampling
+ * parameters and renames `max_tokens`. Matching on the id keeps this working
+ * for OpenAI-compatible gateways that mirror the same model names.
+ */
+export function isReasoningModel(model: string): boolean {
+  const id = model.toLowerCase().replace(/^.*\//, "");
+  return /^(gpt-5|o1|o3|o4)(\b|[-.])/.test(id);
+}
+
+/**
  * OpenAI chat-completions LLM (also works with OpenAI-compatible endpoints via
  * `baseURL`). The `openai` package is an optional, lazily-imported peer dep.
  */
@@ -75,15 +105,28 @@ export class OpenAILLM implements LLM {
 
   async chat(messages: Message[], options?: LLMChatOptions): Promise<string> {
     const client = await this.getClient();
+    const reasoning = isReasoningModel(this.model);
     const params: Record<string, unknown> = {
       model: this.model,
-      temperature: options?.temperature ?? this.temperature,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     };
-    if (this.reasoningEffort) {
-      params.reasoning_effort = this.reasoningEffort;
+    // Reasoning models (gpt-5*, o-series) reject a custom sampling temperature
+    // and renamed the completion budget. Sending the classic pair to one of
+    // them fails the whole request, so the shape follows the model family.
+    if (!reasoning) {
+      params.temperature = options?.temperature ?? this.temperature;
     }
-    if (options?.maxTokens) params.max_tokens = options.maxTokens;
+    const reasoningEffort =
+      this.reasoningEffort ?? (reasoning ? DEFAULT_REASONING_EFFORT : undefined);
+    if (reasoningEffort) {
+      params.reasoning_effort = reasoningEffort;
+    }
+    if (options?.maxTokens) {
+      // A reasoning model spends part of this budget on hidden reasoning
+      // tokens, so the caller's visible-output budget must not cap the total.
+      params[reasoning ? "max_completion_tokens" : "max_tokens"] =
+        reasoning ? options.maxTokens + REASONING_TOKEN_HEADROOM : options.maxTokens;
+    }
     if (options?.responseFormat === "json") {
       params.response_format = options.jsonSchema
         ? {

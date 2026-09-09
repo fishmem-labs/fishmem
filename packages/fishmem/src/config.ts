@@ -13,6 +13,10 @@ import {
   OpenAIEmbedder,
   type OpenAIEmbedderConfig,
 } from "./embeddings/openai.js";
+import {
+  WorkersAiEmbedder,
+  type WorkersAiEmbedderConfig,
+} from "./embeddings/workers-ai.js";
 import type { GraphStore } from "./graph/base.js";
 import { createD1GraphStore } from "./graph/d1.js";
 import { InMemoryGraphStore } from "./graph/memory-store.js";
@@ -35,7 +39,12 @@ import { type VectorizeConfig, VectorizeStore } from "./vector/vectorize.js";
 export type EmbedderSpec =
   | Embedder
   | { provider: "mock"; config?: { dimensions?: number }; centering?: boolean }
-  | { provider: "openai"; config?: OpenAIEmbedderConfig; centering?: boolean };
+  | { provider: "openai"; config?: OpenAIEmbedderConfig; centering?: boolean }
+  | {
+      provider: "workers-ai";
+      config: WorkersAiEmbedderConfig;
+      centering?: boolean;
+    };
 
 export type LLMSpec =
   | LLM
@@ -311,6 +320,8 @@ function resolveEmbedder(spec?: EmbedderSpec): Embedder {
       spec.centering ? new CenteredEmbedder(e) : e;
     if (spec.provider === "openai")
       return center(new OpenAIEmbedder(spec.config));
+    if (spec.provider === "workers-ai")
+      return center(new WorkersAiEmbedder(spec.config));
     if (spec.provider === "mock")
       return center(new MockEmbedder(spec.config?.dimensions));
   }

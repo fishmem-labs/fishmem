@@ -156,6 +156,12 @@ export {
   OpenAIEmbedder,
   type OpenAIEmbedderConfig,
 } from "./embeddings/openai.js";
+export {
+  WorkersAiEmbedder,
+  WORKERS_AI_EMBEDDING_DIMS,
+  type WorkersAiBinding,
+  type WorkersAiEmbedderConfig,
+} from "./embeddings/workers-ai.js";
 // Graph stores.
 export type {
   GraphSnapshotData,
@@ -197,6 +203,7 @@ export type {
 } from "./llms/base.js";
 export { MockLLM, type MockResponder } from "./llms/mock.js";
 export {
+  isReasoningModel,
   OpenAILLM,
   type OpenAILLMConfig,
   type OpenAIReasoningEffort,

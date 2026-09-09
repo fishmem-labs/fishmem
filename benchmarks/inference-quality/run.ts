@@ -12,6 +12,7 @@ import {
   MockLLM,
   OpenAILLM,
   type ProviderUsage,
+  type OpenAIReasoningEffort,
   SELECTIVE_FACT_EXTRACTION_SYSTEM,
 } from "../../packages/fishmem/src/index.js";
 import { parseIntegerOption } from "../cli.js";
@@ -68,6 +69,7 @@ function createRuntime(input: {
   smoke: boolean;
   model: string;
   baseURL?: string;
+  reasoningEffort?: OpenAIReasoningEffort;
 }): { llm: LLM; usage: Usage } {
   const usage: Usage = {
     calls: 0,
@@ -109,6 +111,7 @@ function createRuntime(input: {
     llm: new OpenAILLM({
       model: input.model,
       baseURL: input.baseURL,
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       temperature: 0,
       timeoutMs: 60_000,
       // A complete v1 A/B is explicitly bounded to 19 cases x 2 prompts.
@@ -183,6 +186,11 @@ async function main() {
       "gpt-4o-mini");
   const baseURL =
     valueAfter(args, "--base-url") ?? process.env.OPENAI_BASE_URL ?? undefined;
+  // Reasoning budget is a first-class variable for these models: it moves
+  // cost, latency, and how eagerly the model extracts.
+  const reasoningEffort = valueAfter(args, "--reasoning-effort") as
+    | OpenAIReasoningEffort
+    | undefined;
   const limitValue = valueAfter(args, "--limit");
   const limit = limitValue
     ? parseIntegerOption(limitValue, "--limit", 1)
@@ -196,7 +204,7 @@ async function main() {
     { id: "selective-v1" as const, prompt: SELECTIVE_FACT_EXTRACTION_SYSTEM },
   ].map((spec) => ({
     ...spec,
-    ...createRuntime({ smoke, model, baseURL }),
+    ...createRuntime({ smoke, model, baseURL, reasoningEffort }),
     results: [] as InferenceCaseResult[],
   }));
 

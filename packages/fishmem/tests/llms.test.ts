@@ -53,6 +53,92 @@ describe("MockLLM", () => {
   });
 });
 
+describe("OpenAI request shape by model family", () => {
+  function stubbedLLM(model: string) {
+    const llm = new OpenAILLM({ apiKey: "test", model });
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    (llm as unknown as { client: unknown }).client = {
+      chat: { completions: { create } },
+    };
+    return { llm, create };
+  }
+
+  it("sends temperature and max_tokens to a standard chat model", async () => {
+    const { llm, create } = stubbedLLM("gpt-4o-mini");
+
+    await llm.chat([{ role: "user", content: "hi" }], { maxTokens: 256 });
+
+    const params = create.mock.calls[0]![0];
+    expect(params.temperature).toBe(0);
+    expect(params.max_tokens).toBe(256);
+    expect(params).not.toHaveProperty("max_completion_tokens");
+  });
+
+  it("omits temperature and budgets completion tokens for reasoning models", async () => {
+    const { llm, create } = stubbedLLM("gpt-5-nano");
+
+    await llm.chat([{ role: "user", content: "hi" }], { maxTokens: 256 });
+
+    const params = create.mock.calls[0]![0];
+    // A reasoning model treats the classic sampling pair differently, and
+    // sending `max_tokens` lets hidden reasoning consume the whole budget and
+    // return an empty message with finish_reason=length.
+    expect(params).not.toHaveProperty("temperature");
+    expect(params).not.toHaveProperty("max_tokens");
+    // Hidden reasoning tokens draw from the same budget as the answer, so the
+    // caller's visible-output budget must not be the ceiling.
+    expect(params.max_completion_tokens).toBeGreaterThan(256);
+  });
+
+  it("floors the reasoning budget for these bounded structured tasks", async () => {
+    const { llm, create } = stubbedLLM("gpt-5-nano");
+
+    await llm.chat([{ role: "user", content: "hi" }]);
+
+    // Reasoning tokens bill as output. Left at the provider default one small
+    // extraction spent hundreds of them, so the floor is the default here.
+    expect(create.mock.calls[0]![0].reasoning_effort).toBe("minimal");
+  });
+
+  it("lets a caller ask for more reasoning explicitly", async () => {
+    const llm = new OpenAILLM({
+      apiKey: "test",
+      model: "gpt-5-nano",
+      reasoningEffort: "high",
+    });
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    (llm as unknown as { client: unknown }).client = {
+      chat: { completions: { create } },
+    };
+
+    await llm.chat([{ role: "user", content: "hi" }]);
+
+    expect(create.mock.calls[0]![0].reasoning_effort).toBe("high");
+  });
+
+  it("does not send a reasoning budget to a standard model", async () => {
+    const { llm, create } = stubbedLLM("gpt-4o-mini");
+
+    await llm.chat([{ role: "user", content: "hi" }]);
+
+    expect(create.mock.calls[0]![0]).not.toHaveProperty("reasoning_effort");
+  });
+
+  it("recognises reasoning families behind an OpenAI-compatible gateway prefix", async () => {
+    const { llm, create } = stubbedLLM("openai/gpt-5-mini");
+
+    await llm.chat([{ role: "user", content: "hi" }]);
+
+    expect(create.mock.calls[0]![0]).not.toHaveProperty("temperature");
+  });
+});
+
 describe("provider usage metering", () => {
   it("reports OpenAI chat and embedding usage with call context", async () => {
     const onUsage = vi.fn();
