@@ -75,7 +75,14 @@ const LLM_PRESETS = [
     provider: "openai",
     baseUrl: "",
     model: "gpt-4o-mini",
-    models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini", "o3-mini"],
+    models: [
+      "gpt-4o-mini",
+      "gpt-5-nano",
+      "gpt-5-mini",
+      "gpt-4.1-nano",
+      "gpt-4.1-mini",
+      "gpt-4o",
+    ],
   },
   {
     id: "anthropic",

@@ -30,6 +30,8 @@ import {
   type OperationSummary,
   parseNamespaceSnapshot,
   SQLITE_DDL,
+  WORKERS_AI_EMBEDDING_DIMS,
+  type WorkersAiBinding,
 } from "fishmem";
 import {
   AddMemoryCommandSchema,
@@ -55,6 +57,12 @@ import { hashToken } from "@/lib/server/token";
 import { getServerDb } from "@/lib/server/user";
 import { getRuntimeEnv } from "@/lib/cloudflare";
 import { createMemoryStores, IS_CLOUDFLARE } from "@/lib/platform";
+import {
+  EMBEDDER_IDENTITY_KEY,
+  formatIdentity,
+  reconcileEmbedderIdentity,
+  type EmbedderIdentityStore,
+} from "@/lib/server/embedder-identity";
 import { R2DocumentOriginalStore } from "@/lib/server/document-originals";
 import { parseDocumentIngestRequest } from "@/lib/server/document-ingest-request";
 import {
@@ -230,6 +238,9 @@ function bearerToken(request: Request) {
   return token.trim();
 }
 
+/** How stale an API key's `lastUsedAt` may get before it is refreshed. */
+const API_TOKEN_LAST_USED_REFRESH_MS = 15 * 60 * 1000;
+
 export async function authenticateMemoryApi(request: Request) {
   const token = bearerToken(request);
   if (!token) {
@@ -262,10 +273,18 @@ export async function authenticateMemoryApi(request: Request) {
       ),
     } as const;
   }
-  await db
-    .update(apiTokens)
-    .set({ lastUsedAt: new Date(), updatedAt: new Date() })
-    .where(eq(apiTokens.id, apiToken.id));
+  // `lastUsedAt` is a coarse activity signal, not an audit record, so it does
+  // not justify a primary-region write on every authenticated request. D1 has
+  // one writable primary, so that write was a cross-region round trip on the
+  // critical path of every call. Refresh it at most once per interval instead.
+  const lastUsedAt = apiToken.lastUsedAt?.getTime() ?? 0;
+  if (Date.now() - lastUsedAt >= API_TOKEN_LAST_USED_REFRESH_MS) {
+    const now = new Date();
+    await db
+      .update(apiTokens)
+      .set({ lastUsedAt: now, updatedAt: now })
+      .where(eq(apiTokens.id, apiToken.id));
+  }
   return { db, apiToken } as const;
 }
 
@@ -274,21 +293,101 @@ export async function authenticateMemoryApi(request: Request) {
 let memorySingleton: Promise<Memory> | null = null;
 let migrated = false;
 
+/**
+ * Schema fingerprint for the statements this build would apply. A new engine
+ * version changes the fingerprint, so the provisioning pass re-runs exactly
+ * once per deploy instead of once per Worker isolate.
+ */
+const SCHEMA_STATE_TABLE = "fishmem_schema_state";
+const SCHEMA_FINGERPRINT = `v1:${SQLITE_DDL.length}:${fnv1a(SQLITE_DDL.join("\n"))}`;
+
+function fnv1a(input: string) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+/**
+ * Provision the engine tables on D1.
+ *
+ * D1 is a single-primary database reached over RPC, so every statement is a
+ * network round trip and a cold isolate used to pay ~45 of them in series
+ * before it could answer its first request. Two changes remove that cost
+ * without taking auto-provisioning away from self-hosters:
+ *
+ * 1. A `fishmem_schema_state` marker records the fingerprint already applied,
+ *    so a cold isolate on a provisioned database spends exactly one round trip.
+ * 2. When work is actually needed, statements go out through `D1.batch()`,
+ *    which ships a whole group in one round trip.
+ */
 async function ensureMemoryTables(d1: D1Database) {
   if (migrated) return;
-  for (const statement of SQLITE_DDL) {
-    await d1.prepare(statement).run();
+  await provisionEngineSchema(d1);
+  migrated = true;
+}
+
+/**
+ * The provisioning pass itself, without the per-isolate memo, so the round-trip
+ * contract above can be tested directly.
+ *
+ * Returns `true` when it had to apply schema work and `false` when the marker
+ * already matched — the second case is the one every warm database takes.
+ */
+export async function provisionEngineSchema(d1: D1Database): Promise<boolean> {
+  // Fast path: one query. A missing marker table throws, which is the signal
+  // that this database has never been provisioned.
+  try {
+    const applied = await d1
+      .prepare(`SELECT value FROM ${SCHEMA_STATE_TABLE} WHERE key = 'fingerprint'`)
+      .first<{ value: string }>();
+    if (applied?.value === SCHEMA_FINGERPRINT) return false;
+  } catch {
+    // Marker table absent — fall through and provision.
   }
+
+  await d1.batch([
+    ...SQLITE_DDL.map((statement) => d1.prepare(statement)),
+    d1.prepare(
+      `CREATE TABLE IF NOT EXISTS ${SCHEMA_STATE_TABLE} (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
+    ),
+  ]);
+
+  // PRAGMA reads must resolve before the ALTERs they gate, so this is two
+  // batched round trips rather than one statement at a time.
+  const pending: string[] = [];
+  const columnCache = new Map<string, Set<string>>();
   await ensureSqliteSchemaColumns({
     columns: async (table) => {
+      const cached = columnCache.get(table);
+      if (cached) return cached;
       const result = await d1.prepare(`PRAGMA table_info(${table})`).all();
-      return new Set(
-        (result.results ?? []).map((row) => String(row.name)),
+      const columns = new Set(
+        (result.results ?? []).map((row) => String((row as { name: unknown }).name)),
       );
+      columnCache.set(table, columns);
+      return columns;
     },
-    execute: (sql) => d1.prepare(sql).run(),
+    execute: async (sql) => {
+      pending.push(sql);
+    },
   });
-  migrated = true;
+  if (pending.length) {
+    await d1.batch(pending.map((sql) => d1.prepare(sql)));
+  }
+
+  // The marker is written last, so a provisioning run that fails part way
+  // leaves no fingerprint and the next isolate retries the whole pass.
+  await d1
+    .prepare(
+      `INSERT INTO ${SCHEMA_STATE_TABLE} (key, value, updated_at) VALUES ('fingerprint', ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    )
+    .bind(SCHEMA_FINGERPRINT, Date.now())
+    .run();
+  return true;
 }
 
 /** The DB engine-config row (instance-level, id="default"), or undefined. */
@@ -307,6 +406,19 @@ export async function readEngineConfig() {
  * at OpenAI / Ollama / Together / …); the LLM may be openai-compatible or
  * anthropic.
  */
+/**
+ * Default extraction model when neither the config row nor the environment
+ * names one.
+ *
+ * Cheaper models were measured on the 19-case extraction suite and rejected on
+ * quality, not price: `gpt-5-nano` over-extracts badly (no-memory accuracy
+ * 5/9 against this model's 8/9, and 43% of its emitted facts unwanted against
+ * 15%), and `gpt-4.1-nano` swallowed a tool-output prompt injection that every
+ * other candidate refused. Both remain one `FISHMEM_LLM_MODEL` away for a
+ * deployment that has re-run the suite and accepts the trade.
+ */
+const DEFAULT_OPENAI_LLM_MODEL = "gpt-4o-mini";
+
 /** Provider settings read from env — the deploy-time defaults the DB row
  * overrides. Keys + baseURL + model are all honored, so a docker run with just
  * env can be fully configured (and the dashboard reflects it). */
@@ -316,7 +428,12 @@ function providerEnv(env: Awaited<ReturnType<typeof getRuntimeEnv>>) {
     openaiKey: env.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY ?? "",
     anthropicKey: r.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY ?? "",
     baseUrl: r.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? "",
+    embProvider:
+      r.FISHMEM_EMBEDDER_PROVIDER ?? process.env.FISHMEM_EMBEDDER_PROVIDER ?? "",
     embModel: r.FISHMEM_EMBEDDER_MODEL ?? process.env.FISHMEM_EMBEDDER_MODEL ?? "",
+    embedderAdopt:
+      (r.FISHMEM_EMBEDDER_ADOPT ?? process.env.FISHMEM_EMBEDDER_ADOPT ?? "") ===
+      "1",
     llmModel: r.FISHMEM_LLM_MODEL ?? process.env.FISHMEM_LLM_MODEL ?? "",
   };
 }
@@ -332,17 +449,41 @@ async function resolveEngineConfig() {
   const e = providerEnv(env);
   const row = await readEngineConfig();
 
+  const embedderProvider = resolveEmbedderProvider(
+    row?.embedderProvider || e.embProvider,
+  );
   const embBase = row?.embedderBaseUrl || e.baseUrl || undefined;
   const embKey = row?.embedderApiKey || e.openaiKey || (embBase ? "-" : "");
-  const embedder = {
-    provider: "openai" as const,
-    config: {
-      apiKey: embKey,
-      model: row?.embedderModel || e.embModel || "text-embedding-3-small",
-      onUsage,
-      ...(embBase ? { baseURL: embBase } : {}),
-    },
-  };
+  const embedderModel =
+    row?.embedderModel ||
+    e.embModel ||
+    (embedderProvider === "workers-ai"
+      ? DEFAULT_WORKERS_AI_EMBEDDING_MODEL
+      : DEFAULT_OPENAI_EMBEDDING_MODEL);
+
+  const embedder =
+    embedderProvider === "workers-ai"
+      ? {
+          provider: "workers-ai" as const,
+          config: {
+            binding: (env as unknown as { AI?: WorkersAiBinding }).AI!,
+            model: embedderModel,
+            onUsage,
+          },
+        }
+      : {
+          provider: "openai" as const,
+          config: {
+            apiKey: embKey,
+            model: embedderModel,
+            onUsage,
+            ...(embBase ? { baseURL: embBase } : {}),
+          },
+        };
+  const embedderDimensions =
+    embedderProvider === "workers-ai"
+      ? WORKERS_AI_EMBEDDING_DIMS[embedderModel]
+      : OPENAI_EMBEDDING_DIMS[embedderModel];
 
   const llmProvider = (row?.llmProvider as "openai" | "anthropic") || "openai";
   const llmBase =
@@ -354,7 +495,7 @@ async function resolveEngineConfig() {
   const llmModel =
     row?.llmModel ||
     e.llmModel ||
-    (llmProvider === "anthropic" ? "claude-3-5-haiku-latest" : "gpt-4o-mini");
+    (llmProvider === "anthropic" ? "claude-3-5-haiku-latest" : DEFAULT_OPENAI_LLM_MODEL);
   const llm =
     llmProvider === "anthropic"
       ? {
@@ -373,11 +514,74 @@ async function resolveEngineConfig() {
 
   return {
     embedder,
+    embedderIdentity: {
+      provider: embedderProvider,
+      model: embedderModel,
+      dimensions: embedderDimensions ?? 0,
+    },
+    adoptEmbedderIdentity: e.embedderAdopt,
     llm,
     derivationEnabled: row?.derivationEnabled ?? false,
-    // "Configured" = a usable embedder (a key, or a no-auth local baseURL).
-    configured: Boolean(row?.embedderApiKey || e.openaiKey || embBase),
+    // "Configured" = a usable embedder. Workers AI needs no key: the binding
+    // is the credential.
+    configured:
+      embedderProvider === "workers-ai"
+        ? Boolean((env as unknown as { AI?: unknown }).AI)
+        : Boolean(row?.embedderApiKey || e.openaiKey || embBase),
   };
+}
+
+/**
+ * The identity marker lives in the same D1 state table as the schema
+ * fingerprint, so provisioning and identity share one storage concept.
+ */
+function d1EmbedderIdentityStore(d1: D1Database): EmbedderIdentityStore {
+  return {
+    async read() {
+      const row = await d1
+        .prepare(
+          `SELECT value FROM ${SCHEMA_STATE_TABLE} WHERE key = '${EMBEDDER_IDENTITY_KEY}'`,
+        )
+        .first<{ value: string }>();
+      return row?.value ?? null;
+    },
+    async write(value) {
+      await d1
+        .prepare(
+          `INSERT INTO ${SCHEMA_STATE_TABLE} (key, value, updated_at) VALUES ('${EMBEDDER_IDENTITY_KEY}', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        )
+        .bind(value, Date.now())
+        .run();
+    },
+    async countEmbedded() {
+      // Memories and entities are the two record kinds that carry vectors.
+      const row = await d1
+        .prepare(
+          `SELECT (SELECT COUNT(*) FROM fishmem_memories) +
+                  (SELECT COUNT(*) FROM fishmem_entities) AS embedded`,
+        )
+        .first<{ embedded: number }>();
+      return Number(row?.embedded ?? 0);
+    },
+  };
+}
+
+/** Embedding providers this build can construct. */
+export type EmbedderProvider = "openai" | "workers-ai";
+
+const DEFAULT_OPENAI_EMBEDDING_MODEL = "text-embedding-3-small";
+const DEFAULT_WORKERS_AI_EMBEDDING_MODEL = "@cf/baai/bge-m3";
+
+/** Widths for the OpenAI models this app offers, for the identity record. */
+const OPENAI_EMBEDDING_DIMS: Record<string, number> = {
+  "text-embedding-3-small": 1536,
+  "text-embedding-3-large": 3072,
+  "text-embedding-ada-002": 1536,
+};
+
+export function resolveEmbedderProvider(value?: string | null): EmbedderProvider {
+  return value === "workers-ai" ? "workers-ai" : "openai";
 }
 
 /** Display-safe effective config for the dashboard (no secrets): DB row merged
@@ -399,7 +603,7 @@ export async function describeProviderConfig() {
     llmModel:
       row?.llmModel ||
       e.llmModel ||
-      (llmProvider === "anthropic" ? "claude-3-5-haiku-latest" : "gpt-4o-mini"),
+      (llmProvider === "anthropic" ? "claude-3-5-haiku-latest" : DEFAULT_OPENAI_LLM_MODEL),
     llmBaseUrl,
     llmApiKeySet: Boolean(row?.llmApiKey),
     llmBaseUrlFromEnv: !row?.llmBaseUrl && llmProvider === "openai" && Boolean(e.baseUrl),
@@ -428,7 +632,26 @@ export async function getMemoryEngine(): Promise<Memory> {
       }
       // Cloudflare runs the D1 DDL up front; the Node SQLite/Postgres stores
       // create their own tables.
-      if (IS_CLOUDFLARE) await ensureMemoryTables(env.D1);
+      if (IS_CLOUDFLARE) {
+        await ensureMemoryTables(env.D1);
+        // Only after the tables exist can the identity marker be read. A
+        // changed embedder against a populated store is refused here, before
+        // any query can silently mix two vector spaces.
+        const outcome = await reconcileEmbedderIdentity(
+          cfg.embedderIdentity,
+          d1EmbedderIdentityStore(env.D1),
+          { adopt: cfg.adoptEmbedderIdentity },
+        );
+        if (outcome !== "unchanged") {
+          console.log(
+            JSON.stringify({
+              event: "fishmem.embedder.identity",
+              outcome,
+              identity: formatIdentity(cfg.embedderIdentity),
+            }),
+          );
+        }
+      }
       const { graphStore, stateSidecar, beliefReconciler, vectorStore } =
         await createMemoryStores(env);
       const documentOriginalStore = IS_CLOUDFLARE
@@ -835,6 +1058,23 @@ export function createPublicMemoryApiDependencies(
   };
 }
 
+/**
+ * Metered size of one write, in blocks.
+ *
+ * A write accepts up to `MAX_MEMORY_ADD_BYTES` of transcript in a single
+ * request, and extraction sends that whole transcript to the model in one
+ * call — so the provider cost of a write scales with its payload while a flat
+ * per-request charge does not. Blocks make the two track each other: a normal
+ * conversational write is one block and is unaffected, and a caller batching a
+ * very long transcript pays in proportion to what it costs to read.
+ */
+export const MEMORY_WRITE_BLOCK_BYTES = 8_192;
+
+export function memoryWriteUnits(command: unknown): number {
+  const bytes = new TextEncoder().encode(JSON.stringify(command)).byteLength;
+  return Math.max(1, Math.ceil(bytes / MEMORY_WRITE_BLOCK_BYTES));
+}
+
 export async function addMemories(
   request: Request,
   dependencies = createPublicMemoryApiDependencies(),
@@ -894,6 +1134,7 @@ export async function addMemories(
       idempotencyKey,
       operation,
       request,
+      units: memoryWriteUnits(command),
     });
     if (infer) {
       const policy = await dependencies.resolveInferencePolicy(
@@ -1025,6 +1266,71 @@ export async function addMemories(
   }
 }
 
+/**
+ * Which corpora a search reads.
+ *
+ * Memories and documents are stored apart on purpose — a handbook paragraph is
+ * evidence to be preserved, not a preference to be inferred — but that is a
+ * storage decision, and making callers repeat it as a routing decision pushed
+ * the split into every integration. A search reads both by default; a caller
+ * that wants only one narrows it explicitly.
+ */
+export type SearchSource = "memories" | "documents";
+
+const DEFAULT_SEARCH_SOURCES: readonly SearchSource[] = ["memories", "documents"];
+
+export function parseSearchSources(body: Record<string, unknown>): SearchSource[] {
+  const requested = body.sources;
+  if (!Array.isArray(requested)) return [...DEFAULT_SEARCH_SOURCES];
+  const sources = requested.filter(
+    (value): value is SearchSource =>
+      value === "memories" || value === "documents",
+  );
+  // An unrecognised or empty list must not silently search nothing.
+  return sources.length ? [...new Set(sources)] : [...DEFAULT_SEARCH_SOURCES];
+}
+
+/**
+ * Document hits for a memory search.
+ *
+ * The document lane is additive: it never fails the request. Memory retrieval
+ * is the contract this endpoint has always had, and degrading to it — with the
+ * reason recorded — is better than failing a search that had answers.
+ */
+async function federatedDocumentResults(
+  application: MemoryApplication,
+  workspaceId: string,
+  body: Record<string, unknown>,
+  limit: number,
+): Promise<
+  | { results: Awaited<ReturnType<MemoryApplication["searchDocuments"]>>["results"] }
+  | { unavailable: string }
+> {
+  try {
+    return await application.searchDocuments(workspaceId, {
+      // The document command speaks the wire's snake_case scope, not the
+      // internal camelCase one.
+      user_id: body.user_id,
+      agent_id: body.agent_id,
+      run_id: body.run_id,
+      query: body.query,
+      // The document lane caps at 20 and returns whole chunks, so it stays
+      // narrower than the memory lane rather than flooding the response.
+      limit: Math.min(limit, 20),
+    });
+  } catch (error) {
+    const message = classifyMemoryError(error).message;
+    console.error(
+      JSON.stringify({
+        event: "fishmem.search.document_lane_failed",
+        workspaceId,
+        reason: message,
+      }),
+    );
+    return { unavailable: message };
+  }
+}
+
 export async function searchMemories(
   request: Request,
   dependencies = createPublicMemoryApiDependencies(),
@@ -1066,6 +1372,7 @@ export async function searchMemories(
     );
   }
   const limit = Math.min(Math.max(Number(body.top_k ?? body.limit ?? 10), 1), 50);
+  const sources = parseSearchSources(body);
 
   let reservation: PublicMemoryUsageReservation | undefined;
   let engineCompleted = false;
@@ -1076,10 +1383,28 @@ export async function searchMemories(
       request,
     });
     const application = new MemoryApplication(await dependencies.getEngine());
-    const { results, beliefs, trace } = await application.search(
-      auth.apiToken.workspaceId,
-      body,
-    );
+    // Both lanes run together: a federated search must not cost the caller the
+    // latency of two sequential retrievals.
+    const [memoryOutcome, documentOutcome] = await Promise.all([
+      application.search(auth.apiToken.workspaceId, body),
+      sources.includes("documents")
+        ? federatedDocumentResults(
+            application,
+            auth.apiToken.workspaceId,
+            body,
+            limit,
+          )
+        : undefined,
+    ]);
+    const { results, beliefs, trace } = memoryOutcome;
+    const documents =
+      documentOutcome && "results" in documentOutcome
+        ? documentOutcome.results
+        : [];
+    const documentsUnavailable =
+      documentOutcome && "unavailable" in documentOutcome
+        ? documentOutcome.unavailable
+        : undefined;
     engineCompleted = true;
     await dependencies.settleUsage({
       auth,
@@ -1120,6 +1445,14 @@ export async function searchMemories(
         filters: body.filters,
         result_count: results.length,
         results: loggedResults,
+        sources,
+        document_result_count: documents.length,
+        // A lane that degrades silently is a lane nobody notices is broken:
+        // the request log carries the reason, not just the response body a
+        // client is free to ignore.
+        ...(documentsUnavailable
+          ? { document_search_unavailable: documentsUnavailable }
+          : {}),
       },
       operation: "memories.search",
       request,
@@ -1127,7 +1460,14 @@ export async function searchMemories(
       status: "success",
     });
     return json({
+      // `results` keeps its exact prior shape and contents. Document hits are
+      // an additive key, so a client written against the memory-only contract
+      // is unaffected while one call now answers both.
       results: results.map((r) => shapeMemory(r.memory as MemoryItem, r.score)),
+      ...(documents.length ? { documents } : {}),
+      ...(documentsUnavailable
+        ? { warnings: [{ code: "DOCUMENT_SEARCH_UNAVAILABLE", message: documentsUnavailable }] }
+        : {}),
       ...(beliefs ? { beliefs: shapeBeliefs(beliefs) } : {}),
       ...(trace ? { trace: shapeSearchTrace(trace) } : {}),
     });

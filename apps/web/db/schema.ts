@@ -261,6 +261,7 @@ export const projectSettings = sqliteTable(
  */
 export const engineConfig = sqliteTable("engine_config", {
   id: text("id").primaryKey().default("default"),
+  embedderProvider: text("embedder_provider").$type<"openai" | "workers-ai">(),
   embedderModel: text("embedder_model"),
   embedderBaseUrl: text("embedder_base_url"),
   embedderApiKey: text("embedder_api_key"),

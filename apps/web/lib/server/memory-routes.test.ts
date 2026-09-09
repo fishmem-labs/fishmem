@@ -10,6 +10,8 @@ import {
   exportWorkspaceSnapshot,
   getMemoryFeedback,
   getMemoryHealth,
+  MEMORY_WRITE_BLOCK_BYTES,
+  memoryWriteUnits,
   ingestDocument,
   type MemoryHealthDependencies,
   readMutationIdempotencyKey,
@@ -1492,5 +1494,137 @@ describe("authenticated public memory routes", () => {
         status: "pending",
       },
     });
+  });
+});
+
+describe("metered write size", () => {
+  it("charges one block for a normal conversational write", () => {
+    const command = {
+      user_id: "u1",
+      messages: Array.from({ length: 20 }, (_, index) => ({
+        role: index % 2 ? "assistant" : "user",
+        content: "A sentence of roughly the length a chat turn tends to be.",
+      })),
+    };
+
+    expect(memoryWriteUnits(command)).toBe(1);
+  });
+
+  it("scales with payload so a large batch cannot ride the flat rate", () => {
+    // The API accepts up to 250 KB in one write and extraction reads all of
+    // it in a single model call, so the largest possible write must not cost
+    // the same as the smallest.
+    const command = {
+      user_id: "u1",
+      content: "x".repeat(240_000),
+    };
+
+    const units = memoryWriteUnits(command);
+    expect(units).toBeGreaterThan(28);
+    expect(units).toBe(Math.ceil(240_015 / MEMORY_WRITE_BLOCK_BYTES));
+  });
+
+  it("never charges less than one block", () => {
+    expect(memoryWriteUnits({})).toBe(1);
+  });
+});
+
+describe("federated search", () => {
+  type SearchPayload = {
+    results: Array<{ id: string; memory?: string }>;
+    documents?: Array<{ chunk: { content: string } }>;
+    warnings?: Array<{ code: string; message: string }>;
+  };
+
+  async function payloadOf(response: Response | undefined) {
+    if (!response) throw new Error("search route returned no response");
+    return (await response.json()) as SearchPayload;
+  }
+
+  function search(body: Record<string, unknown>, runtime: PublicMemoryApiDependencies) {
+    return searchMemories(
+      new Request("https://fishmem.test/v1/memories/search", {
+        method: "POST",
+        headers: { authorization: "Bearer sk-test" },
+        body: JSON.stringify({ query: "release token", user_id: "ada", ...body }),
+      }),
+      runtime,
+    );
+  }
+
+  it("answers from both corpora in one call, without being asked", async () => {
+    const { memory, runtime } = dependencies();
+
+    const response = await search({}, runtime);
+    const payload = await payloadOf(response);
+
+    // The split between preserved evidence and inferred memory is a storage
+    // decision; the caller should not have to make it a routing decision.
+    expect(payload.results).toHaveLength(1);
+    expect(payload.documents).toHaveLength(1);
+    expect(payload.documents?.[0]?.chunk.content).toBe("violet release token");
+    expect(memory.searchDocuments).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the memory-only response contract byte-for-byte intact", async () => {
+    const { runtime } = dependencies();
+
+    const payload = await payloadOf(await search({}, runtime));
+
+    // A client written against the previous contract reads `results` and must
+    // see exactly what it saw before; document hits live under their own key.
+    expect(payload.results[0]).toEqual(
+      expect.objectContaining({ id: "mem_1", memory: "Ada prefers tea" }),
+    );
+    expect(payload.results.some((r) => r.id === "chunk_1")).toBe(false);
+  });
+
+  it("lets a caller narrow to one corpus", async () => {
+    const { memory, runtime } = dependencies();
+
+    const payload = await payloadOf(
+      await search({ sources: ["memories"] }, runtime),
+    );
+
+    expect(memory.searchDocuments).not.toHaveBeenCalled();
+    expect(payload.documents).toBeUndefined();
+    expect(payload.results).toHaveLength(1);
+  });
+
+  it("ignores an unusable sources list rather than searching nothing", async () => {
+    const { memory, runtime } = dependencies();
+
+    const payload = await payloadOf(
+      await search({ sources: ["nonsense"] }, runtime),
+    );
+
+    expect(payload.results).toHaveLength(1);
+    expect(memory.searchDocuments).toHaveBeenCalledOnce();
+  });
+
+  it("still answers with memories when the document lane fails", async () => {
+    const { memory, runtime } = dependencies();
+    memory.searchDocuments.mockRejectedValueOnce(new Error("vector store down"));
+
+    const response = await search({}, runtime);
+    const payload = await payloadOf(response);
+
+    // Memory retrieval is this endpoint's standing contract. Degrading to it
+    // with the reason recorded beats failing a search that had answers.
+    expect(response!.status).toBe(200);
+    expect(payload.results).toHaveLength(1);
+    expect(payload.documents).toBeUndefined();
+    expect(payload.warnings?.[0]?.code).toBe("DOCUMENT_SEARCH_UNAVAILABLE");
+  });
+
+  it("charges one credit for the federated search, not one per corpus", async () => {
+    const { runtime } = dependencies();
+
+    await search({}, runtime);
+
+    expect(runtime.reserveUsage).toHaveBeenCalledTimes(1);
+    expect(runtime.reserveUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "memories.search" }),
+    );
   });
 });

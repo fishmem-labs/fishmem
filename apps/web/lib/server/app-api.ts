@@ -51,6 +51,7 @@ import {
   DEFAULT_MEMORY_CATEGORIES,
   DEFAULT_MEMORY_INSTRUCTIONS,
 } from "@/lib/server/memory-inference-policy";
+import { isReasoningModel } from "fishmem";
 
 type RouteHandler = (
   request: Request,
@@ -1505,6 +1506,12 @@ async function handleEngineConfig(
       );
       const key = str("llmApiKey") || row?.llmApiKey || openaiKey || "";
       const model = str("llmModel") || row?.llmModel || "gpt-4o-mini";
+      // Reasoning models renamed the completion budget and spend part of it on
+      // hidden reasoning, so a one-token probe would fail on the model family
+      // the hosted default now uses.
+      const budget = isReasoningModel(model)
+        ? { max_completion_tokens: 1_024 }
+        : { max_tokens: 1 };
       const res = await fetch(`${base}/chat/completions`, {
         method: "POST",
         headers: {
@@ -1513,7 +1520,7 @@ async function handleEngineConfig(
         },
         body: JSON.stringify({
           model,
-          max_tokens: 1,
+          ...budget,
           messages: [{ role: "user", content: "ping" }],
         }),
       });
