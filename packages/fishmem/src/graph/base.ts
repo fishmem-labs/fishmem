@@ -75,6 +75,13 @@ export interface GraphStore {
   // ── Memory CRUD ──────────────────────────────────────────────────────────
   saveMemory(memory: Memory): Promise<void>;
   getMemory(id: string): Promise<Memory | null>;
+  /**
+   * Optional bulk read. Retrieval hydrates hundreds of candidate ids per
+   * query, so a store that can answer them in one statement should implement
+   * this; callers fall back to `getMemory` when it is absent. The result is
+   * unordered and may omit ids that do not exist.
+   */
+  getMemoriesByIds?(ids: string[]): Promise<Memory[]>;
   updateMemory(memory: Memory): Promise<void>;
   /** Hard delete (also removes incident associations). */
   deleteMemory(id: string): Promise<void>;

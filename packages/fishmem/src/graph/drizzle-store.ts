@@ -138,6 +138,33 @@ export class DrizzleGraphStore implements GraphStore {
     return rows[0] ? rowToMemory(rows[0]) : null;
   }
 
+  /**
+   * Hydrate many memories in one statement.
+   *
+   * Retrieval fans out over hundreds of candidate ids, and on a networked
+   * store (D1, hosted Postgres) fetching them one at a time turns each
+   * candidate into its own round trip. Ids are chunked below SQLite's
+   * 999-variable ceiling; the result is unordered, and callers key by id.
+   */
+  async getMemoriesByIds(ids: string[]): Promise<Memory[]> {
+    if (ids.length === 0) return [];
+    const unique = [...new Set(ids)];
+    const chunkSize = 500;
+    const chunks: string[][] = [];
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      chunks.push(unique.slice(i, i + chunkSize));
+    }
+    const results = await Promise.all(
+      chunks.map((chunk) =>
+        this.db
+          .select()
+          .from(this.t.memories)
+          .where(inArray(this.t.memories.id, chunk)),
+      ),
+    );
+    return results.flat().map((row) => rowToMemory(row));
+  }
+
   async updateMemory(memory: Memory): Promise<void> {
     const row = memoryToRow(memory);
     const { id, ...set } = row;

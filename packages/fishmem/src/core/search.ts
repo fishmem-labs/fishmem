@@ -454,8 +454,12 @@ export class MemorySearch {
           candidateLimit,
           filters,
         );
+        const visible = await this.loadVisibleMany(
+          hits.map((hit) => hit.id),
+          filters,
+        );
         for (const hit of hits) {
-          const memory = await this.loadVisible(hit.id, filters);
+          const memory = visible.get(hit.id);
           if (memory) ftsResults.push({ memory, score: hit.score });
         }
       } catch (error) {
@@ -483,8 +487,12 @@ export class MemorySearch {
         candidateLimit,
         filters,
       );
+      const visible = await this.loadVisibleMany(
+        hits.map((hit) => hit.id),
+        filters,
+      );
       for (const hit of hits) {
-        const memory = await this.loadVisible(hit.id, filters);
+        const memory = visible.get(hit.id);
         if (memory) vectorResults.push({ memory, score: hit.score });
       }
     } catch (error) {
@@ -697,8 +705,12 @@ export class MemorySearch {
           candidateLimit,
           filters,
         );
+        const visible = await this.loadVisibleMany(
+          hits.map((hit) => hit.id),
+          filters,
+        );
         for (const hit of hits) {
-          const memory = await this.loadVisible(hit.id, filters);
+          const memory = visible.get(hit.id);
           if (memory) ftsResults.push({ memory, score: hit.score });
         }
       } catch (error) {
@@ -725,8 +737,12 @@ export class MemorySearch {
         candidateLimit,
         filters,
       );
+      const visible = await this.loadVisibleMany(
+        hits.map((hit) => hit.id),
+        filters,
+      );
       for (const hit of hits) {
-        const memory = await this.loadVisible(hit.id, filters);
+        const memory = visible.get(hit.id);
         if (memory) vectorResults.push({ memory, score: hit.score });
       }
     } catch (error) {
@@ -1197,10 +1213,12 @@ export class MemorySearch {
       ...new Set([...memoryIds, ...[...memByEntity2.values()].flat()]),
     ].slice(0, 500);
 
-    // Load + scope-check memory nodes.
+    // Load + scope-check memory nodes. This set is capped at 500 ids, which is
+    // 500 serial round trips on a networked store if read one at a time.
     const memories = new Map<string, Memory>();
+    const loadedNodes = await this.loadMemoriesByIds(allMemoryIds);
     for (const id of allMemoryIds) {
-      const m = await this.store.getMemory(id);
+      const m = loadedNodes.get(id);
       if (m && !m.forgotten && inScope(m, filters)) memories.set(id, m);
     }
     if (!memories.size) return null;
@@ -1280,22 +1298,29 @@ export class MemorySearch {
       depth < config.maxGraphDepth && frontier.length;
       depth++
     ) {
+      // One depth level resolves as two bulk steps — edges for the whole
+      // frontier, then the memories behind the new node ids — instead of two
+      // round trips per edge. Nodes are keyed by id and the final ranking is
+      // sorted by PPR score, so visiting a level in bulk cannot reorder output.
       const next: string[] = [];
-      for (const id of frontier) {
-        const associations = await this.store.getAssociations(id);
-        for (const assoc of associations) {
+      const associationLists = await Promise.all(
+        frontier.map((id) => this.store.getAssociations(id)),
+      );
+
+      const candidateIds: string[] = [];
+      const seenCandidates = new Set<string>();
+      for (let i = 0; i < frontier.length; i++) {
+        const id = frontier[i]!;
+        for (const assoc of associationLists[i]!) {
           const otherId =
             assoc.sourceId === id ? assoc.targetId : assoc.sourceId;
           const edgeKey =
             assoc.sourceId < assoc.targetId
               ? `${assoc.sourceId}|${assoc.targetId}|${assoc.relationType}`
               : `${assoc.targetId}|${assoc.sourceId}|${assoc.relationType}`;
-          if (!nodes.has(otherId)) {
-            const memory = await this.store.getMemory(otherId);
-            if (!memory || memory.forgotten || !inScope(memory, filters))
-              continue;
-            nodes.set(otherId, memory);
-            next.push(otherId);
+          if (!nodes.has(otherId) && !seenCandidates.has(otherId)) {
+            seenCandidates.add(otherId);
+            candidateIds.push(otherId);
           }
           if (!seenEdges.has(edgeKey)) {
             seenEdges.add(edgeKey);
@@ -1306,6 +1331,14 @@ export class MemorySearch {
             });
           }
         }
+      }
+
+      const candidates = await this.loadMemoriesByIds(candidateIds);
+      for (const otherId of candidateIds) {
+        const memory = candidates.get(otherId);
+        if (!memory || memory.forgotten || !inScope(memory, filters)) continue;
+        nodes.set(otherId, memory);
+        next.push(otherId);
       }
       frontier = next;
     }
@@ -1399,6 +1432,82 @@ export class MemorySearch {
         }
       }
     }
+  }
+
+  /**
+   * Hydrate a whole candidate set at once.
+   *
+   * `loadVisible` is one store read per id. A hybrid query fans out over
+   * hundreds of candidates, so on a networked store that loop was hundreds of
+   * serial round trips before ranking could start. Stores that expose
+   * `getMemoriesByIds` answer the common case in a single statement; anything
+   * the store does not hold (retrieval documents living only as vectors) falls
+   * back to the per-id path, in parallel rather than in series.
+   *
+   * Order follows `ids`, and invisible candidates are dropped.
+   */
+  /**
+   * Bulk store read for graph nodes, keyed by id. Unlike `loadVisibleMany`
+   * this never falls back to vector payloads: graph traversal only ever walks
+   * ids that exist as stored memories.
+   */
+  private async loadMemoriesByIds(ids: string[]): Promise<Map<string, Memory>> {
+    const byId = new Map<string, Memory>();
+    if (ids.length === 0) return byId;
+    const unique = [...new Set(ids)];
+    const bulkRead = this.store.getMemoriesByIds?.bind(this.store);
+    if (bulkRead) {
+      for (const memory of await bulkRead(unique)) byId.set(memory.id, memory);
+      return byId;
+    }
+    const loaded = await Promise.all(
+      unique.map((id) => this.store.getMemory(id)),
+    );
+    for (const memory of loaded) if (memory) byId.set(memory.id, memory);
+    return byId;
+  }
+
+  private async loadVisibleMany(
+    ids: string[],
+    filters?: MemoryFilters,
+  ): Promise<Map<string, Memory>> {
+    const visible = new Map<string, Memory>();
+    if (ids.length === 0) return visible;
+    const unique = [...new Set(ids)];
+
+    const bulkRead = this.store.getMemoriesByIds?.bind(this.store);
+    if (!bulkRead) {
+      const loaded = await Promise.all(
+        unique.map(async (id) => [id, await this.loadVisible(id, filters)] as const),
+      );
+      for (const [id, memory] of loaded) if (memory) visible.set(id, memory);
+      return visible;
+    }
+
+    const stored = new Map<string, Memory>();
+    for (const memory of await bulkRead(unique)) stored.set(memory.id, memory);
+
+    const missing: string[] = [];
+    for (const id of unique) {
+      const memory = stored.get(id);
+      if (!memory) {
+        // Not a stored memory: it may still be a retrieval document that only
+        // exists as a vector payload, which `loadVisible` knows how to read.
+        missing.push(id);
+        continue;
+      }
+      if (memory.forgotten || !memoryMatchesFilters(memory, filters)) continue;
+      visible.set(id, memory);
+    }
+
+    if (missing.length) {
+      const loaded = await Promise.all(
+        missing.map(async (id) => [id, await this.loadVisible(id, filters)] as const),
+      );
+      for (const [id, memory] of loaded) if (memory) visible.set(id, memory);
+    }
+
+    return visible;
   }
 
   private async loadVisible(
