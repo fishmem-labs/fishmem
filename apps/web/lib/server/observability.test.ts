@@ -61,6 +61,46 @@ describe("observability evidence", () => {
     client.close();
   });
 
+  it("persists the provider's cached-prompt count through a real database write", async () => {
+    // This writes through the same insert the extraction path uses. A failure
+    // here would surface as extraction retries, not as an error anyone reads.
+    const { client, db } = await database();
+    const now = new Date("2026-07-13T00:00:00.000Z");
+
+    const cached = await recordProviderUsage(
+      db as never,
+      {
+        provider: "openai",
+        model: "gpt-4o-mini",
+        kind: "chat",
+        inputTokens: 1_257,
+        cachedInputTokens: 1_024,
+        outputTokens: 74,
+        latencyMs: 2_097,
+        context: { namespaceId: "workspace", operation: "memory.extract" },
+      },
+      now,
+    );
+    const unreported = await recordProviderUsage(
+      db as never,
+      {
+        provider: "openai",
+        model: "text-embedding-3-small",
+        kind: "embedding",
+        inputTokens: 21,
+        outputTokens: 0,
+        latencyMs: 598,
+        context: { namespaceId: "workspace", operation: "memory.embedding" },
+      },
+      now,
+    );
+
+    expect(cached.metadata).toMatchObject({ cached_input_tokens: 1_024 });
+    // Omitted, not zeroed: an unreported count stays distinguishable.
+    expect(unreported.metadata).not.toHaveProperty("cached_input_tokens");
+    client.close();
+  });
+
   it("keeps unpriced calls explicit and aggregates tokens, warnings, and percentiles", async () => {
     const { client, db } = await database();
     const now = new Date("2026-07-13T00:00:00.000Z");

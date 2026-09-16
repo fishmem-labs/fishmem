@@ -61,6 +61,12 @@ describe("public API contract", () => {
       }
     }
     expect(selective).not.toContain("extract EVERY distinct fact");
+    // OpenAI rejects `response_format: json_object` unless a message contains
+    // the word "json". The schema-enforced path does not need it, but a
+    // provider without json_schema support falls back to json_object, and a
+    // compression pass once removed the only mention — silently turning every
+    // extraction on that path into a 400.
+    expect(selective).toMatch(/json/i);
 
     // The prompt is re-sent on every write, so its size is a running cost.
     // Measured: 1,384 tokens before compression, 881 after, and a 781-token

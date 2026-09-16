@@ -67,7 +67,7 @@ const FACT_EXTRACTION_OUTPUT = `Writing each fact:
   dates and keep the date in the fact; never guess one that cannot be derived.
 - One clause where possible; present tense for states, past tense for events.
 
-The response schema is enforced; these fields need judgement:
+The JSON response schema is enforced; these fields need judgement:
 - attribute: short snake_case aspect of the subject ("residence", "pet",
   "allergy", "hobby", "event"). Same subject+attribute = same belief slot.
 - cardinality: "single" when a new value replaces the old (residence, job,
