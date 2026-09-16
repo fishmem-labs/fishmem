@@ -139,6 +139,57 @@ describe("OpenAI request shape by model family", () => {
   });
 });
 
+describe("prompt cache reporting", () => {
+  function llmReturning(usage: Record<string, unknown>) {
+    const onUsage = vi.fn();
+    const llm = new OpenAILLM({ apiKey: "test", model: "gpt-4o-mini", onUsage });
+    (llm as unknown as { client: unknown }).client = {
+      chat: {
+        completions: {
+          create: vi.fn().mockResolvedValue({
+            choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+            usage,
+          }),
+        },
+      },
+    };
+    return { llm, onUsage };
+  }
+
+  it("records the cached part of the prompt the provider reports", async () => {
+    const { llm, onUsage } = llmReturning({
+      prompt_tokens: 1257,
+      completion_tokens: 74,
+      prompt_tokens_details: { cached_tokens: 1024 },
+    });
+
+    await llm.chat([{ role: "user", content: "hi" }]);
+
+    expect(onUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ inputTokens: 1257, cachedInputTokens: 1024 }),
+    );
+  });
+
+  it("keeps an unreported cache count distinct from a confirmed zero", async () => {
+    // Some OpenAI-compatible gateways omit the details block entirely. That
+    // must not be recorded as "nothing was cached", or the cost basis would
+    // claim a certainty it does not have.
+    const unreported = llmReturning({ prompt_tokens: 1257, completion_tokens: 74 });
+    await unreported.llm.chat([{ role: "user", content: "hi" }]);
+    expect(unreported.onUsage.mock.calls[0]![0]).not.toHaveProperty(
+      "cachedInputTokens",
+    );
+
+    const confirmedZero = llmReturning({
+      prompt_tokens: 1257,
+      completion_tokens: 74,
+      prompt_tokens_details: { cached_tokens: 0 },
+    });
+    await confirmedZero.llm.chat([{ role: "user", content: "hi" }]);
+    expect(confirmedZero.onUsage.mock.calls[0]![0].cachedInputTokens).toBe(0);
+  });
+});
+
 describe("provider usage metering", () => {
   it("reports OpenAI chat and embedding usage with call context", async () => {
     const onUsage = vi.fn();

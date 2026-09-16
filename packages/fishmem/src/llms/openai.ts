@@ -43,6 +43,17 @@ const REASONING_TOKEN_HEADROOM = 2_048;
 const DEFAULT_REASONING_EFFORT: OpenAIReasoningEffort = "minimal";
 
 /**
+ * Only a reported count is recorded. A missing field means the provider or
+ * gateway did not say, which must stay distinguishable from a confirmed zero.
+ */
+function cachedInputTokens(value: unknown): { cachedInputTokens?: number } {
+  const count = Number(value);
+  return Number.isFinite(count) && value !== undefined && value !== null
+    ? { cachedInputTokens: count }
+    : {};
+}
+
+/**
  * Whether a model id belongs to a reasoning family, which constrains sampling
  * parameters and renames `max_tokens`. Matching on the id keeps this working
  * for OpenAI-compatible gateways that mirror the same model names.
@@ -142,6 +153,7 @@ export class OpenAILLM implements LLM {
       model: this.model,
       kind: "chat",
       inputTokens: Number(res.usage?.prompt_tokens ?? 0),
+      ...cachedInputTokens(res.usage?.prompt_tokens_details?.cached_tokens),
       outputTokens: Number(res.usage?.completion_tokens ?? 0),
       latencyMs: Date.now() - startedAt,
       context: options?.context,

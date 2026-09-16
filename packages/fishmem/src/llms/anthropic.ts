@@ -80,7 +80,13 @@ export class AnthropicLLM implements LLM {
       provider: "anthropic",
       model: this.model,
       kind: "chat",
-      inputTokens: Number(res.usage?.input_tokens ?? 0),
+      // Anthropic counts cache reads apart from input_tokens; both are input.
+      inputTokens:
+        Number(res.usage?.input_tokens ?? 0) +
+        Number(res.usage?.cache_read_input_tokens ?? 0),
+      ...(res.usage?.cache_read_input_tokens !== undefined
+        ? { cachedInputTokens: Number(res.usage.cache_read_input_tokens) }
+        : {}),
       outputTokens: Number(res.usage?.output_tokens ?? 0),
       latencyMs: Date.now() - startedAt,
       context: options?.context,

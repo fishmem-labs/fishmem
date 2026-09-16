@@ -11,6 +11,16 @@ export interface ProviderUsage {
   model: string;
   kind: "chat" | "embedding";
   inputTokens: number;
+  /**
+   * The part of `inputTokens` the provider served from its prompt cache and
+   * bills at a reduced rate. Absent when the provider does not report it.
+   *
+   * Recorded separately because the extraction prompt is a fixed prefix
+   * re-sent on every write: whether that prefix is cached decides a large
+   * share of the product's cost, and the only trustworthy answer is the
+   * provider's own count, not an assumption.
+   */
+  cachedInputTokens?: number;
   outputTokens: number;
   latencyMs: number;
   context?: ProviderCallContext;

@@ -115,6 +115,12 @@ export async function recordProviderUsage(
         operation: usage.context?.operation,
         provider_kind: usage.kind,
         price_snapshot_id: price?.documentId ?? null,
+        // Kept apart from input_tokens so a query can tell whether the fixed
+        // extraction prefix is actually served from cache. Omitted, not zeroed,
+        // when the provider did not report it.
+        ...(usage.cachedInputTokens !== undefined
+          ? { cached_input_tokens: usage.cachedInputTokens }
+          : {}),
       },
       createdAt: now,
     })
