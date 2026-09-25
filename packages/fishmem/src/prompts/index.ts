@@ -84,9 +84,70 @@ The JSON response schema is enforced; these fields need judgement:
   "subject": "Sam", "attribute": "event", "type": "event",
   "cardinality": "multi"}]}`;
 
+/**
+ * Output conventions exactly as the legacy baseline shipped them, before the
+ * production prompt was compressed. Frozen so A/B runs against the exhaustive
+ * baseline stay comparable with earlier evidence; do not edit.
+ */
+const LEGACY_FACT_EXTRACTION_OUTPUT = `- Each fact must stand on its own without the surrounding conversation.
+  Name the person it is about explicitly; resolve pronouns to concrete
+  entities ("Sam plays the cello", not "she plays it").
+- For every item in an ordered list, retain its original ordinal position and
+  the list's topic (including first/last labels). Never preserve the item while
+  discarding the order needed to identify it later.
+- Anchor time: if the conversation has a date (e.g. "(conversation date:
+  ...)"), resolve relative references ("yesterday", "last week", "next
+  month") to absolute dates and include the date in the fact ("Sam ran the
+  city marathon on 12 March 2024"). For events, always keep the date when it
+  is known or derivable. Never guess a date that cannot be derived.
+- Prefer present tense for ongoing states, past tense with dates for events.
+- Keep each fact concise (one clause where possible).
+- If there is nothing worth remembering, return an empty list.
+
+Respond with a single JSON object. Each fact is an object with:
+- "text": the fact.
+- "event_date": ISO date (YYYY-MM-DD, or YYYY-MM / YYYY if partially known)
+  when the fact happened or began; null when undatable.
+- "entities": the named entities the fact mentions (people, places,
+  organizations, named things) — exact surface forms, deduplicated.
+- "subject": the single entity the fact is primarily about.
+- "attribute": a short snake_case key for the aspect of the subject this
+  fact states ("residence", "job", "pet", "allergy", "hobby", "event") —
+  facts about the same subject+attribute describe the same belief slot.
+- "type": classify the fact as exactly one of:
+  - "fact": something that is true (a state/attribute, e.g. lives in X, has a pet)
+  - "preference": something the user likes or dislikes
+  - "decision": a choice that was made
+  - "identity": core, durable info about who someone is (rarely changes)
+  - "event": something that happened at a point in time (append-only; events
+    do NOT supersede each other)
+  - "observation": something merely noticed
+  - "goal": something someone wants to achieve
+  - "todo": an actionable task or reminder
+  Default to "fact" if unsure.
+- "cardinality": for this subject+attribute, can only ONE value be true at a
+  time, or can several coexist?
+  - "single": a new value REPLACES the old one (residence, job, age, marital
+    status, current employer) — you can only live in one place at a time.
+  - "multi": several values coexist (pets, hobbies, skills, friends, children,
+    languages spoken) — having a dog doesn't undo having a cat.
+  Default "single".
+
+{"facts": [
+  {"text": "Sam ran the city marathon on 12 March 2024", "event_date": "2024-03-12",
+   "entities": ["Sam", "city marathon"], "subject": "Sam", "attribute": "event",
+   "type": "event", "cardinality": "multi"},
+  {"text": "Sam plays the cello", "event_date": null,
+   "entities": ["Sam"], "subject": "Sam", "attribute": "instrument",
+   "type": "fact", "cardinality": "multi"},
+  {"text": "Sam lives in Berlin", "event_date": null,
+   "entities": ["Sam", "Berlin"], "subject": "Sam", "attribute": "residence",
+   "type": "fact", "cardinality": "single"}
+]}`;
+
 /** Exhaustive legacy writer retained for reproducible A/B baselines. */
 export const EXHAUSTIVE_FACT_EXTRACTION_SYSTEM = `${LEGACY_FACT_EXTRACTION_POLICY}
-${FACT_EXTRACTION_OUTPUT}`;
+${LEGACY_FACT_EXTRACTION_OUTPUT}`;
 
 /**
  * Selective one-call writer. It passed the complete live v3 safety/retention
