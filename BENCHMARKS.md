@@ -1,5 +1,15 @@
 # fishmem — Benchmark Report
 
+> **Historical research record (June 2026) — superseded.** This page documents
+> the June 2026 raw-versus-extraction ablations and is kept only as research
+> evidence. It does not describe the current product: FishMem now stores
+> refined canonical records from one extraction call (`infer: true`), with the
+> raw Episode archive opt-in and off by default. The "verbatim raw beats mem0"
+> headline below was measured on that retired raw-first configuration with the
+> June model set (`gpt-4o-mini` answerer) and must not be cited as a current
+> result. The current evaluation is
+> [`benchmarks/reports/evidence-2026-08-24.md`](./benchmarks/reports/evidence-2026-08-24.md).
+
 Honest, same-harness measurements of fishmem against mem0. Every number here
 is reproducible with the harness in [`benchmarks/`](./benchmarks); per-question
 outputs are saved as JSON.

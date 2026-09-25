@@ -157,6 +157,45 @@ and RRF fusion (`rrf.ts`) are all **already implemented**. FTS is OFF
   expensive one. Gate on (a) accepting the dep as opt-in and (b) an ablation
   showing rerank headroom on the raw base.
 
+### 2.9 Lexical lane on Cloudflare (D1 + Vectorize) — design note, not implemented
+- **Gap:** the FTS lane (`MemorySearch.hybridSearch`) runs only when the
+  vector store implements `VectorStore.textSearch`. `VectorizeVectorStore` does
+  not, so the Cloud deployment has no lexical lane at all, while SQLite
+  (`SqliteVectorStore`, FTS5 over a JS-tokenized `tokens` column), pgvector,
+  and in-memory stores do (Qdrant does not either). `rrfWeights.fts` is 0 everywhere, so this changes
+  no current result; it only blocks running lexical ablations on Cloud.
+- **Seam:** a composite `VectorStore` that delegates every method to Vectorize
+  and adds `textSearch(query, limit, filters)` backed by D1, built next to
+  `createMemoryStores` in `apps/web` and wrapped only when a deployment flag
+  (for example `FISHMEM_D1_LEXICAL=1`) is set. The FTS table would be an
+  external-content FTS5 table over `fishmem_memories(content)` maintained by
+  `AFTER INSERT/UPDATE/DELETE` triggers, so add/update/forget/delete/purge/
+  import stay in sync without touching `DrizzleGraphStore`. The query joins
+  back to `fishmem_memories` for exact namespace/user/agent/run filtering and
+  `forgotten = 0`; `loadVisibleMany` already re-checks visibility.
+- **Why it was not built (2026-09 assessment):**
+  1. `hybridSearch` calls `textSearch` whenever it exists, even at
+     `rrfWeights.fts = 0`, so enabling the composite costs an extra D1 query per
+     search with no effect; the engine first needs a `fts > 0` guard.
+  2. Retrieval documents (searchable Episodes, slot summaries) live only in
+     the vector store. A graph-table FTS index would not see them, so the lane
+     would not match the SQLite lane under the benchmarked configuration.
+  3. Triggers cannot call `lexicalTokens` (`vector/sqlite.ts`), so tokenization
+     would fall back to FTS5 `unicode61`, which differs for CJK and would make
+     Cloud and self-hosted lexical results incomparable.
+  4. The engine schema is provisioned by `SQLITE_DDL` + `provisionEngineSchema`
+     for both D1 and Node libSQL; adding FTS5 there puts write amplification on
+     every deployment, and Cloudflare documents that `wrangler d1 export`
+     does not support databases containing virtual tables, so an FTS5 table
+     would break SQL-dump backups of the D1 database (FishMem's own namespace
+     snapshot export is unaffected).
+- **Precondition to revisit:** a paired ablation showing a lexical win on the
+  current canonical representation (1.1 was a wash on raw and −7.5 pt on the
+  old extraction store). If one appears, implement the guard (1), index
+  retrieval documents from the vector-projection path instead of triggers
+  (2, 3), and keep the FTS table in a separately provisioned, droppable
+  schema so exports can exclude it (4).
+
 ---
 
 ## Principles (do / avoid)

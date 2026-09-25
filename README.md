@@ -65,6 +65,10 @@ required datasets; the losing result is reported alongside the wins.
 | BEAM `100k` | 400 | 46.7% | 41.0% | +5.7 pt (+1.8 to +9.5) |
 | LOCOMO, categories 1–5 | 1,986 | 67.5% | 71.1% | -3.7 pt (-5.8 to -1.5) |
 
+All FishMem runs in this table enabled the searchable Episode archive
+(`episodes: { archive: true, searchable: true }`). That is not the default or
+hosted configuration and is not selectable through the public API; a
+self-hosted web deployment enables it with `FISHMEM_EPISODES_SEARCHABLE=1`.
 These LongMemEval results are for the `oracle` variant, not LongMemEval-S, and
 must not be compared with the published LongMemEval-S human reference. Total
 cost and end-to-end wall-clock claims are withheld because two reused baseline
