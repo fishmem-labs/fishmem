@@ -1407,8 +1407,10 @@ describe("authenticated public memory routes", () => {
     );
 
     expect(response.status).toBe(200);
+    // Dashboard browsing never bumps access_count / last_accessed_at.
     expect(memory.search).toHaveBeenCalledWith("tea", {
       limit: 50,
+      trackAccess: false,
     });
     await expect(response.json()).resolves.toMatchObject({
       results: [{ id: "mem_1", memory: "Ada prefers tea", score: 0.9 }],

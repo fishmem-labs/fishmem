@@ -430,6 +430,9 @@ const SearchMemoryFields = {
     .union([MemoryFilterExpressionSchema, MetadataFiltersSchema])
     .optional(),
   trace: z.boolean().default(false),
+  /** Default true. Browsing UIs pass false so inspection does not inflate
+   * access_count / last_accessed_at. */
+  track_access: z.boolean().default(true),
 };
 
 export const SearchMemoryCommandSchema = z

@@ -3164,17 +3164,21 @@ export async function appMemoriesHandler(
       // show which lane (vector/fts/graph/temporal) surfaced each hit.
       const wantTrace = q("trace") === "1";
       const hasExplicitScope = Object.values(requestScope).some(Boolean);
+      // Operator browsing must not inflate access_count/last_accessed_at,
+      // which feed decay and tiering for real agent recall.
       const { results, beliefs, trace } = hasExplicitScope
         ? await application.search(workspaceId, {
             ...requestScope,
             query,
             limit: searchLimit,
             trace: wantTrace,
+            track_access: false,
           })
         : await application.searchWorkspace(workspaceId, {
             query,
             limit: searchLimit,
             trace: wantTrace,
+            track_access: false,
           });
       const laneScore = (
         list: Array<{ id: string; score: number }> | undefined,

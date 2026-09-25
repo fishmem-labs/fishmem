@@ -249,6 +249,13 @@ export interface SearchOptions extends Scope {
   filter?: MemoryFilterExpression;
   /** Return the per-source retrieval trace alongside results. */
   trace?: boolean;
+  /**
+   * Record an access (accessCount/lastAccessedAt) on every returned memory.
+   * Default true: agent recall is the signal decay/tiering rely on. Operator
+   * UIs browsing memories should pass false so inspection does not inflate
+   * access statistics.
+   */
+  trackAccess?: boolean;
 }
 
 export interface GetAllOptions extends Scope {
@@ -1461,8 +1468,13 @@ export class Memory {
       traceRetrieval: options.trace ?? this.searchDefaults.traceRetrieval,
     };
     const results = await this.search_.search(query, config, filters);
-    // Record access on recalled memories (spacebot parity).
-    await Promise.all(results.map((r) => this.store.recordAccess(r.memory.id)));
+    // Record access on recalled memories (spacebot parity) unless the caller
+    // is only browsing.
+    if (options.trackAccess !== false) {
+      await Promise.all(
+        results.map((r) => this.store.recordAccess(r.memory.id)),
+      );
+    }
 
     // Belief-chain assembly (read-time reconstruction): group results that
     // share a (subject, attribute) key, pull in their supersession chains,

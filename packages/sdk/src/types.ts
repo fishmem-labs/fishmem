@@ -149,6 +149,8 @@ export type SearchMemoriesInput = MemoryScope & {
 	min_score?: number;
 	filters?: MemoryFiltersInput;
 	trace?: boolean;
+	/** Default true. Pass false when browsing so access stats are not bumped. */
+	track_access?: boolean;
 };
 
 export type ListMemoriesInput = MemoryScope & {

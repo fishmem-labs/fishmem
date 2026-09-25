@@ -85,6 +85,7 @@ function searchOptions(
 				: { filters: command.filters }
 			: {}),
 		...(command.trace ? { trace: true } : {}),
+		...(command.track_access === false ? { trackAccess: false } : {}),
 	};
 }
 
