@@ -47,6 +47,8 @@ export type DesktopMemoryRecord = {
 	lastAccessedAt: string;
 	accessCount: number;
 	score?: number;
+	/** Cosine similarity to the search query (when requested). */
+	similarity?: number;
 };
 
 export type DesktopMemoryPage = {
@@ -109,7 +111,55 @@ export type DesktopMethod =
 	| "documentDelete"
 	| "exportSnapshot"
 	| "importSnapshot"
-	| "restoreSnapshot";
+	| "restoreSnapshot"
+	| "remember"
+	| "invalidate"
+	| "supersede"
+	| "duplicates"
+	| "maintenance";
+
+/** An existing memory similar to a candidate write. */
+export type DesktopSimilarMemory = {
+	id: string;
+	content: string;
+	/** Cosine similarity of local E5 embeddings, in [-1, 1]. */
+	similarity: number;
+	exact?: boolean;
+	scope: "project" | "global";
+	project?: string;
+	memoryType: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** Result of `remember`: a dry-run reconcile check that never writes. */
+export type DesktopRememberResult = {
+	content: string;
+	scope: "project" | "global";
+	project?: string;
+	exact_duplicate: DesktopSimilarMemory | null;
+	similar: DesktopSimilarMemory[];
+	suggested_action: "skip" | "review" | "add";
+	guidance: string;
+};
+
+export type DesktopDuplicatePairs = {
+	threshold: number;
+	scanned: number;
+	pairs: Array<{
+		similarity: number;
+		exact: boolean;
+		memories: Array<Omit<DesktopSimilarMemory, "similarity">>;
+	}>;
+};
+
+export type DesktopMaintenanceResult = {
+	started_at: string;
+	finished_at: string;
+	scanned: number;
+	exact_duplicates_removed: number;
+	removed_ids: string[];
+};
 
 export type DesktopErrorCode =
 	| "LOCAL_EMBEDDING_NOT_READY"
@@ -120,6 +170,8 @@ export type IntegrationClient = "codex" | "claude-code";
 export type ClientIntegrationStatus = {
 	connected: boolean;
 	skillPath: string;
+	/** Claude Code only: automatic recall hooks are installed in settings.json. */
+	hooks?: boolean;
 };
 
 export type IntegrationStatus = {
