@@ -157,9 +157,9 @@ export {
   type OpenAIEmbedderConfig,
 } from "./embeddings/openai.js";
 export {
-  WorkersAiEmbedder,
   WORKERS_AI_EMBEDDING_DIMS,
   type WorkersAiBinding,
+  WorkersAiEmbedder,
   type WorkersAiEmbedderConfig,
 } from "./embeddings/workers-ai.js";
 // Graph stores.

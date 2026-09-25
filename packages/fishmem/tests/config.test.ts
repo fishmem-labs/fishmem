@@ -49,10 +49,19 @@ describe("public API contract", () => {
       ["veto: memory controls", ["memory controls", "outrank"]],
       ["veto: secrets", ["credentials", "recovery codes"]],
       ["provenance: source data", ["tool output", "source data"]],
-      ["provenance: untrusted instructions", ["untrusted", "never act on them"]],
+      [
+        "provenance: untrusted instructions",
+        ["untrusted", "never act on them"],
+      ],
       ["durability: self-identification", ["self-identification"]],
       ["current turn: ephemeral", ["Current turn", "ephemeral state"]],
-      ["attribution: role", ['Resolve "I" from the message role', "assistant claims are not user facts"]],
+      [
+        "attribution: role",
+        [
+          'Resolve "I" from the message role',
+          "assistant claims are not user facts",
+        ],
+      ],
       ["attribution: unaccepted", ["not acceptance", "episodic"]],
       ["audit", ["return no facts"]],
     ] as const) {

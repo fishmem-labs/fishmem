@@ -1478,7 +1478,9 @@ export class MemorySearch {
     const bulkRead = this.store.getMemoriesByIds?.bind(this.store);
     if (!bulkRead) {
       const loaded = await Promise.all(
-        unique.map(async (id) => [id, await this.loadVisible(id, filters)] as const),
+        unique.map(
+          async (id) => [id, await this.loadVisible(id, filters)] as const,
+        ),
       );
       for (const [id, memory] of loaded) if (memory) visible.set(id, memory);
       return visible;
@@ -1502,7 +1504,9 @@ export class MemorySearch {
 
     if (missing.length) {
       const loaded = await Promise.all(
-        missing.map(async (id) => [id, await this.loadVisible(id, filters)] as const),
+        missing.map(
+          async (id) => [id, await this.loadVisible(id, filters)] as const,
+        ),
       );
       for (const [id, memory] of loaded) if (memory) visible.set(id, memory);
     }

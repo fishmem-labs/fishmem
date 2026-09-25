@@ -11,8 +11,8 @@ import {
   MockEmbedder,
   MockLLM,
   OpenAILLM,
-  type ProviderUsage,
   type OpenAIReasoningEffort,
+  type ProviderUsage,
   SELECTIVE_FACT_EXTRACTION_SYSTEM,
 } from "../../packages/fishmem/src/index.js";
 import { parseIntegerOption } from "../cli.js";
@@ -111,7 +111,9 @@ function createRuntime(input: {
     llm: new OpenAILLM({
       model: input.model,
       baseURL: input.baseURL,
-      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+      ...(input.reasoningEffort
+        ? { reasoningEffort: input.reasoningEffort }
+        : {}),
       temperature: 0,
       timeoutMs: 60_000,
       // A complete v1 A/B is explicitly bounded to 19 cases x 2 prompts.

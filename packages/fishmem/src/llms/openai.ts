@@ -128,15 +128,17 @@ export class OpenAILLM implements LLM {
       params.temperature = options?.temperature ?? this.temperature;
     }
     const reasoningEffort =
-      this.reasoningEffort ?? (reasoning ? DEFAULT_REASONING_EFFORT : undefined);
+      this.reasoningEffort ??
+      (reasoning ? DEFAULT_REASONING_EFFORT : undefined);
     if (reasoningEffort) {
       params.reasoning_effort = reasoningEffort;
     }
     if (options?.maxTokens) {
       // A reasoning model spends part of this budget on hidden reasoning
       // tokens, so the caller's visible-output budget must not cap the total.
-      params[reasoning ? "max_completion_tokens" : "max_tokens"] =
-        reasoning ? options.maxTokens + REASONING_TOKEN_HEADROOM : options.maxTokens;
+      params[reasoning ? "max_completion_tokens" : "max_tokens"] = reasoning
+        ? options.maxTokens + REASONING_TOKEN_HEADROOM
+        : options.maxTokens;
     }
     if (options?.responseFormat === "json") {
       params.response_format = options.jsonSchema
