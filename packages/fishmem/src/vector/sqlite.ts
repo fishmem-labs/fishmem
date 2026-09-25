@@ -196,7 +196,10 @@ export class SqliteVectorStore implements VectorStore {
       const distance = Number(row.distance);
       hits.push({
         id: String(row.id),
-        score: clamp01(1 - distance / 2),
+        // libSQL cosine distance is 1 - cos in [0, 2]. Report raw cosine, the
+        // same scale as the in-memory, pgvector, Qdrant and Vectorize stores,
+        // so every similarity threshold means the same thing on every adapter.
+        score: Math.max(-1, Math.min(1, 1 - distance)),
         content: String(row.content),
         payload,
       });
@@ -533,8 +536,4 @@ function positiveLimit(value: number): number {
     throw new Error("Search limit must be a positive integer");
   }
   return value;
-}
-
-function clamp01(value: number): number {
-  return Math.max(0, Math.min(1, value));
 }
