@@ -40,10 +40,12 @@ function extractFacts(messages: Message[]): string[] {
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   // Extraction receives a role-prefixed transcript. Strip those transport
   // labels so the mock mirrors a real model's semantic output.
-  const text = (lastUser?.content ?? "").replace(
-    /^(?:system|user|assistant|tool):\s*/gmu,
-    "",
-  );
+  // Opt-in reconcile prepends numbered reference memories; they are not
+  // conversation content and a real model is told never to extract them.
+  const text = (lastUser?.content ?? "")
+    .replace(/<existing_memories>[\s\S]*?<\/existing_memories>/u, "")
+    .replace(/^<\/?conversation>$/gmu, "")
+    .replace(/^(?:system|user|assistant|tool):\s*/gmu, "");
   return text
     .split(/[\n.!?。！？]+/u)
     .map((s) => s.trim())

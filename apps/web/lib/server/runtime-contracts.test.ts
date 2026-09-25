@@ -6,6 +6,7 @@ import {
   apiTokenAuthFailure,
   apiPermissionForRequest,
   memoryDerivationConfig,
+  memoryWriteFeatureConfig,
 } from "./runtime-contracts";
 
 describe("API operation permissions", () => {
@@ -340,6 +341,45 @@ describe("governed belief projection migration", () => {
       ]),
     );
     client.close();
+  });
+});
+
+describe("memoryWriteFeatureConfig", () => {
+  it("leaves reconcile and episodes off unless explicitly enabled", () => {
+    expect(memoryWriteFeatureConfig({})).toEqual({});
+    expect(
+      memoryWriteFeatureConfig({
+        FISHMEM_RECONCILE: "true",
+        FISHMEM_EPISODES_ARCHIVE: "yes",
+      }),
+    ).toEqual({});
+  });
+
+  it("maps deployment flags to the engine's opt-in write features", () => {
+    expect(
+      memoryWriteFeatureConfig({
+        FISHMEM_RECONCILE: "1",
+        FISHMEM_RECONCILE_CANDIDATES: "8",
+        FISHMEM_RECONCILE_MIN_SCORE: "0.4",
+        FISHMEM_EPISODES_ARCHIVE: "1",
+      }),
+    ).toEqual({
+      reconcile: { enabled: true, candidates: 8, minScore: 0.4 },
+      episodes: { archive: true, searchable: false },
+    });
+    // Searchable episodes imply the archive: the benchmarked configuration.
+    expect(
+      memoryWriteFeatureConfig({ FISHMEM_EPISODES_SEARCHABLE: "1" }),
+    ).toEqual({ episodes: { archive: true, searchable: true } });
+  });
+
+  it("surfaces malformed tuning to engine validation instead of defaulting", () => {
+    expect(
+      memoryWriteFeatureConfig({
+        FISHMEM_RECONCILE: "1",
+        FISHMEM_RECONCILE_CANDIDATES: "many",
+      }).reconcile?.candidates,
+    ).toBeNaN();
   });
 });
 

@@ -291,6 +291,11 @@ function feedbackView(feedback: MemoryFeedback) {
 	};
 }
 
+type AddResultWireEvent = "ADD" | "UPDATE" | "DELETE" | "INVALIDATE";
+const ADD_RESULT_WIRE_EVENTS: ReadonlySet<string> = new Set<AddResultWireEvent>(
+	["ADD", "UPDATE", "DELETE", "INVALIDATE"],
+);
+
 export class MemoryApplication {
 	constructor(private readonly engine: Engine) {}
 
@@ -320,11 +325,19 @@ export class MemoryApplication {
 				: {}),
 		});
 		return {
-			results: result.results.map((item) => ({
-				id: item.id,
-				memory: item.memory,
-				event: item.event,
-			})),
+			// Opt-in engine reconcile reports duplicate facts as NONE. As in
+			// mem0, a no-op is not a write result: only ADD/INVALIDATE (and the
+			// other wire events) are returned and metered.
+			results: result.results
+				.filter(
+					(item): item is typeof item & { event: AddResultWireEvent } =>
+						ADD_RESULT_WIRE_EVENTS.has(item.event),
+				)
+				.map((item) => ({
+					id: item.id,
+					memory: item.memory,
+					event: item.event,
+				})),
 		};
 	}
 

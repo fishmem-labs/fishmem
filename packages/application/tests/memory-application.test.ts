@@ -79,6 +79,37 @@ describe("MemoryApplication", () => {
 		});
 	});
 
+	it("omits engine NONE (reconcile no-op) results from the wire response", async () => {
+		const { app, memory } = fixture();
+		memory.add.mockResolvedValueOnce({
+			results: [
+				{ id: "m2", memory: "Ada lives in Paris", event: "ADD" },
+				{ id: "m1", memory: "Ada lives in Berlin", event: "INVALIDATE" },
+				{ id: "m0", memory: "Ada likes tea", event: "NONE" },
+			],
+		});
+		await expect(
+			app.add("workspace", { content: "fact", user_id: "ada" }),
+		).resolves.toEqual({
+			results: [
+				{ id: "m2", memory: "Ada lives in Paris", event: "ADD" },
+				{ id: "m1", memory: "Ada lives in Berlin", event: "INVALIDATE" },
+			],
+		});
+	});
+
+	it("forwards track_access=false so browsing does not bump access stats", async () => {
+		const { app, memory } = fixture();
+		await app.searchWorkspace("workspace", {
+			query: "deployment",
+			track_access: false,
+		});
+		expect(memory.search).toHaveBeenCalledWith("deployment", {
+			limit: 10,
+			trackAccess: false,
+		});
+	});
+
 	it("forwards an explicit event date into the canonical engine", async () => {
 		const { app, memory } = fixture();
 		await app.add("workspace", {

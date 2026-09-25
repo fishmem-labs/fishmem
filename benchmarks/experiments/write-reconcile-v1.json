@@ -1,0 +1,32 @@
+{
+  "experimentId": "write-reconcile-v1",
+  "status": "implemented-opt-in-awaiting-paired-eval",
+  "defaultDisposition": "opt-in",
+  "hypothesis": "Showing the extractor the top-5 current same-scope memories inside the single extraction call, and letting it mark new facts duplicate_of/supersedes, recovers LongMemEval knowledge-update accuracy (-7.7 pt vs mem0 in evidence-2026-08-24) by invalidating stale facts, without regressing other categories or adding an LLM call.",
+  "treatment": {
+    "overrides": { "reconcile": { "enabled": true, "candidates": 5, "minScore": 0.3 } }
+  },
+  "baseline": {
+    "overrides": { "episodes": { "archive": true, "searchable": true } },
+    "note": "Treatment runs add the reconcile block to the same baseline overrides; reconcile is the only changed variable."
+  },
+  "datasets": ["longmemeval-oracle-dev", "longmemeval-oracle-holdout", "locomo-holdout"],
+  "primaryMetric": "knowledge_update_accuracy",
+  "guardrails": [
+    "overall_accuracy",
+    "temporal_reasoning_accuracy",
+    "multi_session_accuracy",
+    "llm_calls_per_add",
+    "embedding_calls",
+    "extraction_input_tokens",
+    "ingest_p95",
+    "reconcile_invalid_reference_warnings",
+    "failed_adds"
+  ],
+  "budget": {
+    "llmCallsPerAdd": 1,
+    "extraEmbeddingRequestsPerInferredAdd": 1,
+    "maxExtractionInputTokenIncreasePct": 25
+  },
+  "stopRule": "paired bootstrap CI plus exact McNemar on knowledge-update; default promotion additionally requires no significant overall regression on LongMemEval and LOCOMO holdout"
+}

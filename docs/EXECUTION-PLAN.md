@@ -398,12 +398,67 @@ exist.
 | 0b | Production-default rerun | Measure the shipped `infer:true` path against current mem0 | LOCOMO + LongMemEval | Blocks superiority claims |
 | 1 | Deterministic temporal/state routing | State queries should use the sidecar; ordinary recall should query canonical records | LongMemEval update/temporal + FishBench stale facts | Architecture differentiator; unproven as default |
 | 2 | Conservative duplicate suppression | Duplicate canonical records waste topK and context without adding evidence | LOCOMO single-hop/multi-hop + MemBench | Test before graph expansion |
+| 2a | Write-time reconcile (`reconcile.enabled`) | Numbering the top-k current same-scope memories inside the single extraction call lets it mark `duplicate_of` / `supersedes`, invalidating stale facts | LongMemEval knowledge-update (-7.7 pt vs mem0) + LOCOMO holdout guardrail | Implemented, opt-in, awaiting paired eval (`benchmarks/experiments/write-reconcile-v1.json`) |
 | 3 | Document neighbor expansion | Adjacent document chunks recover distributed evidence | Long-document QA + ConvoMem | Blocked on document API |
 | 4 | Entity/co-occurrence boost | Orthogonal entity evidence helps multi-hop where vector similarity misses | LOCOMO multi-hop + BEAM multi-session | Experimental; boost-only |
 | 5 | Local cross-encoder rerank | No-token rerank improves precision enough to pay latency | LOCOMO/LongMemEval quality-latency curve | Opt-in candidate |
 | 6 | Progressive profile/scenario view | Higher-level summaries reduce context on profile/long-task queries while provenance protects accuracy | FishBench + LongMemEval preference/update | Deferred until state view passes |
 | 7 | Dynamic Hebbian reinforcement | Repeated useful co-recall improves future retrieval | Stateful FishBench repeated workflows | Deferred; LOCOMO cannot validate it |
 | 8 | Agentic/deep recall | Extra query-time reasoning raises the quality ceiling | BEAM synthesis + explicit premium workload | Never default |
+
+#### 2a. Write-time reconcile — implemented, opt-in, awaiting paired eval
+
+Mechanism (gate A passed with the mock LLM in
+`packages/fishmem/tests/reconcile.test.ts`): with
+`reconcile: { enabled: true, candidates: 5, minScore: 0.3 }`, an inferred add
+embeds the input once, fetches up to `candidates` current, non-forgotten
+canonical memories whose namespace/user/agent/run scope equals the write's
+scope exactly, and numbers them in the same extraction call. The strict
+schema gains per-fact `duplicate_of` (index or null) and `supersedes`
+(indices). `duplicate_of` skips the write and reports `NONE` (omitted from the
+wire response, as in mem0); `supersedes` stores the new fact and invalidates
+the old record (`validTo` + `supersededBy`, INVALIDATE history, `updates`
+association) through the journaled mutation path. Invalid indices are ignored
+with a `reconcile_invalid_reference` warning. Decisions are frozen in the
+idempotent `addPlan`, so a retry replays without an LLM call. With no
+candidates the prompt, schema, and user content are byte-identical to the
+default. Cost: one extra embedding request per inferred add plus the
+candidate tokens in the extraction input. Web deployments enable it with
+`FISHMEM_RECONCILE=1` (default off).
+
+Paired evaluation (only `reconcile` changes; keep the published baseline
+overrides, models, top-k, chunking, and item set identical):
+
+```bash
+BASE='{"episodes":{"archive":true,"searchable":true}}'
+TREAT='{"episodes":{"archive":true,"searchable":true},"reconcile":{"enabled":true,"candidates":5,"minScore":0.3}}'
+COMMON="--variant oracle --system fishmem --llm gpt-5.6-luna --top-k 10 --chunk-size 4"
+
+# Gate B (dev signal): stable stratified sample
+pnpm bench:longmemeval -- $COMMON --split dev --per-type 10 --overrides "$BASE" \
+  --out benchmarks/results/longmemeval-oracle-reconcile-v1-baseline-dev.json
+pnpm bench:longmemeval -- $COMMON --split dev --per-type 10 --overrides "$TREAT" \
+  --out benchmarks/results/longmemeval-oracle-reconcile-v1-treatment-dev.json
+pnpm exec tsx benchmarks/compare.ts \
+  benchmarks/results/longmemeval-oracle-reconcile-v1-treatment-dev.json \
+  benchmarks/results/longmemeval-oracle-reconcile-v1-baseline-dev.json
+
+# Gate C/D (holdout + cross-dataset guardrail): repeat both LongMemEval runs
+# with --split full (all 500 items), then pair LOCOMO held-out conversations:
+for ARM in baseline treatment; do
+  OVR=$([ "$ARM" = treatment ] && echo "$TREAT" || echo "$BASE")
+  pnpm bench:locomo -- --systems fishmem --split holdout \
+    --conversation-ids conv-30,conv-41 --llm gpt-5.6-luna --overrides "$OVR" \
+    --out "benchmarks/results/locomo-reconcile-v1-$ARM-holdout.json"
+done
+pnpm exec tsx benchmarks/compare.ts \
+  benchmarks/results/locomo-reconcile-v1-treatment-holdout.json \
+  benchmarks/results/locomo-reconcile-v1-baseline-holdout.json
+```
+
+`compare.ts` pairs LongMemEval runs by question id and reports each question
+type. Promotion to default needs a knowledge-update CI excluding zero and no
+significant overall regression on either dataset (see the manifest budget).
 
 Rejected/default-off decisions remain closed unless the representation or
 measurement premise changes:

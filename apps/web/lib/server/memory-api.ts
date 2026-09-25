@@ -74,6 +74,7 @@ import {
   apiTokenAuthFailure,
   apiPermissionForRequest,
   memoryDerivationConfig,
+  memoryWriteFeatureConfig,
 } from "@/lib/server/runtime-contracts";
 import { sanitizePublicSnapshot } from "@/lib/server/public-snapshot";
 import {
@@ -679,6 +680,9 @@ export async function getMemoryEngine(): Promise<Memory> {
           cfg.derivationEnabled,
           stateSidecar,
           beliefReconciler,
+        ),
+        ...memoryWriteFeatureConfig(
+          env as unknown as Record<string, string | undefined>,
         ),
       });
     })();
