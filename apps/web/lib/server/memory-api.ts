@@ -23,6 +23,7 @@
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import {
   chunkDocumentText,
+  DEFAULT_ANTHROPIC_LLM_MODEL,
   DeleteAllLimitError,
   ensureSqliteSchemaColumns,
   Memory,
@@ -73,6 +74,8 @@ import {
   apiTokenAuthFailure,
   apiPermissionForRequest,
   memoryDerivationConfig,
+  memoryMaintenanceConfig,
+  memoryWriteFeatureConfig,
 } from "@/lib/server/runtime-contracts";
 import { sanitizePublicSnapshot } from "@/lib/server/public-snapshot";
 import {
@@ -495,7 +498,7 @@ async function resolveEngineConfig() {
   const llmModel =
     row?.llmModel ||
     e.llmModel ||
-    (llmProvider === "anthropic" ? "claude-3-5-haiku-latest" : DEFAULT_OPENAI_LLM_MODEL);
+    (llmProvider === "anthropic" ? DEFAULT_ANTHROPIC_LLM_MODEL : DEFAULT_OPENAI_LLM_MODEL);
   const llm =
     llmProvider === "anthropic"
       ? {
@@ -603,7 +606,7 @@ export async function describeProviderConfig() {
     llmModel:
       row?.llmModel ||
       e.llmModel ||
-      (llmProvider === "anthropic" ? "claude-3-5-haiku-latest" : DEFAULT_OPENAI_LLM_MODEL),
+      (llmProvider === "anthropic" ? DEFAULT_ANTHROPIC_LLM_MODEL : DEFAULT_OPENAI_LLM_MODEL),
     llmBaseUrl,
     llmApiKeySet: Boolean(row?.llmApiKey),
     llmBaseUrlFromEnv: !row?.llmBaseUrl && llmProvider === "openai" && Boolean(e.baseUrl),
@@ -678,6 +681,12 @@ export async function getMemoryEngine(): Promise<Memory> {
           cfg.derivationEnabled,
           stateSidecar,
           beliefReconciler,
+        ),
+        ...memoryWriteFeatureConfig(
+          env as unknown as Record<string, string | undefined>,
+        ),
+        ...memoryMaintenanceConfig(
+          env as unknown as Record<string, string | undefined>,
         ),
       });
     })();
@@ -3163,17 +3172,21 @@ export async function appMemoriesHandler(
       // show which lane (vector/fts/graph/temporal) surfaced each hit.
       const wantTrace = q("trace") === "1";
       const hasExplicitScope = Object.values(requestScope).some(Boolean);
+      // Operator browsing must not inflate access_count/last_accessed_at,
+      // which feed decay and tiering for real agent recall.
       const { results, beliefs, trace } = hasExplicitScope
         ? await application.search(workspaceId, {
             ...requestScope,
             query,
             limit: searchLimit,
             trace: wantTrace,
+            track_access: false,
           })
         : await application.searchWorkspace(workspaceId, {
             query,
             limit: searchLimit,
             trace: wantTrace,
+            track_access: false,
           });
       const laneScore = (
         list: Array<{ id: string; score: number }> | undefined,

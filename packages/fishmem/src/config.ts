@@ -3,7 +3,7 @@ import type {
   BeliefReconciler,
 } from "./core/belief-reconciler.js";
 import type { DocumentOriginalStore } from "./core/document-originals.js";
-import type { MaintenanceConfig } from "./core/maintenance.js";
+import type { MaintenanceOverrides } from "./core/maintenance.js";
 import type { SearchConfig } from "./core/search.js";
 import type { StateSidecar } from "./core/sidecar.js";
 import type { Embedder } from "./embeddings/base.js";
@@ -95,7 +95,9 @@ export type MemoryWarningCode =
   | "search_rerank_failed"
   | "search_diversity_vector_failed"
   | "search_entity_graph_failed"
-  | "search_retrieval_doc_load_failed";
+  | "search_retrieval_doc_load_failed"
+  | "reconcile_candidates_failed"
+  | "reconcile_invalid_reference";
 
 export interface MemoryWarning {
   code: MemoryWarningCode;
@@ -190,7 +192,7 @@ export interface MemoryConfig {
   /** Overrides for hybrid-search defaults. */
   search?: Partial<SearchConfig>;
   /** Overrides for maintenance defaults. */
-  maintenance?: Partial<MaintenanceConfig>;
+  maintenance?: MaintenanceOverrides;
   /**
    * Tiered memory (spacebot tiered-memory design). When enabled, new
    * non-identity memories enter the `working` tier: exempt from decay, demoted
@@ -237,6 +239,24 @@ export interface MemoryConfig {
   episodes?: {
     archive?: boolean;
     searchable?: boolean;
+  };
+  /**
+   * Opt-in write-time reconciliation for `infer:true` adds. Disabled by
+   * default until a paired eval passes (docs/EXECUTION-PLAN.md algorithm
+   * queue). When enabled, one extra embedding request retrieves up to
+   * `candidates` current memories in the exact same namespace/user/agent/run
+   * scope with vector score >= `minScore`; they are numbered inside the SAME
+   * single extraction call, which may mark a new fact `duplicate_of` (not
+   * stored; reported as a NONE event) or `supersedes` (old records are
+   * invalidated with validTo + supersededBy through the journaled mutation
+   * path, never rewritten or deleted). Invalid references are ignored.
+   */
+  reconcile?: {
+    enabled?: boolean;
+    /** Existing memories offered to the extractor (default 5, max 20). */
+    candidates?: number;
+    /** Minimum vector similarity for a candidate (default 0.3). */
+    minScore?: number;
   };
   /** Default memory type for inferred/raw adds (default "fact"). */
   defaultMemoryType?: MemoryType;

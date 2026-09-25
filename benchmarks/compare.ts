@@ -1,7 +1,10 @@
 /**
  * Paired significance comparison between two benchmark runs on the SAME
- * question set (LOCOMO result JSONs; works on any file whose systems[] carry
- * questions[{question, category, judgeLabel}]).
+ * question set: LOCOMO result JSONs (systems[] carrying
+ * questions[{question, category, judgeLabel}]) or LongMemEval result JSONs
+ * (a single run with results[{questionId, questionType, judgeLabel}], or a
+ * suite with systems[] of such runs). LongMemEval pairs by questionId and
+ * reports per question type.
  *
  *   pnpm exec tsx benchmarks/compare.ts <runA.json> <runB.json> [systemA] [systemB]
  *
@@ -14,23 +17,53 @@
  */
 import { readFileSync } from "node:fs";
 
-type Q = { question: string; category?: number; judgeLabel: string };
+type Q = {
+  question: string;
+  category?: number | string;
+  judgeLabel: string;
+};
+
+type LongMemEvalInstance = {
+  questionId: string;
+  questionType: string;
+  judgeLabel: string;
+};
+
+type SystemRun = {
+  system: string;
+  questions?: Q[];
+  results?: LongMemEvalInstance[];
+};
+
+/** Normalize LOCOMO and LongMemEval runs onto one CORRECT/WRONG shape. */
+function questionsOf(run: SystemRun, path: string): Q[] {
+  if (Array.isArray(run.questions)) return run.questions;
+  if (Array.isArray(run.results)) {
+    return run.results.map((item) => ({
+      question: item.questionId,
+      category: item.questionType,
+      judgeLabel: item.judgeLabel === "yes" ? "CORRECT" : "WRONG",
+    }));
+  }
+  throw new Error(`${path}: system "${run.system}" has no questions/results`);
+}
 
 function loadSystem(
   path: string,
   systemName?: string,
 ): { name: string; questions: Q[] } {
   const run = JSON.parse(readFileSync(path, "utf8"));
-  const systems: Array<{ system: string; questions: Q[] }> = run.systems ?? [];
+  const systems: SystemRun[] =
+    run.systems ?? (Array.isArray(run.results) ? [run] : []);
   if (!systems.length) throw new Error(`${path}: no systems[]`);
   const sys = systemName
     ? systems.find((s) => s.system === systemName)
     : systems[0];
   if (!sys) throw new Error(`${path}: system "${systemName}" not found`);
-  return { name: sys.system, questions: sys.questions };
+  return { name: sys.system, questions: questionsOf(sys, path) };
 }
 
-type Pair = { category?: number; a: boolean; b: boolean };
+type Pair = { category?: number | string; a: boolean; b: boolean };
 
 function pairUp(a: Q[], b: Q[]): Pair[] {
   const bMap = new Map(b.map((q) => [q.question, q]));
@@ -130,9 +163,9 @@ console.log(
 );
 report("overall", pairs, A.name, B.name);
 const categories = [...new Set(pairs.map((p) => p.category))].filter(
-  (c): c is number => c !== undefined,
+  (c): c is number | string => c !== undefined,
 );
-for (const c of categories.sort()) {
+for (const c of categories.sort((x, y) => String(x).localeCompare(String(y)))) {
   report(
     `category ${c}`,
     pairs.filter((p) => p.category === c),

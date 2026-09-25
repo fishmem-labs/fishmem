@@ -6,6 +6,8 @@ import {
   apiTokenAuthFailure,
   apiPermissionForRequest,
   memoryDerivationConfig,
+  memoryMaintenanceConfig,
+  memoryWriteFeatureConfig,
 } from "./runtime-contracts";
 
 describe("API operation permissions", () => {
@@ -340,5 +342,78 @@ describe("governed belief projection migration", () => {
       ]),
     );
     client.close();
+  });
+});
+
+describe("memoryWriteFeatureConfig", () => {
+  it("leaves reconcile and episodes off unless explicitly enabled", () => {
+    expect(memoryWriteFeatureConfig({})).toEqual({});
+    expect(
+      memoryWriteFeatureConfig({
+        FISHMEM_RECONCILE: "true",
+        FISHMEM_EPISODES_ARCHIVE: "yes",
+      }),
+    ).toEqual({});
+  });
+
+  it("maps deployment flags to the engine's opt-in write features", () => {
+    expect(
+      memoryWriteFeatureConfig({
+        FISHMEM_RECONCILE: "1",
+        FISHMEM_RECONCILE_CANDIDATES: "8",
+        FISHMEM_RECONCILE_MIN_SCORE: "0.4",
+        FISHMEM_EPISODES_ARCHIVE: "1",
+      }),
+    ).toEqual({
+      reconcile: { enabled: true, candidates: 8, minScore: 0.4 },
+      episodes: { archive: true, searchable: false },
+    });
+    // Searchable episodes imply the archive: the benchmarked configuration.
+    expect(
+      memoryWriteFeatureConfig({ FISHMEM_EPISODES_SEARCHABLE: "1" }),
+    ).toEqual({ episodes: { archive: true, searchable: true } });
+  });
+
+  it("surfaces malformed tuning to engine validation instead of defaulting", () => {
+    expect(
+      memoryWriteFeatureConfig({
+        FISHMEM_RECONCILE: "1",
+        FISHMEM_RECONCILE_CANDIDATES: "many",
+      }).reconcile?.candidates,
+    ).toBeNaN();
+  });
+});
+
+describe("Anthropic default model", () => {
+  it("keeps the client-side preset equal to the engine default", async () => {
+    const { DEFAULT_ANTHROPIC_LLM_MODEL } = await import("fishmem");
+    const form = readFileSync(
+      fileURLToPath(
+        new URL("../../components/dashboard/engine-config-form.tsx", import.meta.url),
+      ),
+      "utf8",
+    );
+    const preset = /id: "anthropic",[\s\S]*?model: "([^"]+)"/u.exec(form);
+    expect(preset?.[1]).toBe(DEFAULT_ANTHROPIC_LLM_MODEL);
+    expect(form).not.toContain("claude-3-5-haiku-latest");
+  });
+});
+
+describe("memoryMaintenanceConfig", () => {
+  it("disables the unjournaled destructive passes by default", () => {
+    expect(memoryMaintenanceConfig({})).toEqual({
+      maintenance: {
+        passes: { decay: false, consolidate: false, prune: false },
+      },
+    });
+  });
+
+  it("restores engine defaults only on an explicit legacy flag", () => {
+    expect(
+      memoryMaintenanceConfig({ FISHMEM_MAINTENANCE_LEGACY_PASSES: "1" }),
+    ).toEqual({});
+    expect(
+      memoryMaintenanceConfig({ FISHMEM_MAINTENANCE_LEGACY_PASSES: "true" }),
+    ).not.toEqual({});
   });
 });

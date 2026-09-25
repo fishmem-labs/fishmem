@@ -88,7 +88,10 @@ export type {
 export {
   chooseMergePair,
   DEFAULT_MAINTENANCE_CONFIG,
+  DEFAULT_MAINTENANCE_PASSES,
   type MaintenanceConfig,
+  type MaintenanceOverrides,
+  type MaintenancePasses,
   MemoryMaintenance,
   mergedContent,
 } from "./core/maintenance.js";
@@ -157,9 +160,9 @@ export {
   type OpenAIEmbedderConfig,
 } from "./embeddings/openai.js";
 export {
-  WorkersAiEmbedder,
   WORKERS_AI_EMBEDDING_DIMS,
   type WorkersAiBinding,
+  WorkersAiEmbedder,
   type WorkersAiEmbedderConfig,
 } from "./embeddings/workers-ai.js";
 // Graph stores.
@@ -191,7 +194,11 @@ export {
   createSqliteGraphStore,
   type SqliteGraphStoreConfig,
 } from "./graph/sqlite.js";
-export { AnthropicLLM, type AnthropicLLMConfig } from "./llms/anthropic.js";
+export {
+  AnthropicLLM,
+  type AnthropicLLMConfig,
+  DEFAULT_ANTHROPIC_LLM_MODEL,
+} from "./llms/anthropic.js";
 // LLMs.
 export type {
   LLM,

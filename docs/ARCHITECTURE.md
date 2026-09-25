@@ -424,4 +424,11 @@ default recall.
   lifecycle tests plus paired LongMemEval/BEAM/LoCoMo evidence are still open;
   the feature therefore must not influence default recall yet.
 
+- Engine maintenance `decay`, `consolidate` and `prune` write outside the
+  journal: prune hard-deletes, consolidate rewrites a survivor and deletes the
+  loser, and decay rewrites `updatedAt`. The web service disables all three
+  (`maintenance.passes`) and Desktop never runs them. They must move onto the
+  journaled `update`/`invalidate`/`delete` path, with dry-run metrics, before
+  any deployment enables them.
+
 These are explicit production gates, not compatibility workarounds.

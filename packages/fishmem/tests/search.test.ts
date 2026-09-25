@@ -588,3 +588,27 @@ describe("deep recall mode (opt-in)", () => {
     expect(plainHasPrize).toBe(false); // mode off → not reachable
   });
 });
+
+describe("access tracking", () => {
+  it("records access by default and skips it when trackAccess is false", async () => {
+    const memory = await Memory.create({
+      embedder: new MockEmbedder(64),
+      llm: new MockLLM(),
+      vectorStore: new InMemoryVectorStore(),
+      graphStore: new InMemoryGraphStore(),
+    });
+    const id = (
+      await memory.add("Ada prefers green tea", { infer: false, userId: "ada" })
+    ).results[0]!.id;
+
+    const browsed = await memory.search("green tea", {
+      userId: "ada",
+      trackAccess: false,
+    });
+    expect(browsed.results.map((result) => result.memory.id)).toContain(id);
+    expect((await memory.get(id))?.accessCount).toBe(0);
+
+    await memory.search("green tea", { userId: "ada" });
+    expect((await memory.get(id))?.accessCount).toBe(1);
+  });
+});

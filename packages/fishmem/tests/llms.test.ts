@@ -142,7 +142,11 @@ describe("OpenAI request shape by model family", () => {
 describe("prompt cache reporting", () => {
   function llmReturning(usage: Record<string, unknown>) {
     const onUsage = vi.fn();
-    const llm = new OpenAILLM({ apiKey: "test", model: "gpt-4o-mini", onUsage });
+    const llm = new OpenAILLM({
+      apiKey: "test",
+      model: "gpt-4o-mini",
+      onUsage,
+    });
     (llm as unknown as { client: unknown }).client = {
       chat: {
         completions: {
@@ -174,7 +178,10 @@ describe("prompt cache reporting", () => {
     // Some OpenAI-compatible gateways omit the details block entirely. That
     // must not be recorded as "nothing was cached", or the cost basis would
     // claim a certainty it does not have.
-    const unreported = llmReturning({ prompt_tokens: 1257, completion_tokens: 74 });
+    const unreported = llmReturning({
+      prompt_tokens: 1257,
+      completion_tokens: 74,
+    });
     await unreported.llm.chat([{ role: "user", content: "hi" }]);
     expect(unreported.onUsage.mock.calls[0]![0]).not.toHaveProperty(
       "cachedInputTokens",

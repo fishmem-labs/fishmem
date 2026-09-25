@@ -4,6 +4,38 @@ All notable changes are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/) (pre-1.0: minor bumps may break).
 
+## [Unreleased]
+
+### Fixed
+
+- The web service no longer runs the unjournaled maintenance passes. Nightly
+  maintenance hard-pruned unread memories roughly five weeks after creation
+  and merged near-duplicates without history. `maintenance.passes` now selects
+  passes; `FISHMEM_MAINTENANCE_LEGACY_PASSES=1` restores the old behaviour.
+- The SQLite/libSQL vector store reports raw cosine similarity like every
+  other adapter. It previously reported `(1 + cos) / 2`, so thresholds such as
+  auto-association (0.6), entity-synonym matching (0.88) and merge (0.95)
+  admitted far weaker matches on SQLite than on the other stores.
+- The exhaustive A/B baseline prompt is frozen again; prompt compression had
+  changed it along with the production prompt.
+- The web service's Anthropic default now comes from the engine.
+
+### Added
+
+- Opt-in write-time reconcile (`reconcile.enabled`, `FISHMEM_RECONCILE=1`):
+  existing in-scope memories ride in the single extraction call, which may
+  mark a fact as a duplicate or supersede older records through `invalidate`.
+  Default off pending a paired evaluation.
+- `track_access` on search, so dashboards can browse without inflating access
+  statistics.
+- `FISHMEM_EPISODES_ARCHIVE` / `FISHMEM_EPISODES_SEARCHABLE` so a service can
+  run the configuration used by the published benchmarks.
+- SDK↔contracts type conformance and Python route conformance tests.
+- Desktop: write-time duplicate detection, `remember`/`supersede`/`invalidate`
+  commands, per-repository project scoping, context-formatted search output,
+  Claude Code recall hooks, concurrent reads during writes, and terminal
+  integration install.
+
 ## [0.2.0] — 2026-08-12
 
 ### Added

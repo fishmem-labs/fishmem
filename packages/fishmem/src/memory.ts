@@ -55,8 +55,10 @@ import type { GraphStore } from "./graph/base.js";
 import type { LLM, LLMJsonSchema } from "./llms/base.js";
 import {
   applyMemoryExtractionPolicy,
+  applyReconcileContract,
   BELIEF_FACT_EXTRACTION_SYSTEM,
   buildExtractionMessages,
+  buildReconcileTranscript,
   EPISODE_GIST_SYSTEM,
   FACT_EXTRACTION_SYSTEM,
   type MemoryExtractionPolicy,
@@ -249,6 +251,13 @@ export interface SearchOptions extends Scope {
   filter?: MemoryFilterExpression;
   /** Return the per-source retrieval trace alongside results. */
   trace?: boolean;
+  /**
+   * Record an access (accessCount/lastAccessedAt) on every returned memory.
+   * Default true: agent recall is the signal decay/tiering rely on. Operator
+   * UIs browsing memories should pass false so inspection does not inflate
+   * access statistics.
+   */
+  trackAccess?: boolean;
 }
 
 export interface GetAllOptions extends Scope {
@@ -291,6 +300,12 @@ interface MutationOutcome<T> {
 /** A fact extracted by the LLM, with time and structure annotations. */
 interface ExtractedFact {
   text: string;
+  /** Opt-in reconcile: validated 0-based index of an offered candidate that
+   * already states this fact. Absent/null when reconcile is off. */
+  duplicateOf?: number | null;
+  /** Opt-in reconcile: validated 0-based candidate indices this fact makes
+   * no longer true. */
+  supersedes?: number[];
   /** Project-defined bucket selected during extraction. */
   categories: string[];
   /** Semantic assertion value used only by governed belief competition. */
@@ -323,13 +338,33 @@ interface PreparedAddRecord {
   cardinality: "single" | "multi" | null;
   /** Raw episode provenance when the opt-in archive is enabled. */
   episodeId: string | null;
+  /** Opt-in reconcile: existing records this one invalidates. Omitted (not
+   * empty) when reconcile is off so default plans stay byte-identical. */
+  supersedes?: ReconcileReference[];
+}
+
+/** A reconcile target frozen with its content so retries replay the exact
+ * result without another LLM call. */
+interface ReconcileReference {
+  id: string;
+  memory: string;
+}
+
+/** Output of the single extraction pass, frozen as the idempotent addPlan. */
+interface PreparedAddPlan {
+  records: PreparedAddRecord[];
+  /** Opt-in reconcile: existing records the extractor judged duplicates. */
+  noops: ReconcileReference[];
 }
 
 interface AddExecutionPlan {
   records: PreparedAddRecord[];
+  noops?: ReconcileReference[];
   memoryIds: string[];
   createdAt: Date;
   episodeId?: string;
+  /** Owning idempotent add operation; derives reconcile mutation keys. */
+  operationId?: string;
 }
 
 interface EpisodeIndexChunk {
@@ -422,6 +457,11 @@ export class Memory {
   private readonly beliefChains: boolean;
   private readonly retrievalDocs: { slotSummary: boolean };
   private readonly episodeArchive: { archive: boolean; searchable: boolean };
+  private readonly reconcile: {
+    enabled: boolean;
+    candidates: number;
+    minScore: number;
+  };
   /** Derived-structure layer: enabled flag + schedule (see config.derivation). */
   private readonly derivationEnabled: boolean;
   /** Derived-structure sidecar (state slots) — populated when derivation is on. */
@@ -516,6 +556,23 @@ export class Memory {
     this.episodeArchive = {
       archive: config.episodes?.archive ?? false,
       searchable: config.episodes?.searchable ?? false,
+    };
+    const reconcileCandidates = config.reconcile?.candidates ?? 5;
+    if (
+      !Number.isInteger(reconcileCandidates) ||
+      reconcileCandidates < 1 ||
+      reconcileCandidates > 20
+    ) {
+      throw new TypeError("reconcile.candidates must be an integer in 1..20");
+    }
+    const reconcileMinScore = config.reconcile?.minScore ?? 0.3;
+    if (!Number.isFinite(reconcileMinScore)) {
+      throw new TypeError("reconcile.minScore must be a finite number");
+    }
+    this.reconcile = {
+      enabled: config.reconcile?.enabled ?? false,
+      candidates: reconcileCandidates,
+      minScore: reconcileMinScore,
     };
     // One architecture: add defaults to a single extraction pass whose
     // refined facts become canonical records. `infer: false` is the explicit,
@@ -859,32 +916,36 @@ export class Memory {
       }
     }
     try {
-      let records = readAddPlan(operation.command);
+      let plan = readAddPlan(operation.command);
       const episodeId = this.shouldArchiveEpisode(options, messages)
         ? `episode:${operation.id}`
         : undefined;
-      if (records === null) {
-        records = await this.prepareAddRecords(
+      if (plan === null) {
+        // The single LLM call happens here. Its output — including any
+        // opt-in reconcile decisions — is frozen before the first write so a
+        // retry replays the same records, invalidations, and NONE results.
+        plan = await this.prepareAddRecords(
           messages,
           options,
           scopeOf(options),
           episodeId,
         );
-        const memoryIds = records.map(() => uuid());
+        const memoryIds = plan.records.map(() => uuid());
         operation = await this.store.planOperation(
           operation.id,
           {
             ...operation.command,
             addPlan: {
               version: 1,
-              records,
+              records: plan.records,
+              ...(plan.noops.length ? { noops: plan.noops } : {}),
             },
           },
           memoryIds,
         );
-      } else if (records.length !== operation.memoryIds.length) {
+      } else if (plan.records.length !== operation.memoryIds.length) {
         throw new Error(
-          `idempotent add plan is corrupt: ${records.length} records for ${operation.memoryIds.length} ids`,
+          `idempotent add plan is corrupt: ${plan.records.length} records for ${operation.memoryIds.length} ids`,
         );
       }
       const projection = { derivedReady: !derive };
@@ -892,9 +953,11 @@ export class Memory {
         input,
         options,
         {
-          records,
+          records: plan.records,
+          noops: plan.noops,
           memoryIds: operation.memoryIds,
           createdAt: operation.createdAt,
+          operationId: operation.id,
           ...(episodeId ? { episodeId } : {}),
         },
         projection,
@@ -902,6 +965,9 @@ export class Memory {
       const occurredAt = new Date();
       const events: MemoryJournalEvent[] = [];
       for (const item of result.results) {
+        // Reconcile INVALIDATE items are journaled by their own mutation
+        // operations; NONE items write nothing.
+        if (item.event !== "ADD") continue;
         const record = await this.store.getMemory(item.id);
         if (!record) {
           throw new Error(
@@ -970,9 +1036,10 @@ export class Memory {
       : this.shouldArchiveEpisode(options, messages)
         ? uuid()
         : undefined;
-    const records =
-      plan?.records ??
-      (await this.prepareAddRecords(messages, options, scope, episodeId));
+    const prepared: PreparedAddPlan = plan
+      ? { records: plan.records, noops: plan.noops ?? [] }
+      : await this.prepareAddRecords(messages, options, scope, episodeId);
+    const records = prepared.records;
     const episodeCreatedAt = plan?.createdAt ?? new Date();
     const episode = episodeId
       ? this.prepareEpisode(
@@ -1081,6 +1148,7 @@ export class Memory {
     if (plan && records.length !== plan.memoryIds.length) {
       throw new Error("idempotent add plan does not match record count");
     }
+    await this.applyReconcileDecisions(prepared, results, scope, plan);
 
     // The optional state/typed-graph projection consumes the exact extraction
     // that produced the canonical records. It never performs a second LLM call.
@@ -1132,9 +1200,9 @@ export class Memory {
     options: AddOptions,
     scope: Scope,
     episodeId?: string,
-  ): Promise<PreparedAddRecord[]> {
+  ): Promise<PreparedAddPlan> {
     if (options.infer === false) {
-      return messages
+      const records = messages
         .filter((message) => message.content.trim().length > 0)
         .map((message) => ({
           // Keep the input byte-for-byte; trim is only the emptiness check.
@@ -1149,18 +1217,41 @@ export class Memory {
           cardinality: null,
           episodeId: episodeId ?? null,
         }));
+      return { records, noops: [] };
     }
 
+    const candidates = this.reconcile.enabled
+      ? await this.reconcileCandidates(messages, scope)
+      : [];
     const facts = await this.extractFacts(
       messagesToTranscript(messages),
       scope,
       options.extractionPolicy,
+      candidates.map((candidate) => candidate.memory),
     );
+    // A candidate judged a duplicate by any fact is still current; never let
+    // a conflicting label from another fact invalidate it (fail-safe).
+    const duplicateTargets = new Set<string>();
+    for (const fact of facts) {
+      if (typeof fact.duplicateOf === "number") {
+        duplicateTargets.add(candidates[fact.duplicateOf]!.id);
+      }
+    }
     const seen = new Set<string>();
     const records: PreparedAddRecord[] = [];
+    const noops = new Map<string, ReconcileReference>();
     for (const fact of facts) {
       if (seen.has(fact.text)) continue;
       seen.add(fact.text);
+      if (typeof fact.duplicateOf === "number") {
+        const target = candidates[fact.duplicateOf]!;
+        noops.set(target.id, { id: target.id, memory: target.memory });
+        continue;
+      }
+      const supersedes = (fact.supersedes ?? [])
+        .map((index) => candidates[index]!)
+        .filter((candidate) => !duplicateTargets.has(candidate.id))
+        .map((candidate) => ({ id: candidate.id, memory: candidate.memory }));
       records.push({
         content: fact.text,
         categories: [...fact.categories],
@@ -1174,9 +1265,122 @@ export class Memory {
         memoryType: fact.memoryType,
         cardinality: fact.cardinality,
         episodeId: episodeId ?? null,
+        ...(supersedes.length ? { supersedes } : {}),
       });
     }
-    return records;
+    return { records, noops: [...noops.values()] };
+  }
+
+  /**
+   * Opt-in reconcile candidates: current canonical memories in EXACTLY the
+   * write's namespace/user/agent/run scope (an unset field only matches an
+   * unset field), nearest to the input. Retrieval failure degrades to the
+   * default additive write with a warning; it never blocks the add.
+   */
+  private async reconcileCandidates(
+    messages: Message[],
+    scope: Scope,
+  ): Promise<ReconcileReference[]> {
+    const text = messages
+      .map((message) => message.content)
+      .join("\n")
+      .trim();
+    if (!text) return [];
+    try {
+      const vector = await this.embedder.embed(text, {
+        context: {
+          namespaceId: scope.namespaceId,
+          operation: "memory.reconcile.embedding",
+        },
+      });
+      const limit = this.reconcile.candidates;
+      const hits = await this.vectors.search(
+        vector,
+        Math.max(limit * 4, 20),
+        scopeOf(scope),
+      );
+      const now = Date.now();
+      const out: ReconcileReference[] = [];
+      for (const hit of hits) {
+        if (out.length >= limit) break;
+        if (hit.score < this.reconcile.minScore) continue;
+        const record = await this.store.getMemory(hit.id);
+        if (
+          !record ||
+          record.forgotten ||
+          isRetrievalDocMemory(record) ||
+          !sameExactScope(record, scope) ||
+          (record.validTo && record.validTo.getTime() <= now)
+        ) {
+          continue;
+        }
+        out.push({ id: record.id, memory: record.content });
+      }
+      return out;
+    } catch (error) {
+      this.warn(
+        "reconcile_candidates_failed",
+        "Reconcile candidate retrieval failed; the add proceeds without reconciliation.",
+        error,
+        { namespaceId: scope.namespaceId },
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Apply frozen reconcile decisions after the new records exist:
+   * superseded records are invalidated (validTo + supersededBy + INVALIDATE
+   * history) through the journaled mutation path, never rewritten; duplicate
+   * facts are reported as NONE. Idempotent adds derive one mutation key per
+   * target so a retry replays instead of re-invalidating.
+   */
+  private async applyReconcileDecisions(
+    prepared: PreparedAddPlan,
+    results: AddResultItem[],
+    scope: Scope,
+    plan?: AddExecutionPlan,
+  ): Promise<void> {
+    const validTo = plan?.createdAt ?? new Date();
+    const invalidated = new Set<string>();
+    const records = prepared.records;
+    for (let index = 0; index < records.length; index++) {
+      const successorId = results[index]!.id;
+      for (const target of records[index]!.supersedes ?? []) {
+        if (invalidated.has(target.id) || target.id === successorId) continue;
+        invalidated.add(target.id);
+        const current = await this.store.getMemory(target.id);
+        // Already superseded by someone else since planning: keep that
+        // provenance rather than silently rewriting it.
+        if (
+          !current ||
+          current.forgotten ||
+          !sameExactScope(current, scope) ||
+          (current.validTo && current.supersededBy !== successorId)
+        ) {
+          continue;
+        }
+        const ok = await this.invalidate(target.id, {
+          ...scope,
+          validTo,
+          supersededBy: successorId,
+          ...(plan?.operationId && scope.namespaceId
+            ? { idempotencyKey: `${plan.operationId}:reconcile:${target.id}` }
+            : {}),
+        });
+        if (ok) {
+          results.push({
+            id: target.id,
+            memory: target.memory,
+            event: "INVALIDATE",
+          });
+        }
+      }
+    }
+    for (const noop of prepared.noops) {
+      if (invalidated.has(noop.id)) continue;
+      results.push({ id: noop.id, memory: noop.memory, event: "NONE" });
+    }
   }
 
   private shouldArchiveEpisode(
@@ -1461,8 +1665,13 @@ export class Memory {
       traceRetrieval: options.trace ?? this.searchDefaults.traceRetrieval,
     };
     const results = await this.search_.search(query, config, filters);
-    // Record access on recalled memories (spacebot parity).
-    await Promise.all(results.map((r) => this.store.recordAccess(r.memory.id)));
+    // Record access on recalled memories (spacebot parity) unless the caller
+    // is only browsing.
+    if (options.trackAccess !== false) {
+      await Promise.all(
+        results.map((r) => this.store.recordAccess(r.memory.id)),
+      );
+    }
 
     // Belief-chain assembly (read-time reconstruction): group results that
     // share a (subject, attribute) key, pull in their supersession chains,
@@ -4186,19 +4395,75 @@ export class Memory {
     }
   }
 
+  /**
+   * Validate reconcile labels against the 1-based candidate numbering.
+   * Anything malformed or out of range is ignored (fail-safe: the fact is
+   * stored additively and nothing is invalidated) and reported once.
+   */
+  private parseReconcileLabels(
+    fact: Record<string, unknown>,
+    candidateCount: number,
+    factIndex: number,
+  ): { duplicateOf: number | null; supersedes: number[] } {
+    const valid = (value: unknown): value is number =>
+      typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= 1 &&
+      value <= candidateCount;
+    let invalid = false;
+    let duplicateOf: number | null = null;
+    if (fact.duplicate_of !== undefined && fact.duplicate_of !== null) {
+      if (valid(fact.duplicate_of)) duplicateOf = fact.duplicate_of - 1;
+      else invalid = true;
+    }
+    const supersedes = new Set<number>();
+    if (fact.supersedes !== undefined && fact.supersedes !== null) {
+      if (Array.isArray(fact.supersedes)) {
+        for (const value of fact.supersedes) {
+          if (valid(value)) supersedes.add(value - 1);
+          else invalid = true;
+        }
+      } else {
+        invalid = true;
+      }
+    }
+    if (invalid) {
+      this.warn(
+        "reconcile_invalid_reference",
+        "Extraction returned an invalid reconcile reference; it was ignored.",
+        undefined,
+        { factIndex, candidateCount },
+      );
+    }
+    return {
+      duplicateOf,
+      supersedes: duplicateOf === null ? [...supersedes] : [],
+    };
+  }
+
   private async extractFacts(
     transcript: string,
     scope: Scope,
     extractionPolicy?: MemoryExtractionPolicy,
+    reconcileCandidates: readonly string[] = [],
   ): Promise<ExtractedFact[]> {
     const projectBeliefs = this.beliefProjectionEnabled(scope);
+    const reconciling = reconcileCandidates.length > 0;
     const baseSystemPrompt =
       this.factExtractionPrompt ??
       (projectBeliefs ? BELIEF_FACT_EXTRACTION_SYSTEM : FACT_EXTRACTION_SYSTEM);
-    const systemPrompt = applyMemoryExtractionPolicy(
+    const policyPrompt = applyMemoryExtractionPolicy(
       baseSystemPrompt,
       extractionPolicy,
     );
+    // Reconcile extends the SAME single call; with no candidates the prompt,
+    // schema, and user content are byte-identical to the default path.
+    const systemPrompt = reconciling
+      ? applyReconcileContract(policyPrompt)
+      : policyPrompt;
+    const userContent = reconciling
+      ? buildReconcileTranscript(reconcileCandidates, transcript)
+      : transcript;
     const allowedCategories = new Map<string, string>();
     for (const value of extractionPolicy?.categories ?? []) {
       const category = value.trim();
@@ -4208,12 +4473,13 @@ export class Memory {
       }
     }
     const raw = await this.llm.chat(
-      buildExtractionMessages(transcript, systemPrompt),
+      buildExtractionMessages(userContent, systemPrompt),
       {
         responseFormat: "json",
         jsonSchema: factExtractionJsonSchema(
           [...allowedCategories.values()],
           projectBeliefs,
+          reconciling,
         ),
         context: {
           namespaceId: scope.namespaceId,
@@ -4264,6 +4530,9 @@ export class Memory {
           }
           out.push({
             text: f.text.trim(),
+            ...(reconciling
+              ? this.parseReconcileLabels(f, reconcileCandidates.length, index)
+              : {}),
             categories: category ? [category] : [],
             beliefValue:
               typeof f.value === "string" && f.value.trim()
@@ -4817,6 +5086,18 @@ function memoryInScope(record: MemoryRecord, scope: Scope): boolean {
   return true;
 }
 
+/** Reconcile isolation: every scope field must match exactly, and an unset
+ * field only matches an unset field. Broader-scope writes never reconcile
+ * narrower records and vice versa. */
+function sameExactScope(record: MemoryRecord, scope: Scope): boolean {
+  return (
+    (record.namespaceId ?? null) === (scope.namespaceId ?? null) &&
+    (record.userId ?? null) === (scope.userId ?? null) &&
+    (record.agentId ?? null) === (scope.agentId ?? null) &&
+    (record.runId ?? null) === (scope.runId ?? null)
+  );
+}
+
 function episodeInScope(episode: Episode, scope: Scope): boolean {
   if (
     scope.namespaceId !== undefined &&
@@ -5091,9 +5372,31 @@ function hasAddPlan(command: Record<string, unknown>): boolean {
   return Object.hasOwn(command, "addPlan");
 }
 
-function readAddPlan(
-  command: Record<string, unknown>,
-): PreparedAddRecord[] | null {
+function readReconcileReferences(
+  value: unknown,
+  label: string,
+): ReconcileReference[] {
+  if (value === undefined) return [];
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        typeof (item as { id?: unknown }).id === "string" &&
+        (item as { id: string }).id.length > 0 &&
+        typeof (item as { memory?: unknown }).memory === "string",
+    )
+  ) {
+    throw new Error(`idempotent add plan ${label} is invalid`);
+  }
+  return value.map((item) => ({
+    id: (item as ReconcileReference).id,
+    memory: (item as ReconcileReference).memory,
+  }));
+}
+
+function readAddPlan(command: Record<string, unknown>): PreparedAddPlan | null {
   if (!hasAddPlan(command)) return null;
   const plan = command.addPlan;
   if (
@@ -5104,106 +5407,121 @@ function readAddPlan(
   ) {
     throw new Error("idempotent add plan is corrupt");
   }
-  return (plan as { records: unknown[] }).records.map((value, index) => {
-    if (!value || typeof value !== "object") {
-      throw new Error(`idempotent add plan record ${index} is invalid`);
-    }
-    const record = value as Record<string, unknown>;
-    if (
-      typeof record.content !== "string" ||
-      record.content.trim().length === 0
-    ) {
-      throw new Error(
-        `idempotent add plan record ${index} has invalid content`,
-      );
-    }
-    const beliefValue =
-      record.beliefValue === undefined || record.beliefValue === null
-        ? null
-        : typeof record.beliefValue === "string" && record.beliefValue.trim()
-          ? record.beliefValue.trim()
-          : undefined;
-    if (beliefValue === undefined) {
-      throw new Error(
-        `idempotent add plan record ${index} has invalid beliefValue`,
-      );
-    }
-    if (
-      record.eventDate !== null &&
-      (typeof record.eventDate !== "string" ||
-        Number.isNaN(new Date(record.eventDate).getTime()))
-    ) {
-      throw new Error(
-        `idempotent add plan record ${index} has invalid eventDate`,
-      );
-    }
-    if (
-      !Array.isArray(record.entities) ||
-      !record.entities.every((entity) => typeof entity === "string")
-    ) {
-      throw new Error(
-        `idempotent add plan record ${index} has invalid entities`,
-      );
-    }
-    for (const key of ["subject", "attribute"] as const) {
-      if (record[key] !== null && typeof record[key] !== "string") {
+  const noops = readReconcileReferences(
+    (plan as { noops?: unknown }).noops,
+    "noops",
+  );
+  const records = (plan as { records: unknown[] }).records.map(
+    (value, index) => {
+      if (!value || typeof value !== "object") {
+        throw new Error(`idempotent add plan record ${index} is invalid`);
+      }
+      const record = value as Record<string, unknown>;
+      if (
+        typeof record.content !== "string" ||
+        record.content.trim().length === 0
+      ) {
         throw new Error(
-          `idempotent add plan record ${index} has invalid ${key}`,
+          `idempotent add plan record ${index} has invalid content`,
         );
       }
-    }
-    const memoryType =
-      record.memoryType === null ? null : parseMemoryType(record.memoryType);
-    if (record.memoryType !== null && memoryType === null) {
-      throw new Error(
-        `idempotent add plan record ${index} has invalid memoryType`,
-      );
-    }
-    if (
-      record.cardinality !== null &&
-      record.cardinality !== "single" &&
-      record.cardinality !== "multi"
-    ) {
-      throw new Error(
-        `idempotent add plan record ${index} has invalid cardinality`,
-      );
-    }
-    const episodeId =
-      record.episodeId === undefined || record.episodeId === null
-        ? null
-        : typeof record.episodeId === "string" && record.episodeId.trim()
-          ? record.episodeId
-          : undefined;
-    if (episodeId === undefined) {
-      throw new Error(
-        `idempotent add plan record ${index} has invalid episodeId`,
-      );
-    }
-    const categories = record.categories ?? [];
-    if (
-      !Array.isArray(categories) ||
-      !categories.every(
-        (category) =>
-          typeof category === "string" && category.trim().length > 0,
-      )
-    ) {
-      throw new Error(
-        `idempotent add plan record ${index} has invalid categories`,
-      );
-    }
-    return {
-      content: record.content,
-      categories: [...categories],
-      beliefValue,
-      eventDate: record.eventDate,
-      entities: [...record.entities],
-      subject: record.subject,
-      attribute: record.attribute,
-      memoryType,
-      cardinality: record.cardinality,
-      episodeId,
-    } as PreparedAddRecord;
-  });
+      const beliefValue =
+        record.beliefValue === undefined || record.beliefValue === null
+          ? null
+          : typeof record.beliefValue === "string" && record.beliefValue.trim()
+            ? record.beliefValue.trim()
+            : undefined;
+      if (beliefValue === undefined) {
+        throw new Error(
+          `idempotent add plan record ${index} has invalid beliefValue`,
+        );
+      }
+      if (
+        record.eventDate !== null &&
+        (typeof record.eventDate !== "string" ||
+          Number.isNaN(new Date(record.eventDate).getTime()))
+      ) {
+        throw new Error(
+          `idempotent add plan record ${index} has invalid eventDate`,
+        );
+      }
+      if (
+        !Array.isArray(record.entities) ||
+        !record.entities.every((entity) => typeof entity === "string")
+      ) {
+        throw new Error(
+          `idempotent add plan record ${index} has invalid entities`,
+        );
+      }
+      for (const key of ["subject", "attribute"] as const) {
+        if (record[key] !== null && typeof record[key] !== "string") {
+          throw new Error(
+            `idempotent add plan record ${index} has invalid ${key}`,
+          );
+        }
+      }
+      const memoryType =
+        record.memoryType === null ? null : parseMemoryType(record.memoryType);
+      if (record.memoryType !== null && memoryType === null) {
+        throw new Error(
+          `idempotent add plan record ${index} has invalid memoryType`,
+        );
+      }
+      if (
+        record.cardinality !== null &&
+        record.cardinality !== "single" &&
+        record.cardinality !== "multi"
+      ) {
+        throw new Error(
+          `idempotent add plan record ${index} has invalid cardinality`,
+        );
+      }
+      const episodeId =
+        record.episodeId === undefined || record.episodeId === null
+          ? null
+          : typeof record.episodeId === "string" && record.episodeId.trim()
+            ? record.episodeId
+            : undefined;
+      if (episodeId === undefined) {
+        throw new Error(
+          `idempotent add plan record ${index} has invalid episodeId`,
+        );
+      }
+      const categories = record.categories ?? [];
+      if (
+        !Array.isArray(categories) ||
+        !categories.every(
+          (category) =>
+            typeof category === "string" && category.trim().length > 0,
+        )
+      ) {
+        throw new Error(
+          `idempotent add plan record ${index} has invalid categories`,
+        );
+      }
+      return {
+        content: record.content,
+        categories: [...categories],
+        beliefValue,
+        eventDate: record.eventDate,
+        entities: [...record.entities],
+        subject: record.subject,
+        attribute: record.attribute,
+        memoryType,
+        cardinality: record.cardinality,
+        episodeId,
+        ...(record.supersedes !== undefined
+          ? {
+              supersedes: readReconcileReferences(
+                record.supersedes,
+                `record ${index} supersedes`,
+              ),
+            }
+          : {}),
+      } as PreparedAddRecord;
+    },
+  );
+  return { records, noops };
 }
 
 function preparedRecordsToFacts(records: PreparedAddRecord[]): ExtractedFact[] {
@@ -5250,6 +5568,7 @@ function safeJson(text: string): any {
 function factExtractionJsonSchema(
   categories: string[],
   includeBeliefValue: boolean,
+  includeReconcile = false,
 ): LLMJsonSchema {
   const properties: Record<string, unknown> = {
     text: { type: "string" },
@@ -5268,6 +5587,13 @@ function factExtractionJsonSchema(
   if (categories.length > 0) {
     properties.category = { type: "string", enum: categories };
     required.push("category");
+  }
+  if (includeReconcile) {
+    // Strict structured output requires every property; "no decision" is
+    // expressed as null / [] rather than an absent field.
+    properties.duplicate_of = { type: ["integer", "null"] };
+    properties.supersedes = { type: "array", items: { type: "integer" } };
+    required.push("duplicate_of", "supersedes");
   }
   return {
     name: "fishmem_fact_extraction",

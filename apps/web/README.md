@@ -102,6 +102,15 @@ Required env (a `.env` locally — see `.env.example`; `wrangler secret put` in 
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth (optional) |
 | `AUTH_EMAIL_FROM` / `AUTH_EMAIL_FROM_NAME` | magic-link sender (Node: printed to console if no provider; CF: `EMAIL` binding) |
 
+Optional engine write features. All are off unless set to exactly `1`; none
+is a public request field:
+
+| Variable | Effect |
+|---|---|
+| `FISHMEM_RECONCILE` | opt-in write-time reconcile: inferred adds compare with the nearest current same-scope memories inside the single extraction call, skip duplicates, and invalidate superseded facts. One extra embedding request per inferred add. Tune with `FISHMEM_RECONCILE_CANDIDATES` (1–20, default 5) and `FISHMEM_RECONCILE_MIN_SCORE` (default 0.3). Awaiting paired evaluation — see `docs/EXECUTION-PLAN.md`. |
+| `FISHMEM_EPISODES_ARCHIVE` | retain each add's raw role-preserving transcript as an Episode (different privacy/retention contract from extracted facts) |
+| `FISHMEM_EPISODES_SEARCHABLE` | also index Episodes for search; implies the archive. This is the configuration used by the published benchmark runs. |
+
 ## Deployment (Cloudflare)
 
 ```bash

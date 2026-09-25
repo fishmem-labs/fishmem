@@ -117,3 +117,67 @@ fishmem desktop start --json
 The command is idempotent when Desktop is already running. On a non-standard
 Windows or Linux installation, set `FISHMEM_DESKTOP_EXECUTABLE` to the exact
 Desktop executable or AppImage path.
+
+Connect from a terminal instead of the app (the app must be installed so the
+skill bundle can be found; set `FISHMEM_RESOURCES_DIR` otherwise):
+
+```bash
+fishmem integrations install --all          # or --client claude-code|codex
+fishmem integrations uninstall --client codex
+fishmem integrations status
+```
+
+### Automatic recall in Claude Code
+
+Connecting Claude Code also merges two command hooks into
+`~/.claude/settings.json` (idempotent; unrelated settings and hooks are kept;
+disconnecting removes only FishMem's entries):
+
+- `SessionStart` runs `fishmem hook session-start`: a short reminder plus the
+  most recent memories of the current project.
+- `UserPromptSubmit` runs `fishmem hook prompt`: a project-scoped search for
+  the submitted prompt, gated by query/memory cosine similarity (default 0.8,
+  `FISHMEM_HOOK_MIN_SIMILARITY` overrides it), injected as
+  `hookSpecificOutput.additionalContext` within about 800 tokens.
+
+Both hooks fail open: when Desktop is not running or not ready they exit 0
+with no output after at most two seconds. The prompt is used only as a local
+search query; it is never stored. No end-of-turn (`Stop`) hook is installed,
+because Claude Code only shows Stop-hook output to the model by blocking the
+stop; the end-of-task review step lives in the skill instead. Codex has no
+equivalent prompt-context hook, so Codex recall stays skill-driven.
+
+### Scopes, deduplication, and maintenance
+
+- **Project scope.** The CLI tags writes with `metadata.fishmemProject`, which
+  defaults to the git repository root name (linked worktrees resolve to the main
+  worktree) or the directory name outside git. `--global` writes an unscoped
+  memory; `--project <id>` overrides the default. Search and list return the
+  project's memories plus global ones; `--all-projects` widens that. A metadata
+  field is used rather than structural `run_id` because the filter AST can
+  express "project = X OR project absent" on metadata, while structural scope
+  fields are hard predicates that cannot appear under OR. SDK callers that pass
+  no project keep the previous unscoped behavior.
+- **Write deduplication.** Every add first compares the normalized content
+  (NFKC, case, whitespace, trailing punctuation) with the nearest current
+  memories in the same scope; an exact match returns the existing record with
+  `deduplicated: true` and `event: "NONE"` instead of writing. The CLI `add`
+  also returns near-duplicates (local E5 cosine ≥ 0.92) for the agent to
+  reconcile unless `--force` is given. `fishmem remember` performs the same
+  check without writing. Retried identical requests share a content-derived
+  idempotency key.
+- **Correction.** `fishmem supersede` stores a replacement and invalidates the
+  old record (kept in history); `fishmem invalidate` ends a fact's validity.
+- **Maintenance.** Desktop runs a maintenance pass shortly after startup and
+  then every 24 hours, skipped while requests are in flight. It removes exact
+  duplicates within the same scope through the journaled delete path. It does
+  not run the engine's decay/prune/consolidate pass: prune hard-deletes old
+  low-importance memories the user asked to keep, decay rewrites `updatedAt`
+  (the optimistic-concurrency version) daily, and consolidation concatenates
+  records without history. Semantic consolidation is delegated to the agent via
+  `fishmem duplicates`.
+- **Concurrency.** Reads (search, list, get, document search) run concurrently
+  with the single serialized writer, so a slow document ingest never blocks
+  recall; restore, import, and delete-all are exclusive. The database uses WAL
+  journaling, and recall access counters are recorded through the write queue.
+  Searches from the app window do not count as recall.

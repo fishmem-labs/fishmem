@@ -1,16 +1,51 @@
-import type { DesktopMethod } from "../shared/protocol";
+import type { DesktopMethod, IntegrationClient } from "../shared/protocol";
+import { DEFAULT_CONTEXT_BUDGET_TOKENS } from "./context-format";
+import type { HookEvent } from "./hooks";
+
+export type ContextOutput = {
+	format: "context";
+	budgetTokens: number;
+	project?: string;
+};
 
 export type CliAction =
 	| { kind: "help" }
 	| { kind: "desktopStart"; timeoutMs: number }
+	| { kind: "hook"; event: HookEvent }
+	| {
+			kind: "integrations";
+			action: "install" | "uninstall" | "status";
+			clients: IntegrationClient[];
+	  }
 	| {
 			kind: "invoke";
 			method: DesktopMethod;
 			params?: unknown;
 			inputFromStdin?: boolean;
+			output?: ContextOutput;
 	  };
 
-export function parseCliArgs(argv: string[]): CliAction {
+export type CliParseOptions = {
+	/** Project derived from the working directory (git root name). */
+	defaultProject?: string;
+	now?: Date;
+};
+
+const MEMORY_TYPES = new Set([
+	"fact",
+	"preference",
+	"decision",
+	"identity",
+	"event",
+	"observation",
+	"goal",
+	"todo",
+]);
+
+export function parseCliArgs(
+	argv: string[],
+	options: CliParseOptions = {},
+): CliAction {
 	const args = argv.filter((argument) => argument !== "--json");
 	const command = args.shift();
 	if (
@@ -60,11 +95,13 @@ export function parseCliArgs(argv: string[]): CliAction {
 		return { kind: "invoke", method, params };
 	}
 	if (command === "add") {
-		const content = requiredValue(args, "--content", "memory content");
 		const source = optionalValue(args, "--source");
 		const title = optionalValue(args, "--title");
 		const sourceKind = optionalSourceKind(args);
 		const client = optionalClient(args);
+		const force = optionalBoolean(args, "--force");
+		const project = writeProject(args, options);
+		const content = requiredValue(args, "--content", "memory content");
 		requireNoArguments(args, command);
 		return {
 			kind: "invoke",
@@ -79,19 +116,123 @@ export function parseCliArgs(argv: string[]): CliAction {
 						...(client ? { fishmemClient: client } : {}),
 					},
 				}),
+				...(project ? { project } : {}),
+				...(force ? { force: true } : { check_similar: true }),
 			},
 		};
 	}
-	if (command === "search") {
-		const query = requiredValue(args, "--query", "search query");
-		const limit = optionalPositiveInteger(args, "--limit", 10);
+	if (command === "remember") {
+		const limit = optionalPositiveInteger(args, "--limit", 5);
+		const project = writeProject(args, options);
+		const content = requiredValue(args, "--content", "memory content");
 		requireNoArguments(args, command);
-		return { kind: "invoke", method: "search", params: { query, limit } };
+		return {
+			kind: "invoke",
+			method: "remember",
+			params: { content, limit, ...(project ? { project } : {}) },
+		};
+	}
+	if (command === "update") {
+		const id = requiredFlag(args, "--id", "memory id");
+		const content = requiredValue(args, "--content", "memory content");
+		requireNoArguments(args, command);
+		// Content only: metadata (provenance, project scope) is left unchanged.
+		return { kind: "invoke", method: "update", params: { id, content } };
+	}
+	if (command === "supersede") {
+		const id = requiredFlag(args, "--id", "memory id");
+		const client = optionalClient(args);
+		const content = requiredValue(args, "--content", "replacement content");
+		requireNoArguments(args, command);
+		return {
+			kind: "invoke",
+			method: "supersede",
+			params: {
+				id,
+				content,
+				...(client ? { metadata: { fishmemClient: client } } : {}),
+			},
+		};
+	}
+	if (command === "invalidate") {
+		const id = requiredFlag(args, "--id", "memory id");
+		const supersededBy = optionalValue(args, "--superseded-by");
+		requireNoArguments(args, command);
+		return {
+			kind: "invoke",
+			method: "invalidate",
+			params: { id, ...(supersededBy ? { superseded_by: supersededBy } : {}) },
+		};
+	}
+	if (command === "search") {
+		const limit = optionalPositiveInteger(args, "--limit", 10);
+		const minScore = optionalUnitNumber(args, "--min-score");
+		const type = optionalMemoryType(args);
+		const since = optionalSince(args, options.now ?? new Date());
+		const format = optionalFormat(args);
+		const budget = optionalPositiveInteger(
+			args,
+			"--budget",
+			DEFAULT_CONTEXT_BUDGET_TOKENS,
+		);
+		const project = readProject(args, options);
+		const query = requiredValue(args, "--query", "search query");
+		requireNoArguments(args, command);
+		return {
+			kind: "invoke",
+			method: "search",
+			params: {
+				query,
+				limit,
+				...(project.project ? { project: project.project } : {}),
+				...(project.allProjects ? { all_projects: true } : {}),
+				...(minScore !== undefined ? { min_similarity: minScore } : {}),
+				...(type ? { memory_type: type } : {}),
+				...(since ? { since } : {}),
+			},
+			...(format === "context"
+				? {
+						output: {
+							format: "context" as const,
+							budgetTokens: budget,
+							...(project.project && !project.allProjects
+								? { project: project.project }
+								: {}),
+						},
+					}
+				: {}),
+		};
 	}
 	if (command === "list") {
 		const limit = optionalPositiveInteger(args, "--limit", 50);
+		const project = readProject(args, options);
 		requireNoArguments(args, command);
-		return { kind: "invoke", method: "list", params: { limit } };
+		return {
+			kind: "invoke",
+			method: "list",
+			params: {
+				limit,
+				...(project.project && !project.allProjects
+					? { project: project.project }
+					: {}),
+			},
+		};
+	}
+	if (command === "duplicates") {
+		const threshold = optionalUnitNumber(args, "--threshold");
+		const limit = optionalPositiveInteger(args, "--limit", 200);
+		const project = readProject(args, options);
+		requireNoArguments(args, command);
+		return {
+			kind: "invoke",
+			method: "duplicates",
+			params: {
+				limit,
+				...(threshold !== undefined ? { threshold } : {}),
+				...(project.project ? { project: project.project } : {}),
+				...(project.allProjects ? { all_projects: true } : {}),
+			},
+		};
 	}
 	if (command === "delete") {
 		const id = requiredValue(args, "--id", "memory id");
@@ -100,6 +241,40 @@ export function parseCliArgs(argv: string[]): CliAction {
 			kind: "invoke",
 			method: "delete",
 			params: { id },
+		};
+	}
+	if (command === "maintenance") {
+		const action = args.shift();
+		if (action !== "run") throw new Error("maintenance requires the run command");
+		requireNoArguments(args, `${command} ${action}`);
+		return { kind: "invoke", method: "maintenance" };
+	}
+	if (command === "hook") {
+		const event = args.shift();
+		if (event !== "session-start" && event !== "prompt") {
+			throw new Error("hook requires session-start or prompt");
+		}
+		requireNoArguments(args, `${command} ${event}`);
+		return { kind: "hook", event };
+	}
+	if (command === "integrations") {
+		const action = args.shift();
+		if (action !== "install" && action !== "uninstall" && action !== "status") {
+			throw new Error("integrations requires install, uninstall, or status");
+		}
+		const all = optionalBoolean(args, "--all");
+		const client = optionalClient(args);
+		requireNoArguments(args, `${command} ${action}`);
+		if (action === "status") {
+			return { kind: "integrations", action, clients: [] };
+		}
+		if (all === Boolean(client)) {
+			throw new Error(`integrations ${action} requires --all or --client`);
+		}
+		return {
+			kind: "integrations",
+			action,
+			clients: client ? [client] : ["claude-code", "codex"],
 		};
 	}
 	throw new Error(`Unknown command: ${command}`);
@@ -134,6 +309,11 @@ const DESKTOP_METHODS = new Set<DesktopMethod>([
 	"exportSnapshot",
 	"importSnapshot",
 	"restoreSnapshot",
+	"remember",
+	"invalidate",
+	"supersede",
+	"duplicates",
+	"maintenance",
 ]);
 
 function isDesktopMethod(value: string): value is DesktopMethod {
@@ -147,6 +327,78 @@ function optionalClient(args: string[]) {
 		throw new Error("--client must be codex or claude-code");
 	}
 	return value;
+}
+
+/** Project for a write: --global clears it, --project overrides the default. */
+function writeProject(args: string[], options: CliParseOptions) {
+	const global = optionalBoolean(args, "--global");
+	const project = optionalValue(args, "--project");
+	if (global && project) throw new Error("Use only one of --global or --project");
+	if (global) return undefined;
+	return project ?? options.defaultProject;
+}
+
+/** Project for a read: --all-projects widens to every project. */
+function readProject(args: string[], options: CliParseOptions) {
+	const allProjects = optionalBoolean(args, "--all-projects");
+	const project = optionalValue(args, "--project");
+	if (allProjects && project) {
+		throw new Error("Use only one of --all-projects or --project");
+	}
+	return {
+		allProjects,
+		project: allProjects ? undefined : (project ?? options.defaultProject),
+	};
+}
+
+function requiredFlag(args: string[], flag: string, label: string) {
+	const value = optionalValue(args, flag);
+	if (value === undefined) throw new Error(`Provide ${label} with ${flag}`);
+	return value;
+}
+
+function optionalUnitNumber(args: string[], flag: string) {
+	const raw = optionalValue(args, flag);
+	if (raw === undefined) return undefined;
+	const value = Number(raw);
+	if (!Number.isFinite(value) || value < 0 || value > 1) {
+		throw new Error(`${flag} must be a number between 0 and 1`);
+	}
+	return value;
+}
+
+function optionalMemoryType(args: string[]) {
+	const value = optionalValue(args, "--type");
+	if (value === undefined) return undefined;
+	if (!MEMORY_TYPES.has(value)) {
+		throw new Error(`--type must be one of ${[...MEMORY_TYPES].join(", ")}`);
+	}
+	return value;
+}
+
+function optionalFormat(args: string[]) {
+	const value = optionalValue(args, "--format");
+	if (value === undefined || value === "json") return "json";
+	if (value !== "context") throw new Error("--format must be json or context");
+	return value;
+}
+
+/** ISO date/datetime, or a relative window such as 7d, 12h, or 2w. */
+function optionalSince(args: string[], now: Date) {
+	const value = optionalValue(args, "--since");
+	if (value === undefined) return undefined;
+	const relative = value.match(/^(\d+)([hdw])$/);
+	if (relative) {
+		const amount = Number(relative[1]);
+		const unitMs =
+			relative[2] === "h" ? 3_600_000 : relative[2] === "d" ? 86_400_000 : 604_800_000;
+		return new Date(now.getTime() - amount * unitMs).toISOString();
+	}
+	const date = new Date(value);
+	if (!/^\d{4}-\d{2}-\d{2}/.test(value) || Number.isNaN(date.getTime())) {
+		throw new Error("--since must be an ISO date or a window such as 7d, 12h, 2w");
+	}
+	return date.toISOString();
 }
 
 function optionalValue(args: string[], flag: string): string | undefined {

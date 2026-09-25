@@ -62,6 +62,10 @@ Mac 上通过 FishMem Desktop 为 Codex 和 Claude Code 提供本地记忆。
 | BEAM `100k` | 400 | 46.7% | 41.0% | +5.7 pt（+1.8 至 +9.5） |
 | LOCOMO，类别 1–5 | 1,986 | 67.5% | 71.1% | -3.7 pt（-5.8 至 -1.5） |
 
+表中所有 FishMem 运行都启用了可检索的 Episode archive
+（`episodes: { archive: true, searchable: true }`）。这不是默认配置，也不是
+托管服务的配置，且无法通过公共 API 选择；自托管的 Web 部署需设置
+`FISHMEM_EPISODES_SEARCHABLE=1` 才会启用。
 这里的 LongMemEval 是 `oracle` 变体，不是 LongMemEval-S，不能与公开的
 LongMemEval-S 人类参考成绩比较。由于复用的两个基线运行包含中断后恢复的
 进程，本次不发布总成本和端到端总耗时结论。FishMem 在 LongMemEval 和 BEAM

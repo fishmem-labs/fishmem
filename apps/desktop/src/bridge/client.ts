@@ -16,6 +16,7 @@ type DesktopDescriptor = {
 export async function invokeDesktop(
   method: DesktopMethod,
   params?: unknown,
+  options: { timeoutMs?: number } = {},
 ): Promise<unknown> {
   const descriptor = await readDescriptor();
   const id = crypto.randomUUID();
@@ -30,11 +31,14 @@ export async function invokeDesktop(
     const socket = connect(descriptor.socketPath);
     let buffer = "";
     const timeoutMs =
-      method === "documentIngest"
+      options.timeoutMs ??
+      (method === "documentIngest"
         ? 300_000
         : method === "documentSearch"
           ? 60_000
-          : 10_000;
+          : method === "maintenance" || method === "duplicates"
+            ? 120_000
+            : 10_000);
     const timeout = setTimeout(() => {
       socket.destroy();
       reject(

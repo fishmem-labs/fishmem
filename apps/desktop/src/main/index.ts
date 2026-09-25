@@ -62,6 +62,14 @@ async function bootstrap() {
 			}
 			if (method === "exportBackup") return exportBackup();
 			if (method === "restoreBackup") return restoreBackup();
+			if (method === "search") {
+				// Browsing in the app is not an agent recall; keep access counts
+				// and "recalled today" meaningful.
+				return service.invoke("search", {
+					...((params as Record<string, unknown> | undefined) ?? {}),
+					record_access: false,
+				});
+			}
 			return service.invoke(method, params);
 		},
 	);
@@ -73,6 +81,7 @@ async function bootstrap() {
 		descriptorPath,
 	});
 	createWindow();
+	service.startMaintenance();
 }
 
 async function exportBackup(): Promise<DesktopBackupResult> {

@@ -2,7 +2,9 @@
 
 What we read, what we took, what we left. Companion to
 [RETRIEVAL-PLAN.md](./RETRIEVAL-PLAN.md) (the borrow backlog) and
-[BENCHMARKS.md](../BENCHMARKS.md) (the same-harness mem0 comparison).
+[evidence-2026-08-24.md](../benchmarks/reports/evidence-2026-08-24.md) (the
+current same-harness mem0 comparison; [BENCHMARKS.md](../BENCHMARKS.md) is the
+superseded June research record).
 
 > **Comparability caveat — read first.** The headline numbers below are each
 > project's **self-reported** results, and most are **retrieval recall** (R@k /
@@ -51,8 +53,11 @@ The decisions below say exactly what transfers to FishMem.
   fusion, and temporal ranking. Its managed implementation remains
   proprietary; fishmem compares against the exact OSS TypeScript package that
   can be run under the same harness.
-- **Same-harness result (the one comparison that counts):** fishmem-raw beats
-  mem0 OSS **+12.8pt** on LOCOMO 10-conv (p≈0) — see BENCHMARKS.md.
+- **Same-harness result (historical, superseded):** in June 2026 the retired
+  raw-first configuration (fishmem-raw) beat mem0 OSS **+12.8pt** on LOCOMO
+  10-conv (p≈0) — see BENCHMARKS.md. The current extraction-first comparison
+  is [evidence-2026-08-24.md](../benchmarks/reports/evidence-2026-08-24.md),
+  where LOCOMO is a -3.7pt paired loss.
 - **2026-07-30 transfer:** FishMem adopts the product contract, not mem0's
   implementation topology: `infer=true` performs one extraction call and
   stores only refined records; `infer=false` stores submitted records
