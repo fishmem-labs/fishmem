@@ -191,7 +191,11 @@ export {
   createSqliteGraphStore,
   type SqliteGraphStoreConfig,
 } from "./graph/sqlite.js";
-export { AnthropicLLM, type AnthropicLLMConfig } from "./llms/anthropic.js";
+export {
+  AnthropicLLM,
+  type AnthropicLLMConfig,
+  DEFAULT_ANTHROPIC_LLM_MODEL,
+} from "./llms/anthropic.js";
 // LLMs.
 export type {
   LLM,

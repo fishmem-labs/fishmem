@@ -342,3 +342,18 @@ describe("governed belief projection migration", () => {
     client.close();
   });
 });
+
+describe("Anthropic default model", () => {
+  it("keeps the client-side preset equal to the engine default", async () => {
+    const { DEFAULT_ANTHROPIC_LLM_MODEL } = await import("fishmem");
+    const form = readFileSync(
+      fileURLToPath(
+        new URL("../../components/dashboard/engine-config-form.tsx", import.meta.url),
+      ),
+      "utf8",
+    );
+    const preset = /id: "anthropic",[\s\S]*?model: "([^"]+)"/u.exec(form);
+    expect(preset?.[1]).toBe(DEFAULT_ANTHROPIC_LLM_MODEL);
+    expect(form).not.toContain("claude-3-5-haiku-latest");
+  });
+});

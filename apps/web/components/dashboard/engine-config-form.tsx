@@ -89,9 +89,11 @@ const LLM_PRESETS = [
     label: "Anthropic",
     provider: "anthropic",
     baseUrl: "",
-    model: "claude-3-5-haiku-latest",
+    // Must equal fishmem's DEFAULT_ANTHROPIC_LLM_MODEL (client bundles cannot
+    // import the engine); runtime-contracts.test.ts enforces the match.
+    model: "claude-haiku-4-5-20251001",
     models: [
-      "claude-3-5-haiku-latest",
+      "claude-haiku-4-5-20251001",
       "claude-3-5-sonnet-latest",
       "claude-3-7-sonnet-latest",
     ],

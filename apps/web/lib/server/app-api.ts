@@ -51,7 +51,7 @@ import {
   DEFAULT_MEMORY_CATEGORIES,
   DEFAULT_MEMORY_INSTRUCTIONS,
 } from "@/lib/server/memory-inference-policy";
-import { isReasoningModel } from "fishmem";
+import { DEFAULT_ANTHROPIC_LLM_MODEL, isReasoningModel } from "fishmem";
 
 type RouteHandler = (
   request: Request,
@@ -1480,7 +1480,7 @@ async function handleEngineConfig(
       const provider = str("llmProvider") === "anthropic" ? "anthropic" : "openai";
       if (provider === "anthropic") {
         const key = str("llmApiKey") || row?.llmApiKey || anthropicKey || "";
-        const model = str("llmModel") || row?.llmModel || "claude-3-5-haiku-latest";
+        const model = str("llmModel") || row?.llmModel || DEFAULT_ANTHROPIC_LLM_MODEL;
         const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: {

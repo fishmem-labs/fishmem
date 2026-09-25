@@ -23,6 +23,7 @@
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import {
   chunkDocumentText,
+  DEFAULT_ANTHROPIC_LLM_MODEL,
   DeleteAllLimitError,
   ensureSqliteSchemaColumns,
   Memory,
@@ -495,7 +496,7 @@ async function resolveEngineConfig() {
   const llmModel =
     row?.llmModel ||
     e.llmModel ||
-    (llmProvider === "anthropic" ? "claude-3-5-haiku-latest" : DEFAULT_OPENAI_LLM_MODEL);
+    (llmProvider === "anthropic" ? DEFAULT_ANTHROPIC_LLM_MODEL : DEFAULT_OPENAI_LLM_MODEL);
   const llm =
     llmProvider === "anthropic"
       ? {
@@ -603,7 +604,7 @@ export async function describeProviderConfig() {
     llmModel:
       row?.llmModel ||
       e.llmModel ||
-      (llmProvider === "anthropic" ? "claude-3-5-haiku-latest" : DEFAULT_OPENAI_LLM_MODEL),
+      (llmProvider === "anthropic" ? DEFAULT_ANTHROPIC_LLM_MODEL : DEFAULT_OPENAI_LLM_MODEL),
     llmBaseUrl,
     llmApiKeySet: Boolean(row?.llmApiKey),
     llmBaseUrlFromEnv: !row?.llmBaseUrl && llmProvider === "openai" && Boolean(e.baseUrl),

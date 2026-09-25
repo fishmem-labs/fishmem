@@ -1,6 +1,10 @@
 import type { Message } from "../types.js";
 import type { LLM, LLMChatOptions, ProviderUsageHandler } from "./base.js";
 
+/** Engine default Anthropic model; hosts should import this rather than
+ * duplicating a model id. */
+export const DEFAULT_ANTHROPIC_LLM_MODEL = "claude-haiku-4-5-20251001";
+
 export interface AnthropicLLMConfig {
   apiKey?: string;
   model?: string;
@@ -22,7 +26,7 @@ export class AnthropicLLM implements LLM {
   private readonly onUsage?: ProviderUsageHandler;
 
   constructor(config: AnthropicLLMConfig = {}) {
-    this.model = config.model ?? "claude-haiku-4-5-20251001";
+    this.model = config.model ?? DEFAULT_ANTHROPIC_LLM_MODEL;
     this.apiKey = config.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
     this.maxTokens = config.maxTokens ?? 2048;
     this.temperature = config.temperature ?? 0;
