@@ -6,6 +6,7 @@ import {
   apiTokenAuthFailure,
   apiPermissionForRequest,
   memoryDerivationConfig,
+  memoryMaintenanceConfig,
   memoryWriteFeatureConfig,
 } from "./runtime-contracts";
 
@@ -395,5 +396,24 @@ describe("Anthropic default model", () => {
     const preset = /id: "anthropic",[\s\S]*?model: "([^"]+)"/u.exec(form);
     expect(preset?.[1]).toBe(DEFAULT_ANTHROPIC_LLM_MODEL);
     expect(form).not.toContain("claude-3-5-haiku-latest");
+  });
+});
+
+describe("memoryMaintenanceConfig", () => {
+  it("disables the unjournaled destructive passes by default", () => {
+    expect(memoryMaintenanceConfig({})).toEqual({
+      maintenance: {
+        passes: { decay: false, consolidate: false, prune: false },
+      },
+    });
+  });
+
+  it("restores engine defaults only on an explicit legacy flag", () => {
+    expect(
+      memoryMaintenanceConfig({ FISHMEM_MAINTENANCE_LEGACY_PASSES: "1" }),
+    ).toEqual({});
+    expect(
+      memoryMaintenanceConfig({ FISHMEM_MAINTENANCE_LEGACY_PASSES: "true" }),
+    ).not.toEqual({});
   });
 });

@@ -74,6 +74,7 @@ import {
   apiTokenAuthFailure,
   apiPermissionForRequest,
   memoryDerivationConfig,
+  memoryMaintenanceConfig,
   memoryWriteFeatureConfig,
 } from "@/lib/server/runtime-contracts";
 import { sanitizePublicSnapshot } from "@/lib/server/public-snapshot";
@@ -682,6 +683,9 @@ export async function getMemoryEngine(): Promise<Memory> {
           beliefReconciler,
         ),
         ...memoryWriteFeatureConfig(
+          env as unknown as Record<string, string | undefined>,
+        ),
+        ...memoryMaintenanceConfig(
           env as unknown as Record<string, string | undefined>,
         ),
       });

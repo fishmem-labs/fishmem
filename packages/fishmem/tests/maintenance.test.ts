@@ -256,3 +256,38 @@ describe("merge helpers", () => {
     expect(mergedContent("abcdef", "ghijkl", 8)).toHaveLength(8);
   });
 });
+
+describe("runAll pass selection", () => {
+  it("skips disabled passes and never deletes when prune and consolidate are off", async () => {
+    const old = new Date(Date.now() - 90 * DAY);
+    const stale = await add("user once mentioned a coffee shop", {
+      importance: 0.05,
+      createdAt: old,
+      updatedAt: old,
+      lastAccessedAt: old,
+    });
+    await add("user likes tea");
+    await add("user likes tea");
+
+    const guarded = new MemoryMaintenance(store, vectors, embedder, {
+      passes: { consolidate: false, prune: false },
+    });
+    const summary = await guarded.runAll();
+
+    expect(summary.merged).toBe(0);
+    expect(summary.pruned).toBe(0);
+    expect(await store.getMemory(stale.id)).not.toBeNull();
+    expect((await store.listMemories({}, { limit: 100 })).length).toBe(3);
+  });
+
+  it("keeps every pass on by default", async () => {
+    const old = new Date(Date.now() - 90 * DAY);
+    await add("low importance old fact", {
+      importance: 0.05,
+      createdAt: old,
+      updatedAt: old,
+      lastAccessedAt: old,
+    });
+    expect((await maint.runAll()).pruned).toBe(1);
+  });
+});

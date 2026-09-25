@@ -88,7 +88,10 @@ export type {
 export {
   chooseMergePair,
   DEFAULT_MAINTENANCE_CONFIG,
+  DEFAULT_MAINTENANCE_PASSES,
   type MaintenanceConfig,
+  type MaintenanceOverrides,
+  type MaintenancePasses,
   MemoryMaintenance,
   mergedContent,
 } from "./core/maintenance.js";

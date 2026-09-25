@@ -14,6 +14,14 @@ export interface MaintenanceConfig {
   pruneThreshold: number;
   /** Memories younger than this (days) are never pruned. */
   pruneMinAgeDays: number;
+  /**
+   * Which passes `runAll` executes. Defaults keep every pass on (spacebot
+   * parity for embedded use). `consolidate` rewrites the survivor's content and
+   * deletes the loser, and `prune` hard-deletes; neither writes journal or
+   * history events, so a hosted or user-facing deployment should disable them
+   * until they run through the journaled mutation path.
+   */
+  passes: MaintenancePasses;
   /** Cosine similarity at/above which two memories are merged. */
   mergeSimilarityThreshold: number;
   /** Candidate cap for a consolidation pass. */
@@ -49,7 +57,29 @@ export interface MaintenanceConfig {
   tierCapacity: number;
 }
 
+export type MaintenancePasses = {
+  demote: boolean;
+  decay: boolean;
+  consolidate: boolean;
+  prune: boolean;
+};
+
+/** Config overrides accepted by the engine; `passes` may be partial. */
+export type MaintenanceOverrides = Partial<
+  Omit<MaintenanceConfig, "passes">
+> & {
+  passes?: Partial<MaintenancePasses>;
+};
+
+export const DEFAULT_MAINTENANCE_PASSES: MaintenancePasses = {
+  demote: true,
+  decay: true,
+  consolidate: true,
+  prune: true,
+};
+
 export const DEFAULT_MAINTENANCE_CONFIG: MaintenanceConfig = {
+  passes: DEFAULT_MAINTENANCE_PASSES,
   decayRate: 0.05,
   pruneThreshold: 0.1,
   pruneMinAgeDays: 30,
@@ -79,11 +109,15 @@ export class MemoryMaintenance {
     private readonly store: GraphStore,
     private readonly vectors: VectorStore,
     private readonly embedder: Embedder,
-    config: Partial<MaintenanceConfig> = {},
+    config: MaintenanceOverrides = {},
     private readonly llm?: LLM,
     private readonly onWarning?: MemoryWarningHandler,
   ) {
-    this.config = { ...DEFAULT_MAINTENANCE_CONFIG, ...config };
+    this.config = {
+      ...DEFAULT_MAINTENANCE_CONFIG,
+      ...config,
+      passes: { ...DEFAULT_MAINTENANCE_PASSES, ...(config.passes ?? {}) },
+    };
   }
 
   private warn(
@@ -108,10 +142,11 @@ export class MemoryMaintenance {
     merged: number;
     pruned: number;
   }> {
-    const demoted = await this.demote(filters);
-    const decayed = await this.decay(filters);
-    const merged = await this.consolidate(filters);
-    const pruned = await this.prune(filters);
+    const { passes } = this.config;
+    const demoted = passes.demote ? await this.demote(filters) : 0;
+    const decayed = passes.decay ? await this.decay(filters) : 0;
+    const merged = passes.consolidate ? await this.consolidate(filters) : 0;
+    const pruned = passes.prune ? await this.prune(filters) : 0;
     return { demoted, decayed, merged, pruned };
   }
 

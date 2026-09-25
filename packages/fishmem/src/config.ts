@@ -3,7 +3,7 @@ import type {
   BeliefReconciler,
 } from "./core/belief-reconciler.js";
 import type { DocumentOriginalStore } from "./core/document-originals.js";
-import type { MaintenanceConfig } from "./core/maintenance.js";
+import type { MaintenanceOverrides } from "./core/maintenance.js";
 import type { SearchConfig } from "./core/search.js";
 import type { StateSidecar } from "./core/sidecar.js";
 import type { Embedder } from "./embeddings/base.js";
@@ -192,7 +192,7 @@ export interface MemoryConfig {
   /** Overrides for hybrid-search defaults. */
   search?: Partial<SearchConfig>;
   /** Overrides for maintenance defaults. */
-  maintenance?: Partial<MaintenanceConfig>;
+  maintenance?: MaintenanceOverrides;
   /**
    * Tiered memory (spacebot tiered-memory design). When enabled, new
    * non-identity memories enter the `working` tier: exempt from decay, demoted

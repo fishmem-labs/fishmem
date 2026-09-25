@@ -112,3 +112,27 @@ export function memoryWriteFeatureConfig(env: EnvLookup = {}) {
     ...(archive ? { episodes: { archive: true, searchable } } : {}),
   };
 }
+
+/**
+ * Scheduled maintenance for the service. The engine's decay, consolidate and
+ * prune passes write outside the journal: decay rewrites `importance` and
+ * `updatedAt` (the optimistic-concurrency version), consolidate rewrites a
+ * survivor's content and deletes the loser, and prune hard-deletes old,
+ * low-importance memories. None of them records history, so a customer's
+ * unread memories would silently disappear about five weeks after creation.
+ *
+ * The service therefore runs only the non-destructive tier demotion until
+ * these passes go through the journaled mutation path. Set
+ * `FISHMEM_MAINTENANCE_LEGACY_PASSES=1` to restore the engine defaults.
+ */
+export function memoryMaintenanceConfig(env: EnvLookup = {}) {
+  const legacy =
+    (env.FISHMEM_MAINTENANCE_LEGACY_PASSES ??
+      process.env.FISHMEM_MAINTENANCE_LEGACY_PASSES) === "1";
+  if (legacy) return {};
+  return {
+    maintenance: {
+      passes: { decay: false, consolidate: false, prune: false },
+    },
+  };
+}
