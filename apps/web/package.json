@@ -32,7 +32,7 @@
 		"db:studio": "drizzle-kit studio"
 	},
 	"dependencies": {
-		"@better-auth/drizzle-adapter": "1.6.27",
+		"@better-auth/drizzle-adapter": "1.7.7",
 		"@cloudflare/containers": "0.3.7",
 		"@fishmem/application": "workspace:*",
 		"@fishmem/contracts": "workspace:*",
